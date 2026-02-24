@@ -1,5 +1,7 @@
 import Foundation
 
+/// Watches the config's directory, not the file: `Data.write(options: .atomic)` replaces the
+/// inode, so a file-level vnode source would go stale after the first save.
 final class ConfigWatcher {
     private let directory: URL
     private let queue: DispatchQueue
