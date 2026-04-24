@@ -30,9 +30,13 @@ final class Daemon {
     private var profileSource: ProfileSource?
     private var announcedUID: String?
     private var lastError: String?
+    private var configError: String?
     private var state: Status.State = .starting
     private var statusTimer: DispatchSourceTimer?
     private var retryWork: DispatchWorkItem?
+    // Our own aggregate create/destroy fires the devices listener; without this an in-flight rebuild restarts itself forever.
+    private var rebuilding = false
+    private var signalSources: [DispatchSourceSignal] = []
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
 
     init(store: ConfigStore, statusURL: URL) {
@@ -56,25 +60,31 @@ final class Daemon {
         engine.onStateChange = { [weak self] state in self?.engineChanged(state) }
         engine.onSampleRateChange = { [weak self] in
             Log.write("sample rate changed — restarting engine on the same device")
-            self?.rebuild(attempt: 1)
+            self?.queue.async { [weak self] in self?.rebuild(attempt: 1) }
         }
         installListeners()
         startWatcher()
         startStatusTimer()
-        signal(SIGTERM) { _ in Daemon.terminate() }
-        signal(SIGINT) { _ in Daemon.terminate() }
-        Daemon.current = self
+        installSignalHandlers()
         rebuild(attempt: 1)
         RunLoop.main.run()
         exit(0)
     }
 
-    private static var current: Daemon?
+    private func installSignalHandlers() {
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
+            source.setEventHandler { [weak self] in self?.terminate() }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
 
-    private static func terminate() {
-        current?.engine.stop()
+    private func terminate() {
+        engine.stop()
         AudioDeviceManager.destroyStaleAggregates()
-        try? FileManager.default.removeItem(at: current?.statusURL ?? Status.defaultURL)
+        try? FileManager.default.removeItem(at: statusURL)
         exit(0)
     }
 
@@ -82,6 +92,8 @@ final class Daemon {
 
     private func rebuild(attempt: Int) {
         retryWork?.cancel()
+        rebuilding = true
+        setState(.starting, error: nil)
         guard let deviceID = AudioDeviceManager.defaultOutputDeviceID(),
               let device = AudioDeviceManager.device(deviceID) else {
             fail("No output device found.", retryIn: DaemonPolicy.rebuildDelay)
@@ -94,7 +106,6 @@ final class Daemon {
             return
         }
         self.device = device
-        applyProfile()
         engine.start(outputDeviceID: deviceID)
         if case .failed(let why) = engine.state {
             let state = DaemonPolicy.classify(why)
@@ -102,17 +113,23 @@ final class Daemon {
                 fail(why, retryIn: DaemonPolicy.permissionRetry, as: .noPermission)
             } else if attempt < DaemonPolicy.rebuildAttempts {
                 Log.write("rebuild \(attempt)/\(DaemonPolicy.rebuildAttempts) failed: \(why)")
+                setState(.starting, error: why)
                 scheduleRebuild(attempt: attempt + 1, after: DaemonPolicy.rebuildDelay)
             } else {
                 fail(why, retryIn: nil)
             }
             return
         }
+        applyProfile()
         // Bluetooth devices become default a moment before they deliver frames; verify the
         // path is live before declaring success, otherwise retry the whole build.
         retryWork = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if self.engine.state == .running, self.engine.framesProcessed > 0 || attempt >= DaemonPolicy.rebuildAttempts {
+                if self.engine.framesProcessed == 0 {
+                    Log.write("declaring running without frames after \(attempt) attempts")
+                }
+                self.rebuilding = false
                 self.setState(self.config.enabled ? .running : .bypassed, error: nil)
             } else if self.engine.state == .running {
                 Log.write("no frames after \(attempt) attempt(s) — rebuilding")
@@ -132,7 +149,11 @@ final class Daemon {
     private func fail(_ why: String, retryIn delay: TimeInterval?, as state: Status.State = .failed) {
         engine.stop()
         setState(state, error: why)
-        if let delay { scheduleRebuild(attempt: 1, after: delay) }
+        if let delay {
+            scheduleRebuild(attempt: 1, after: delay)
+        } else {
+            rebuilding = false
+        }
     }
 
     private func engineChanged(_ state: ProcessTapEngine.State) {
@@ -174,6 +195,13 @@ final class Daemon {
 
     private func devicesChanged() {
         let newDefault = AudioDeviceManager.defaultOutputDeviceID()
+        if rebuilding {
+            if let newDefault, newDefault != device?.id {
+                Log.write("default output changed during rebuild → \(AudioDeviceManager.device(newDefault)?.name ?? "?")")
+                rebuild(attempt: 1)
+            }
+            return
+        }
         if DaemonPolicy.shouldRebuild(current: engine.targetDeviceID, newDefault: newDefault) {
             Log.write("default output changed → \(newDefault.flatMap(AudioDeviceManager.device)?.name ?? "?")")
             rebuild(attempt: 1)
@@ -195,7 +223,7 @@ final class Daemon {
             guard fresh != config else { return }
             let enabledChanged = fresh.enabled != config.enabled
             config = fresh
-            lastError = nil
+            configError = nil
             applyProfile()
             if enabledChanged, state == .running || state == .bypassed {
                 setState(config.enabled ? .running : .bypassed, error: nil)
@@ -204,8 +232,8 @@ final class Daemon {
             }
             Log.write("config reloaded")
         } catch {
-            lastError = "config rejected, keeping the previous one: \(error)"
-            Log.write(lastError!)
+            configError = "config rejected, keeping the previous one: \(error)"
+            Log.write(configError!)
             writeStatus()
         }
     }
@@ -235,7 +263,7 @@ final class Daemon {
             profile: profileSource,
             framesProcessed: engine.framesProcessed,
             enabled: config.enabled,
-            error: lastError,
+            error: lastError ?? configError,
             pid: getpid(),
             updatedAt: Date())
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
