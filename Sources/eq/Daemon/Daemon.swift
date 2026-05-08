@@ -5,6 +5,7 @@ enum DaemonPolicy {
     static let rebuildAttempts = 5
     static let rebuildDelay: TimeInterval = 1
     static let permissionRetry: TimeInterval = 30
+    static let failedRetry: TimeInterval = 30
     static let statusInterval: TimeInterval = 5
 
     /// A tap that cannot be created is, on a machine that ran yesterday, almost always the
@@ -34,7 +35,7 @@ final class Daemon {
     private var state: Status.State = .starting
     private var statusTimer: DispatchSourceTimer?
     private var retryWork: DispatchWorkItem?
-    // Our own aggregate create/destroy fires the devices listener; without this an in-flight rebuild restarts itself forever.
+    // Our own aggregate create/destroy fires the devices listener; cleared only when a rebuild succeeds, and failures retry on a timer, so a self-fired Devices event can never restart the cycle.
     private var rebuilding = false
     private var signalSources: [DispatchSourceSignal] = []
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
@@ -93,7 +94,7 @@ final class Daemon {
     private func rebuild(attempt: Int) {
         retryWork?.cancel()
         rebuilding = true
-        setState(.starting, error: nil)
+        if state == .running || state == .bypassed { setState(.starting, error: nil) }
         guard let deviceID = AudioDeviceManager.defaultOutputDeviceID(),
               let device = AudioDeviceManager.device(deviceID) else {
             fail("No output device found.", retryIn: DaemonPolicy.rebuildDelay)
@@ -116,7 +117,7 @@ final class Daemon {
                 setState(.starting, error: why)
                 scheduleRebuild(attempt: attempt + 1, after: DaemonPolicy.rebuildDelay)
             } else {
-                fail(why, retryIn: nil)
+                fail(why, retryIn: DaemonPolicy.failedRetry)
             }
             return
         }
@@ -146,14 +147,10 @@ final class Daemon {
         queue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func fail(_ why: String, retryIn delay: TimeInterval?, as state: Status.State = .failed) {
+    private func fail(_ why: String, retryIn delay: TimeInterval, as state: Status.State = .failed) {
         engine.stop()
         setState(state, error: why)
-        if let delay {
-            scheduleRebuild(attempt: 1, after: delay)
-        } else {
-            rebuilding = false
-        }
+        scheduleRebuild(attempt: 1, after: delay)
     }
 
     private func engineChanged(_ state: ProcessTapEngine.State) {
@@ -205,8 +202,6 @@ final class Daemon {
         if DaemonPolicy.shouldRebuild(current: engine.targetDeviceID, newDefault: newDefault) {
             Log.write("default output changed → \(newDefault.flatMap(AudioDeviceManager.device)?.name ?? "?")")
             rebuild(attempt: 1)
-        } else if state == .failed, newDefault != nil {
-            rebuild(attempt: 1)
         }
     }
 
@@ -220,10 +215,14 @@ final class Daemon {
     private func reloadConfig() {
         do {
             let fresh = try store.load()
-            guard fresh != config else { return }
+            let hadError = configError != nil
+            configError = nil
+            guard fresh != config else {
+                if hadError { writeStatus() }
+                return
+            }
             let enabledChanged = fresh.enabled != config.enabled
             config = fresh
-            configError = nil
             applyProfile()
             if enabledChanged, state == .running || state == .bypassed {
                 setState(config.enabled ? .running : .bypassed, error: nil)
