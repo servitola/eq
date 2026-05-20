@@ -135,6 +135,10 @@ final class Daemon {
             } else if self.engine.state == .running {
                 Log.write("no frames after \(attempt) attempt(s) — rebuilding")
                 self.rebuild(attempt: attempt + 1)
+            } else {
+                let why: String
+                if case .failed(let reason) = self.engine.state { why = reason } else { why = "engine stopped before verification" }
+                self.fail(why, retryIn: DaemonPolicy.rebuildDelay)
             }
         }
         queue.asyncAfter(deadline: .now() + DaemonPolicy.rebuildDelay, execute: retryWork!)
@@ -148,6 +152,7 @@ final class Daemon {
     }
 
     private func fail(_ why: String, retryIn delay: TimeInterval, as state: Status.State = .failed) {
+        rebuilding = true
         engine.stop()
         setState(state, error: why)
         scheduleRebuild(attempt: 1, after: delay)
