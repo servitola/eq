@@ -42,7 +42,7 @@ enum CLI {
             return (0, try dispatch(args, context))
         } catch let error as CLIError {
             switch error {
-            case .usage, .unknownBand, .badGain, .gainOutOfRange, .noSuchDevice, .ambiguousDevice:
+            case .usage, .unknownBand, .badGain, .gainOutOfRange:
                 return (2, "error: \(error)\n\(usage)")
             case .daemonNotRunning:
                 return (1, "\(error)")
