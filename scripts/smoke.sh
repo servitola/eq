@@ -6,6 +6,8 @@ set -euo pipefail
 cd "${0:a:h}/.."
 eq=${1:-build/EQ.app/Contents/MacOS/eq}
 [[ -x $eq ]] || { echo "no binary at $eq" >&2; exit 2 }
+# The scratch status file hides a running daemon from the single-instance check, and two taps would stack.
+pgrep -f 'MacOS/eq daemon' >/dev/null && { echo "an eq daemon is already running — stop com.servitola.eq first (launchctl bootout gui/\$UID/com.servitola.eq)" >&2; exit 2 }
 
 scratch=$(mktemp -d /tmp/eq-smoke.XXXXXX)
 export EQ_CONFIG=$scratch/eq.json EQ_STATUS=$scratch/status.json
@@ -36,4 +38,5 @@ frames2=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json
 (( frames2 > frames1 )) || { echo "frames did not advance ($frames1 → $frames2) — is anything playing? the tap only delivers frames while audio plays"; cat "$scratch/daemon.log"; exit 1 }
 
 rss=$(ps -o rss= -p $pid | tr -d ' ')
+(( rss / 1024 <= 30 )) || { echo "RSS $((rss / 1024)) MB exceeds the 30 MB budget"; exit 1 }
 echo "smoke ok: running on $("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["device"]["name"])'), frames $frames1 → $frames2, RSS $((rss / 1024)) MB"

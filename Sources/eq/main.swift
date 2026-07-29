@@ -8,5 +8,9 @@ if arguments.first == "daemon" {
 }
 
 let result = CLI.run(arguments, context: .live())
-print(result.output)
+if result.exitCode == 0 {
+    print(result.output)
+} else {
+    FileHandle.standardError.write(Data((result.output + "\n").utf8))
+}
 exit(result.exitCode)

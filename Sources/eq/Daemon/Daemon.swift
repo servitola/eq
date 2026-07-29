@@ -49,6 +49,7 @@ final class Daemon {
         } catch {
             Log.write("config unreadable (\(error)); starting with the built-in curve")
             config = Config.initial(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
+            configError = "config rejected, using the built-in curve: \(error)"
         }
     }
 
@@ -122,6 +123,7 @@ final class Daemon {
             return
         }
         applyProfile()
+        writeStatus()
         // Bluetooth devices become default a moment before they deliver frames; verify the
         // path is live before declaring success, otherwise retry the whole build.
         retryWork = DispatchWorkItem { [weak self] in
@@ -173,10 +175,14 @@ final class Daemon {
         announcedUID = device.uid
         profileSource = resolved.source
         engine.processor.apply(profile: resolved.profile, enabled: config.enabled)
-        if var known = config.devices[device.uid], known.name != device.name {
+        // Read-modify-write from disk so a CLI edit not yet reloaded is not reverted, and skipped
+        // while the file is rejected so a half-fixed hand edit survives. `config` is deliberately
+        // left alone: the save wakes the watcher, whose reload then applies that pending edit too.
+        guard configError == nil else { return }
+        if var fresh = try? store.load(), var known = fresh.devices[device.uid], known.name != device.name {
             known.name = device.name
-            config.devices[device.uid] = known
-            try? store.save(config)
+            fresh.devices[device.uid] = known
+            try? store.save(fresh)
         }
     }
 

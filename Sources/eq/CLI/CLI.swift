@@ -76,7 +76,7 @@ enum CLI {
     // MARK: - Commands
 
     private static func show(_ ctx: CLIContext) throws -> String {
-        let config = try ctx.store.load()
+        let config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
         let resolved = config.profile(forDeviceUID: current.uid)
         let source = resolved.source == .device ? "own profile" : "default profile"
@@ -93,7 +93,7 @@ enum CLI {
     private static func set(_ args: [String], _ ctx: CLIContext) throws -> String {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         let assignments = try BandParser.assignments(rest)
-        var config = try ctx.store.load()
+        var config = try loadConfig(ctx)
         let target: Target
         if let explicit { target = explicit } else { target = try currentDevice(ctx) }
         var profile = editableProfile(config, target)
@@ -107,7 +107,7 @@ enum CLI {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         guard rest.count == 1 else { throw CLIError.usage("eq preamp [--device Q] <gain>") }
         let gain = try BandParser.gain(rest[0])
-        var config = try ctx.store.load()
+        var config = try loadConfig(ctx)
         let target: Target
         if let explicit { target = explicit } else { target = try currentDevice(ctx) }
         var profile = editableProfile(config, target)
@@ -120,7 +120,7 @@ enum CLI {
     private static func flat(_ args: [String], _ ctx: CLIContext) throws -> String {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         guard rest.isEmpty else { throw CLIError.usage("eq flat [--device Q]") }
-        var config = try ctx.store.load()
+        var config = try loadConfig(ctx)
         let target: Target
         if let explicit { target = explicit } else { target = try currentDevice(ctx) }
         let profile = Profile(name: target.name, preamp: 0, bands: Profile.flat.bands)
@@ -132,7 +132,7 @@ enum CLI {
     private static func copy(_ args: [String], _ ctx: CLIContext) throws -> String {
         let (target, rest) = try splitDeviceOption(args, flag: "--to", ctx)
         guard let target, rest.isEmpty else { throw CLIError.usage("eq copy --to Q") }
-        var config = try ctx.store.load()
+        var config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
         var profile = config.profile(forDeviceUID: current.uid).profile
         profile.name = target.name
@@ -142,7 +142,7 @@ enum CLI {
     }
 
     private static func devices(_ ctx: CLIContext) throws -> String {
-        let config = try ctx.store.load()
+        let config = try loadConfig(ctx)
         let connected = ctx.connectedDevices()
         let currentUID = (try? currentDevice(ctx))?.uid
         var lines: [String] = []
@@ -159,7 +159,7 @@ enum CLI {
     }
 
     private static func toggle(_ enabled: Bool, _ ctx: CLIContext) throws -> String {
-        var config = try ctx.store.load()
+        var config = try loadConfig(ctx)
         config.enabled = enabled
         try ctx.store.save(config)
         return enabled ? "eq on" : "eq off (bypass)"
@@ -186,6 +186,11 @@ enum CLI {
     // MARK: - Helpers
 
     typealias Target = (uid: String, name: String)
+
+    private static func loadConfig(_ ctx: CLIContext) throws -> Config {
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        return try ctx.store.load()
+    }
 
     private static func currentDevice(_ ctx: CLIContext) throws -> Target {
         if let status = Status.read(from: ctx.statusURL), status.isFresh(), let device = status.device {
