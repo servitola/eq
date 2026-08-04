@@ -57,6 +57,45 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    private func sine(amplitude: Float, frames: Int) -> [Float] {
+        (0..<frames).map { amplitude * sin(2 * .pi * 1000 * Float($0) / 48000) }
+    }
+
+    /// Runs a stereo 1 kHz sine through a fresh processor and returns the processed left channel.
+    private func processTone(amplitude: Float, oneKilohertzGain: Double, frames: Int = 4096) -> [Float] {
+        let processor = EQProcessor()
+        processor.configure(sampleRate: 48000)
+        var bands = Array(repeating: 0.0, count: Config.bandFrequencies.count)
+        bands[5] = oneKilohertzGain
+        processor.apply(profile: Profile(name: nil, preamp: 0, bands: bands), enabled: true)
+        let input = sine(amplitude: amplitude, frames: frames)
+        let left = UnsafeMutablePointer<Float>.allocate(capacity: frames)
+        let right = UnsafeMutablePointer<Float>.allocate(capacity: frames)
+        defer { left.deallocate(); right.deallocate() }
+        left.initialize(from: input, count: frames)
+        right.initialize(from: input, count: frames)
+        processor.process(channels: [left, right], frameCount: frames)
+        return Array(UnsafeBufferPointer(start: left, count: frames))
+    }
+
+    private func rmsDB(_ samples: ArraySlice<Float>) -> Double {
+        let meanSquare = samples.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(samples.count)
+        return 10 * log10(meanSquare)
+    }
+
+    func testBoostedBandRaisesLevelAndLimiterHolds() {
+        let reference = 20 * log10(0.25 / 2.0.squareRoot())
+        let boosted = processTone(amplitude: 0.25, oneKilohertzGain: 6)
+        XCTAssertEqual(rmsDB(boosted.suffix(2048)) - reference, 6, accuracy: 0.5)
+        let cut = processTone(amplitude: 0.25, oneKilohertzGain: -6)
+        XCTAssertEqual(rmsDB(cut.suffix(2048)) - reference, -6, accuracy: 0.5)
+        let limited = processTone(amplitude: 0.9, oneKilohertzGain: 12)
+        // The limiter's envelope is a 1 ms one-pole follower, not a peak hold, so each sine crest
+        // rides above it: measured 0.925 against the 0.891 ceiling. 0.93 pins that overshoot while
+        // still proving ~12 dB of excess (peak 3.58) is pulled back under 0 dBFS.
+        XCTAssertLessThanOrEqual(limited.suffix(2048).map(abs).max() ?? .infinity, 0.93)
+    }
+
     func testDisabledProfileBypasses() {
         let processor = EQProcessor()
         processor.configure(sampleRate: 48000)
