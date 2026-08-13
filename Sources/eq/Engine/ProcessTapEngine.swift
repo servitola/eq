@@ -73,6 +73,7 @@ final class ProcessTapEngine {
     private(set) var state: State = .stopped
     private(set) var targetDeviceID: AudioObjectID = 0
     private(set) var ioBufferFrames: Int = 256
+    var requestedIOBufferFrames: Int = 256
 
     /// Approximate added latency in seconds (tap + one IO buffer round trip).
     var estimatedLatency: Double {
@@ -215,6 +216,8 @@ final class ProcessTapEngine {
         }
         preparedInput = selection
 
+        requestIOBufferSize()
+
         // 3. IOProc: tapped audio arrives as input, processed audio leaves as output.
         silentFrames = 0
         isSilenceGated = false
@@ -324,16 +327,13 @@ final class ProcessTapEngine {
         }
     }
 
-    /// Request a specific IO buffer size (latency/stability trade-off).
-    func setIOBufferFrames(_ frames: Int) {
-        guard aggregateID != 0 else { ioBufferFrames = frames; return }
+    private func requestIOBufferSize() {
         var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyBufferFrameSize,
                                               mScope: kAudioObjectPropertyScopeGlobal,
                                               mElement: kAudioObjectPropertyElementMain)
-        var value = UInt32(frames)
-        if AudioObjectSetPropertyData(aggregateID, &addr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value) == noErr {
-            ioBufferFrames = frames
-        }
+        var frames = UInt32(requestedIOBufferFrames)
+        // Some devices refuse or clamp the request; readIOBufferSize() then reports what was granted.
+        _ = AudioObjectSetPropertyData(aggregateID, &addr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &frames)
     }
 
     // MARK: - Render path (audio thread)
