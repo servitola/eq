@@ -59,7 +59,6 @@ final class Daemon {
             exit(1)
         }
         AudioDeviceManager.destroyStaleAggregates()
-        engine.onStateChange = { [weak self] state in self?.engineChanged(state) }
         engine.onSampleRateChange = { [weak self] in
             Log.write("sample rate changed — restarting engine on the same device")
             self?.queue.async { [weak self] in self?.rebuild(attempt: 1) }
@@ -158,12 +157,6 @@ final class Daemon {
         engine.stop()
         setState(state, error: why)
         scheduleRebuild(attempt: 1, after: delay)
-    }
-
-    private func engineChanged(_ state: ProcessTapEngine.State) {
-        if case .failed(let why) = state, self.state == .running || self.state == .bypassed {
-            fail(why, retryIn: DaemonPolicy.rebuildDelay)
-        }
     }
 
     private func applyProfile() {

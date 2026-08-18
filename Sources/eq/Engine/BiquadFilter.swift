@@ -102,27 +102,3 @@ struct BiquadState {
         return y
     }
 }
-
-enum EQResponse {
-    /// Combined magnitude response (dB) of enabled bands + preamp over the given frequencies.
-    static func curve(bands: [EQBand], preampDB: Double, frequencies: [Double], sampleRate: Double = 48000) -> [Double] {
-        let coeffs = bands.filter(\.isEnabled).map {
-            BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: sampleRate)
-        }
-        return frequencies.map { f in
-            coeffs.reduce(preampDB) { $0 + $1.magnitudeDB(at: f, sampleRate: sampleRate) }
-        }
-    }
-
-    /// Standard log-spaced frequency grid, 20 Hz – 20 kHz.
-    static func logGrid(count: Int = 256) -> [Double] {
-        let lo = log10(20.0), hi = log10(20000.0)
-        return (0..<count).map { pow(10, lo + (hi - lo) * Double($0) / Double(count - 1)) }
-    }
-
-    /// Preamp (≤ 0) that keeps the combined response from exceeding 0 dB.
-    static func autoPreamp(bands: [EQBand], sampleRate: Double = 48000) -> Double {
-        let peak = curve(bands: bands, preampDB: 0, frequencies: logGrid(count: 512), sampleRate: sampleRate).max() ?? 0
-        return peak > 0 ? -(peak * 100).rounded(.up) / 100 : 0
-    }
-}

@@ -2,16 +2,11 @@
 import Foundation
 import CoreAudio
 
-struct AudioOutputDevice: Identifiable, Hashable {
+struct AudioOutputDevice: Hashable {
     var id: AudioObjectID
     var uid: String
     var name: String
     var transportType: UInt32
-
-    var isBluetooth: Bool {
-        transportType == kAudioDeviceTransportTypeBluetooth
-            || transportType == kAudioDeviceTransportTypeBluetoothLE
-    }
 
     var transportName: String {
         switch transportType {
@@ -27,7 +22,7 @@ struct AudioOutputDevice: Identifiable, Hashable {
     }
 }
 
-/// Core Audio device enumeration, default-device control, and volume.
+/// Core Audio device enumeration and default-output lookup.
 enum AudioDeviceManager {
     static let aggregateUIDPrefix = "com.servitola.eq.aggregate-"
 
@@ -48,7 +43,7 @@ enum AudioDeviceManager {
         return ids.compactMap { id in
             guard outputChannelCount(id) > 0 else { return nil }
             let uid = stringProperty(id, kAudioDevicePropertyDeviceUID) ?? ""
-            // Skip private/virtual aggregates (including our own).
+            // Skip our own private aggregates.
             if uid.hasPrefix(aggregateUIDPrefix) { return nil }
             guard !uid.isEmpty, let name = stringProperty(id, kAudioObjectPropertyName) else { return nil }
             return AudioOutputDevice(id: id, uid: uid, name: name, transportType: transportType(id))
@@ -94,7 +89,7 @@ enum AudioDeviceManager {
     private static func channelCount(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> Int? {
         var addr = address(kAudioDevicePropertyStreamConfiguration, scope: scope)
         var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size), size > 0 else { return nil }
+        guard propertyDataSize(id, &addr, 0, nil, &size), size > 0 else { return nil }
         let ptr = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
         defer { ptr.deallocate() }
         guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, ptr) == noErr else { return nil }
@@ -183,6 +178,8 @@ enum AudioDeviceManager {
         return status == noErr && processObject != 0 ? processObject : nil
     }
 
+    // MARK: - Device lookup
+
     static func device(_ id: AudioObjectID) -> AudioOutputDevice? {
         guard let uid = stringProperty(id, kAudioDevicePropertyDeviceUID),
               let name = stringProperty(id, kAudioObjectPropertyName) else { return nil }
@@ -198,7 +195,7 @@ enum AudioDeviceManager {
     static func destroyStaleAggregates() {
         var addr = address(kAudioHardwarePropertyDevices)
         var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) else { return }
+        guard propertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) else { return }
         var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else { return }
         for id in ids where (stringProperty(id, kAudioDevicePropertyDeviceUID) ?? "").hasPrefix(aggregateUIDPrefix) {
@@ -208,7 +205,7 @@ enum AudioDeviceManager {
     }
 }
 
-private func AudioObjectGetPropertyDataSize(_ id: AudioObjectID, _ addr: inout AudioObjectPropertyAddress,
-                                            _ qualifierSize: UInt32, _ qualifier: UnsafeRawPointer?, _ size: inout UInt32) -> Bool {
+private func propertyDataSize(_ id: AudioObjectID, _ addr: inout AudioObjectPropertyAddress,
+                              _ qualifierSize: UInt32, _ qualifier: UnsafeRawPointer?, _ size: inout UInt32) -> Bool {
     CoreAudio.AudioObjectGetPropertyDataSize(id, &addr, qualifierSize, qualifier, &size) == noErr
 }

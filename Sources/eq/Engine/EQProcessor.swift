@@ -4,7 +4,7 @@ import os.lock
 
 /// Realtime-safe EQ chain: preamp → biquad cascade → soft limiter → output gain.
 ///
-/// The UI thread rebuilds a `Snapshot` and swaps it in under a lock; the render
+/// The daemon's main queue rebuilds a `Snapshot` and swaps it in under a lock; the render
 /// thread try-locks — if the lock is contended it keeps using the old snapshot
 /// for that cycle rather than blocking the audio thread.
 final class EQProcessor {
@@ -19,44 +19,26 @@ final class EQProcessor {
 
     private var snapshot = Snapshot()
     private var pendingSnapshot: Snapshot?
+    // Dropping the last reference to a Snapshot frees its coefficient array; parking it here moves
+    // that free off the audio thread and onto the next update() call.
+    private var retiredSnapshot: Snapshot?
     private var lock = os_unfair_lock()
 
     // Render-thread state (only touched on the audio thread).
-    private var states: [BiquadState] = []  // flattened [channel][band]
-    private var stateChannelCount = 0
-    private var stateBandCount = 0
+    // Pre-sized for stereo × the fixed band count so the first real profile does not allocate on
+    // the audio thread; process() still resizes for any other topology.
+    private var states = Array(repeating: BiquadState(), count: 2 * Config.bandFrequencies.count)  // flattened [channel][band]
+    private var stateChannelCount = 2
+    private var stateBandCount = Config.bandFrequencies.count
     private var limiterEnvelope: Float = 0
     private var limiterAttack = Float(exp(-1.0 / (0.001 * 48000)))
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
 
-    /// Peak level (post-chain) for metering; read from any thread.
-    private struct MeterState {
-        var peak: Float = 0
-        var isActive = false
-    }
-    private let meter = OSAllocatedUnfairLock(initialState: MeterState())
-    var currentPeak: Float {
-        meter.withLock { state in
-            let value = state.peak
-            state.peak = 0
-            return value
-        }
-    }
-
     func configure(sampleRate: Double) {
         self.sampleRate = sampleRate
         limiterAttack = Float(exp(-1.0 / (0.001 * sampleRate)))
         limiterRelease = Float(exp(-1.0 / (0.080 * sampleRate)))
-    }
-
-    /// Main/UI thread: the peak accumulator has no consumer while the editor
-    /// is hidden, so avoid a cross-thread lock on every render callback.
-    func setMeteringActive(_ active: Bool) {
-        meter.withLock { state in
-            state.isActive = active
-            if !active { state.peak = 0 }
-        }
     }
 
     /// Audio thread only. Clear filter and limiter history before the engine
@@ -67,7 +49,7 @@ final class EQProcessor {
         limiterEnvelope = 0
     }
 
-    /// Called from the UI/model thread whenever parameters change.
+    /// Called from the daemon's main queue whenever parameters change.
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
                 limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) {
         var snap = Snapshot()
@@ -81,6 +63,7 @@ final class EQProcessor {
         snap.bypassed = bypassed
         os_unfair_lock_lock(&lock)
         pendingSnapshot = snap
+        retiredSnapshot = nil
         os_unfair_lock_unlock(&lock)
     }
 
@@ -88,6 +71,7 @@ final class EQProcessor {
     func process(channels: [UnsafeMutablePointer<Float>], frameCount: Int) {
         if os_unfair_lock_trylock(&lock) {
             if let pending = pendingSnapshot {
+                retiredSnapshot = snapshot
                 snapshot = pending
                 pendingSnapshot = nil
             }
@@ -96,18 +80,17 @@ final class EQProcessor {
         let snap = snapshot
         if snap.bypassed { return }
 
-        // (Re)size filter state to match topology.
+        // (Re)size filter state to match topology. The initial empty snapshot, which the IOProc
+        // runs with until the daemon's first apply lands, never touches `states`, so it must not
+        // shrink the pre-sized storage either.
         let channelCount = channels.count
         let bandCount = snap.coefficients.count
-        if stateChannelCount != channelCount || stateBandCount != bandCount {
+        if bandCount > 0, stateChannelCount != channelCount || stateBandCount != bandCount {
             states = Array(repeating: BiquadState(), count: channelCount * bandCount)
             stateChannelCount = channelCount
             stateBandCount = bandCount
             limiterEnvelope = 0
         }
-
-        let meteringActive = meter.withLockIfAvailable { $0.isActive } ?? false
-        var peak: Float = 0
 
         // Work through raw buffers so mutating filter state does not trigger an
         // Array copy-on-write uniqueness check for every sample and band.
@@ -138,20 +121,10 @@ final class EQProcessor {
                             if limiterEnvelope > snap.limiterCeilingLinear {
                                 let gain = snap.limiterCeilingLinear / limiterEnvelope
                                 for ch in 0..<channelCount { channelBuffers[ch][frame] *= gain }
-                                maxMag *= gain
                             }
                         }
-                        if meteringActive { peak = max(peak, maxMag) }
                     }
                 }
-            }
-        }
-
-        if meteringActive {
-            let framePeak = peak
-            meter.withLockIfAvailable { state in
-                guard state.isActive else { return }
-                state.peak = max(state.peak, framePeak)
             }
         }
     }

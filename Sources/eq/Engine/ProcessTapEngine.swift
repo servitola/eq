@@ -75,14 +75,6 @@ final class ProcessTapEngine {
     private(set) var ioBufferFrames: Int = 256
     var requestedIOBufferFrames: Int = 256
 
-    /// Approximate added latency in seconds (tap + one IO buffer round trip).
-    var estimatedLatency: Double {
-        Double(ioBufferFrames) * 2 / max(processor.sampleRate, 1)
-    }
-
-    /// True once the tap has delivered non-silent audio, confirming that the
-    /// current engine instance is receiving the system mix.
-    private(set) var hasReceivedAudio = false
     /// Written on the audio thread, read racily by the status writer; a torn read is harmless.
     private(set) var framesProcessed: UInt64 = 0
 
@@ -101,8 +93,6 @@ final class ProcessTapEngine {
     private var silentFrames = 0
     private var isSilenceGated = false
     private var preparedInput: TapInputSelection
-
-    var onStateChange: ((State) -> Void)?
 
     /// Fired (on the main queue) when the tapped device's nominal sample rate
     /// changes while running. Biquad coefficients are baked for one rate, so
@@ -123,11 +113,6 @@ final class ProcessTapEngine {
     /// current system default output.
     func start(outputDeviceID explicitDevice: AudioObjectID? = nil) {
         stop()
-        // A previous engine instance may have received audio even when this
-        // start attempt cannot resolve an output device. Reset probe state up
-        // front so failed restarts never masquerade as a live audio path.
-        hasReceivedAudio = false
-        targetDeviceID = 0
 
         guard let deviceID = explicitDevice ?? AudioDeviceManager.defaultOutputDeviceID(),
               let deviceUID = AudioDeviceManager.stringProperty(deviceID, kAudioDevicePropertyDeviceUID) else {
@@ -136,8 +121,8 @@ final class ProcessTapEngine {
         }
         targetDeviceID = deviceID
 
-        // 1. Create the muted global tap, excluding opted-out apps (and ourselves —
-        //    re-rendered audio must not be re-captured).
+        // 1. Create the muted global tap, excluding ourselves — re-rendered audio
+        //    must not be re-captured.
         let excluded = AudioDeviceManager.processObject(forPID: getpid()).map { [$0] } ?? []
 
         let description = CATapDescription(stereoGlobalTapButExcludeProcesses: excluded)
@@ -250,7 +235,6 @@ final class ProcessTapEngine {
         removeSampleRateListener()
         cleanup()
         targetDeviceID = 0
-        hasReceivedAudio = false
         framesProcessed = 0
         if state != .stopped { transition(to: .stopped) }
     }
@@ -283,8 +267,6 @@ final class ProcessTapEngine {
     private func transition(to newState: State) {
         state = newState
         Log.write("engine: \(newState)")
-        let callback = onStateChange
-        DispatchQueue.main.async { callback?(newState) }
     }
 
     private static let sampleRateAddress = AudioObjectPropertyAddress(
@@ -379,7 +361,6 @@ final class ProcessTapEngine {
             }
         }
         if inputHasSignal {
-            hasReceivedAudio = true
             silentFrames = 0
             isSilenceGated = false
         } else {
