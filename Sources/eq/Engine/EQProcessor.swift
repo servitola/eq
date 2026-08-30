@@ -31,13 +31,11 @@ final class EQProcessor {
     private var stateChannelCount = 2
     private var stateBandCount = Config.bandFrequencies.count
     private var limiterEnvelope: Float = 0
-    private var limiterAttack = Float(exp(-1.0 / (0.001 * 48000)))
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
 
     func configure(sampleRate: Double) {
         self.sampleRate = sampleRate
-        limiterAttack = Float(exp(-1.0 / (0.001 * sampleRate)))
         limiterRelease = Float(exp(-1.0 / (0.080 * sampleRate)))
     }
 
@@ -116,8 +114,8 @@ final class EQProcessor {
                             maxMag = max(maxMag, abs(sample))
                         }
                         if snap.limiterEnabled {
-                            let coefficient = maxMag > limiterEnvelope ? limiterAttack : limiterRelease
-                            limiterEnvelope = coefficient * limiterEnvelope + (1 - coefficient) * maxMag
+                            // Instant attack: a lagging envelope let onsets through above 0 dBFS and the DAC clipped them.
+                            limiterEnvelope = maxMag > limiterEnvelope ? maxMag : limiterRelease * limiterEnvelope + (1 - limiterRelease) * maxMag
                             if limiterEnvelope > snap.limiterCeilingLinear {
                                 let gain = snap.limiterCeilingLinear / limiterEnvelope
                                 for ch in 0..<channelCount { channelBuffers[ch][frame] *= gain }

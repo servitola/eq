@@ -90,10 +90,9 @@ final class EngineTests: XCTestCase {
         let cut = processTone(amplitude: 0.25, oneKilohertzGain: -6)
         XCTAssertEqual(rmsDB(cut.suffix(2048)) - reference, -6, accuracy: 0.5)
         let limited = processTone(amplitude: 0.9, oneKilohertzGain: 12)
-        // The limiter's envelope is a 1 ms one-pole follower, not a peak hold, so each sine crest
-        // rides above it: measured 0.925 against the 0.891 ceiling. 0.93 pins that overshoot while
-        // still proving ~12 dB of excess (peak 3.58) is pulled back under 0 dBFS.
-        XCTAssertLessThanOrEqual(limited.suffix(2048).map(abs).max() ?? .infinity, 0.93)
+        // Ceiling is -1 dBFS ≈ 0.891; instant attack makes the bound hold from the first sample,
+        // including the onset right after start, not just once the envelope has settled.
+        XCTAssertLessThanOrEqual(limited.map(abs).max() ?? .infinity, 0.90)
     }
 
     func testDisabledProfileBypasses() {
