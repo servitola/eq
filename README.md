@@ -103,3 +103,7 @@ Developer ID signature, smoke, GitHub release, cask bump.
 
 [MIT](LICENSE) © [servitola](https://github.com/servitola). The vendored engine keeps its
 Unlicense.
+
+## Verified
+
+2026-09-27, macOS 26.6.2, M3 Pro: MacBook Pro Speakers ↔ BE-RCA (Bluetooth), per-device curves, live config reload, `eq off`/`on`, launchd restart after SIGTERM. Daemon idle: 19–22 MB RSS, 0.0 % CPU.
