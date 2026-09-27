@@ -267,6 +267,7 @@ final class ProcessTapEngine {
         callbacks = 0
         signalCallbacks = 0
         latencyMs = nil
+        processor.solo = nil
         if state != .stopped { transition(to: .stopped) }
     }
 

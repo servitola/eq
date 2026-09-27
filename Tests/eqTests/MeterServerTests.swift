@@ -18,13 +18,34 @@ final class MeterServerTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    private var solos: [SoloRange?] = []
+
     private func makeServer() -> MeterServer {
         MeterServer(socketURL: socketURL, queue: queue, tick: 0.01,
                     source: { MeterFrameTests.sample },
                     onClientsChanged: { [weak self] n in
                         self?.changesLock.lock(); self?.changes.append(n); self?.changesLock.unlock()
+                    },
+                    onSolo: { [weak self] range in
+                        // Mirrors the daemon: an empty range is refused.
+                        if let range, range.low >= range.high { return false }
+                        self?.changesLock.lock(); self?.solos.append(range); self?.changesLock.unlock()
+                        return true
                     })
     }
+
+    private func observedSolos() -> [SoloRange?] {
+        changesLock.lock(); defer { changesLock.unlock() }
+        return solos
+    }
+
+    private func send(_ fd: Int32, _ text: String) {
+        let bytes = Array(text.utf8)
+        XCTAssertEqual(write(fd, bytes, bytes.count), bytes.count)
+    }
+
+    private static let voice = SoloRange(low: 300, high: 2800)
+    private static let bass = SoloRange(low: 40, high: 250)
 
     private func observedChanges() -> [Int] {
         changesLock.lock(); defer { changesLock.unlock() }
@@ -80,6 +101,75 @@ final class MeterServerTests: XCTestCase {
         close(fd)
         XCTAssertTrue(waitUntil(0.2) { queue.sync { server.clients } == 0 })
         XCTAssertTrue(waitUntil(0.2) { observedChanges() == [1, 0] }, "\(observedChanges())")
+    }
+
+    func testSoloAppliesAndClearsWhenItsOwnerDisconnects() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        send(fd, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice] }, "\(observedSolos())")
+        close(fd)
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice, nil] }, "\(observedSolos())")
+    }
+
+    func testNullClearsAndSplitWritesAreReassembled() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        defer { close(fd) }
+        send(fd, "{\"solo\":{\"low\":40,")
+        usleep(20_000)
+        send(fd, "\"high\":250}}\n{\"solo\":null}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.bass, nil] }, "\(observedSolos())")
+    }
+
+    func testLastWriterWinsAndOnlyTheOwnerDisconnectClears() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let first = try connect()
+        let second = try connect()
+        send(first, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos().count == 1 })
+        send(second, "{\"solo\":{\"low\":40,\"high\":250}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos().count == 2 })
+        close(first)
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == 1 })
+        XCTAssertEqual(observedSolos(), [Self.voice, Self.bass])
+        close(second)
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice, Self.bass, nil] }, "\(observedSolos())")
+    }
+
+    func testRefusedRangeDoesNotTakeOwnership() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let owner = try connect()
+        defer { close(owner) }
+        let other = try connect()
+        send(owner, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        send(other, "{\"solo\":{\"low\":2800,\"high\":300}}\n")
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == 2 })
+        usleep(50_000)
+        close(other)
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == 1 })
+        XCTAssertEqual(observedSolos(), [Self.voice])
+    }
+
+    func testMalformedAndOverlongLinesAreIgnored() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        defer { close(fd) }
+        send(fd, "not json\n{\"volume\":3}\n")
+        send(fd, "{\"solo\":{\"low\":40,\"high\":250},\"pad\":\"" + String(repeating: "x", count: 2 * MeterServer.maxRequestLine) + "\"}\n")
+        send(fd, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice] }, "\(observedSolos())")
+        XCTAssertEqual(queue.sync { server.clients }, 1)
     }
 
     func testStalePathIsReplaced() throws {
