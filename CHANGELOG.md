@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.3 — 2026-09-27
+
 ### Added
 
 - `eq watch`: the ten bands live in the terminal, ~30 fps, in the sixteen colours — input and
