@@ -5,6 +5,33 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq import <file|url|"headphone name">` applies an AutoEq correction: parametric filters
+  exact, a `GraphicEQ.txt` reduced to the ten bands. Names are looked up in AutoEq's index,
+  cached at `~/.cache/eq/autoeq` for 7 days; `--refresh`, `--source`, `--keep-bands`,
+  `eq import --clear`.
+- `--json` on every command: the answer as one JSON document on stdout, stable keys, exit
+  codes unchanged.
+- `eq doctor`: one-shot check of macOS version, config, daemon, permission, launch agent,
+  binary and audio, exit 0 only when every check passes.
+- `eq status` reports `callbacks`, the IO tap's own counter, alongside `framesProcessed`.
+- Profiles carry `filters` (peak, low/high shelf, low/high pass, notch, band pass) alongside
+  the ten graphic bands; a v1 config with no `filters` still loads.
+
+### Changed
+
+- The daemon writes `status.json` before the first tap succeeds, so `eq status` says
+  `starting` instead of "not running" while the permission prompt is open.
+- A device counts as `running` once its IO callback fires, not after frames with signal —
+  no more five rebuilds waiting for audio on a silent Mac.
+- A stalled IO path (10 s with no new callback) logs and rebuilds instead of running dark.
+
+### Fixed
+
+- A sync failure during retry no longer flips the reported state back to `starting`; it stays
+  `failed`/`no-permission` until it actually changes.
+
 ## 2026.09.27 — 2026-09-27
 
 First release.

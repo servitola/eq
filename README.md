@@ -57,11 +57,33 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq off`, `eq on` | bypass, and back |
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
 | `eq init` | write the default config if there is none |
+| `eq import "WH-1000XM4"` | fetch and apply an AutoEq correction by headphone name |
+| `eq import file.txt` | apply an AutoEq correction from a local file or URL |
+| `eq import --clear` | drop the imported correction, keep hand-tuned bands |
+| `eq doctor` | one-shot health check: config, daemon, permission, audio |
+
+`--json` works on any command; the answer becomes one JSON document on stdout, exit codes
+unchanged.
 
 Bands are `32hz 64hz 125hz 250hz 500hz 1khz 2khz 4khz 8khz 16khz`, gains `-12` to `+12` dB.
 A device without its own curve gets `default`; the first `eq set` on it makes a copy.
 Everything lives in `~/.config/eq/eq.json`, which you can also edit by hand — the daemon
 picks it up within a tenth of a second.
+
+## AutoEq
+
+`eq import <file|url|"headphone name">` applies a published correction for a specific
+headphone from [AutoEq](https://github.com/jaakkopasanen/AutoEq). A name is looked up in
+AutoEq's index and the matching `ParametricEQ.txt` is fetched; a file or URL is read
+directly. The index is cached at `~/.cache/eq/autoeq` for 7 days — `--refresh` forces a
+re-fetch.
+
+A `ParametricEQ.txt` becomes parametric filters applied exactly as measured. A
+`GraphicEQ.txt` is reduced to the ten fixed bands by sampling its curve, which is close but
+not exact — the `ParametricEQ.txt` of the same model is preferred when both exist. Use
+`--source NAME` to pick a reviewer (oratory1990, crinacle, Rtings, …) when a name matches
+several, and `--keep-bands` to layer the correction on top of your hand-tuned bands instead
+of resetting them to flat.
 
 ## How it works
 
@@ -85,13 +107,11 @@ to get right; the rest of this project is small.
 - Fixed bands, fixed Q. If you want a parametric EQ, this is not it.
 - One curve per device, applied to everything on that device. No per-app EQ.
 - A DAW that needs zero latency: `eq off` while you work.
-- The tap only delivers audio while something plays, so `eq status` reports `running` with
-  zero frames on a silent Mac. That is normal.
 
 ## Development
 
 ```sh
-swift test               # 49 unit tests
+swift test               # 91 unit tests
 scripts/build-app.sh     # build/EQ.app, ad-hoc signed
 scripts/smoke.sh         # starts the daemon against a scratch config; play something first
 ```
