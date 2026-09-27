@@ -50,7 +50,7 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq set 64hz +4 1khz -3` | change bands on the current output's curve |
 | `eq set --device JBL 16khz +1` | on another device, by a piece of its name |
 | `eq preamp -1.5` | preamp for the current curve |
-| `eq flat` | everything to 0 |
+| `eq flat` | reset: everything to 0, dropping the preset label, filters and any import |
 | `eq copy --to AirPods` | give another device this curve |
 | `eq devices` | who has a curve, who is connected, which is active |
 | `eq off`, `eq on` | bypass, and back |
@@ -83,7 +83,8 @@ save "club mix"` stores the current device's curve under that name and marks the
 using it; `eq preset use flat` copies a preset onto the device. Names are 1–32 letters,
 digits, spaces or `- _ .`, and are matched without regard to case. Two presets come with the
 config: `favourite`, the curve eq ships with, and `flat`. A config from before presets gets
-them when the daemon starts or on `eq init`; delete them all and they stay deleted.
+them when the daemon starts or on `eq init`, and also on the first `eq preset save|use|rm|rename`
+or `eq watch` `p`/`s` — whichever touches presets first; delete them all and they stay deleted.
 
 `eq` and every command that prints a curve show which preset the device uses: `BE-RCA (own
 profile · favourite)`. Tune the curve afterwards and the name gets a yellow `*` —
@@ -98,8 +99,9 @@ ones up to `eq.json.10`; the oldest drops off. A save that changes nothing makes
 `eq undo` restores `eq.json.1` — checked first, so a broken backup is refused — and prints
 the current device's curve; the file it replaced becomes the new `eq.json.1`, so a second
 `eq undo` is a redo. `eq undo --list` shows the ten backups with their times and the current
-device's curve in each. The daemon's own writes (seeding presets, refreshing device names)
-make no backup.
+device's curve in each. The daemon's routine writes (refreshing device names) make no backup;
+the one exception is the first time it seeds presets into a config from before they existed —
+that one backs up, so the pre-presets file stays recoverable as `eq.json.1`.
 
 A whole `eq watch` session is one undo step: only its first save makes a backup, so after
 quitting, `eq undo` returns to the curve from before the session.

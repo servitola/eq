@@ -513,8 +513,9 @@ enum CLI {
 
     /// Saves the target's curve as `name`, replacing a preset of that name in any case, and marks
     /// the target as using it.
-    static func savePreset(_ name: String, on target: Target, in config: inout Config) throws {
-        guard Config.isValidPresetName(name) else { throw CLIError.badPresetName(name) }
+    static func savePreset(_ rawName: String, on target: Target, in config: inout Config) throws {
+        let name = Config.normalizedPresetName(rawName)
+        guard Config.isValidPresetName(name) else { throw CLIError.badPresetName(rawName) }
         _ = config.seedPresetsIfNeeded()
         var profile = editableProfile(config, target)
         if let old = config.preset(named: name) { config.presets?[old.name] = nil }
@@ -535,8 +536,9 @@ enum CLI {
             return found
         }
         func validName(_ name: String) throws -> String {
-            guard Config.isValidPresetName(name) else { throw CLIError.badPresetName(name) }
-            return name
+            let trimmed = Config.normalizedPresetName(name)
+            guard Config.isValidPresetName(trimmed) else { throw CLIError.badPresetName(name) }
+            return trimmed
         }
         let takesDevice = ["save", "use"].contains(rest.first ?? "")
         guard explicit == nil || takesDevice else { throw CLIError.usage(usage) }
@@ -619,7 +621,11 @@ enum CLI {
         let device = try? currentDevice(ctx)
         if args == ["--list"] { return backupList(device, ctx) }
         guard let newest = ctx.store.backups().first(where: { $0.index == 1 }) else { throw CLIError.noBackup }
-        try ctx.store.restore(backup: 1)
+        do {
+            try ctx.store.restore(backup: 1)
+        } catch is ConfigError {
+            throw CLIError.unreadableBackup(1)
+        }
         let config = try ctx.store.load()
         let heading = Paint.ink(.green, "restored the config from \(backupTime(newest.date))")
         guard let device else {

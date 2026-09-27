@@ -17,6 +17,9 @@ its entries under a dated version.
   `s` saves the curve as a preset from a prompt on the bottom line. The header shows the preset
   name. One watch session is one `eq undo` step.
 
+After upgrading, restart the daemon (`launchctl kickstart -k gui/$UID/com.servitola.eq`) — an
+older daemon does not know presets.
+
 ## 2026.09.27.4 — 2026-09-27
 
 ### Added

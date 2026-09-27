@@ -91,6 +91,7 @@ extension CLIError {
         case .badPresetName: return "badPresetName"
         case .presetExists: return "presetExists"
         case .noBackup: return "noBackup"
+        case .unreadableBackup: return "unreadableBackup"
         }
     }
 }

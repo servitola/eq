@@ -102,6 +102,12 @@ struct Config: Codable, Equatable {
         presetNameLength.contains(name.count) && name.unicodeScalars.allSatisfy(presetNameCharacters.contains)
     }
 
+    /// Leading/trailing whitespace in a typed name is never intentional — trim it before it is
+    /// validated or stored, so " fav " and "fav" are the same preset and "   " is not a name at all.
+    static func normalizedPresetName(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static let seedPresets: [String: Profile] = [
         "favourite": Profile(name: nil, preamp: 0, bands: screenshotCurve),
         "flat": Profile.flat,

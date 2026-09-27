@@ -76,15 +76,29 @@ struct ConfigStore {
         }
     }
 
+    /// Injectable so tests can simulate a filesystem where the syscall lies (see below).
+    static var swap: (_ from: String, _ to: String) -> Int32 = { renamex_np($0, $1, UInt32(RENAME_SWAP)) }
+
     /// Swaps rather than rotates, so restoring `.1` twice returns to where it started.
     func restore(backup index: Int) throws {
         let backup = backupURL(index)
         let restored = try Data(contentsOf: backup)
         _ = try Self.decode(restored)
-        // An atomic swap keeps both files' times and never leaves the config missing; filesystems
-        // without RENAME_SWAP fall back to two writes.
-        if renamex_np(backup.path, url.path, UInt32(RENAME_SWAP)) == 0 { return }
-        let current = try Data(contentsOf: url)
+        // Read before the swap: on FAT/exFAT volumes renamex_np(RENAME_SWAP) has been observed
+        // to return 0 (success) while actually performing a plain rename — which moves the backup
+        // onto the current path and leaves nothing at the backup path, silently destroying the
+        // current config. Keeping our own copy of it lets us recover from exactly that case.
+        let current = try? Data(contentsOf: url)
+        if Self.swap(backup.path, url.path) == 0 {
+            if !FileManager.default.fileExists(atPath: backup.path), let current {
+                try current.write(to: backup, options: .atomic)
+            }
+            return
+        }
+        guard let current else {
+            try restored.write(to: url, options: .atomic)
+            return
+        }
         try current.write(to: backup, options: .atomic)
         try restored.write(to: url, options: .atomic)
     }

@@ -19,6 +19,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case badPresetName(String)
     case presetExists(String)
     case noBackup
+    case unreadableBackup(Int)
 
     var description: String {
         switch self {
@@ -40,6 +41,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .badPresetName(let name): return "bad preset name \"\(name)\": 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ ."
         case .presetExists(let name): return "preset \"\(name)\" already exists"
         case .noBackup: return "nothing to undo — no backup of the config yet"
+        case .unreadableBackup(let index): return "backup eq.json.\(index) is unreadable — see eq undo --list"
         }
     }
 }

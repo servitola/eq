@@ -68,8 +68,13 @@ final class Daemon {
         let builtIn = AudioDeviceManager.builtInOutputDevice()
         do {
             config = try store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
+            // Reload right before seeding rather than trusting the copy loadOrCreate returned,
+            // so seeding always acts on what is actually on disk.
+            if let onDisk = try? store.load() { config = onDisk }
             if config.seedPresetsIfNeeded() {
-                do { try store.save(config, backup: false) } catch { Log.write("cannot seed presets: \(error)") }
+                // backup: true — this is the one-time pre-v5 migration, so the file as it was
+                // before presets existed stays recoverable as eq.json.1.
+                do { try store.save(config, backup: true) } catch { Log.write("cannot seed presets: \(error)") }
             }
         } catch {
             Log.write("config unreadable (\(error)); starting with the built-in curve")

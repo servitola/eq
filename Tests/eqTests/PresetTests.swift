@@ -80,6 +80,12 @@ final class PresetConfigTests: XCTestCase {
         XCTAssertTrue(Config.isValidPresetName("Басы"))
     }
 
+    func testPresetNameTrimming() {
+        XCTAssertEqual(Config.normalizedPresetName(" fav "), "fav")
+        XCTAssertTrue(Config.isValidPresetName(Config.normalizedPresetName(" fav ")))
+        XCTAssertFalse(Config.isValidPresetName(Config.normalizedPresetName("   ")))
+    }
+
     func testValidateRejectsBadPresets() {
         var config = Config.initial(builtInUID: nil, builtInName: nil)
         config.presets = ["bad/name": Profile.flat]
@@ -146,6 +152,24 @@ final class BackupTests: XCTestCase {
         try store.restore(backup: 1)
         XCTAssertEqual(try store.load().default.preamp, -3)
         XCTAssertEqual(store.backups().count, 1)
+    }
+
+    /// On FAT/exFAT, renamex_np(RENAME_SWAP) has been observed to return 0 while actually doing a
+    /// plain rename: the backup path vanishes and whatever was at `url` is gone. Simulate that by
+    /// replacing the swap with an actual rename and verify the current config is not lost.
+    func testRestoreRecoversWhenSwapIsActuallyAPlainRename() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -3))
+        let originalSwap = ConfigStore.swap
+        defer { ConfigStore.swap = originalSwap }
+        ConfigStore.swap = { from, to in
+            try? FileManager.default.removeItem(atPath: to)
+            try? FileManager.default.moveItem(atPath: from, toPath: to)
+            return 0
+        }
+        try store.restore(backup: 1)
+        XCTAssertEqual(try store.load().default.preamp, 0, "restore still lands the backup's content")
+        XCTAssertEqual(try store.load(backup: 1).default.preamp, -3, "the pre-undo current is recovered into .1, not lost")
     }
 
     func testRestoreRefusesInvalidBackupAndLeavesFilesAlone() throws {
@@ -272,6 +296,17 @@ final class PresetCLITests: XCTestCase {
         XCTAssertEqual(try config.devices["BUILTIN"]?.bands, Config.screenshotCurve, "devices keep their curve")
     }
 
+    func testSavePresetTrimsWhitespaceFromTheName() throws {
+        XCTAssertEqual(run("preset", "save", " fav ").exitCode, 0)
+        XCTAssertEqual(try config.presets?.keys.sorted(), ["fav", "favourite", "flat"])
+        XCTAssertEqual(try config.devices["BUILTIN"]?.preset, "fav")
+    }
+
+    func testSavePresetRejectsAnAllWhitespaceName() throws {
+        XCTAssertEqual(run("preset", "save", "   ").exitCode, 1)
+        XCTAssertEqual(try json("preset", "save", "   ")["error"].flatMap { ($0 as? [String: Any])?["code"] as? String }, "badPresetName")
+    }
+
     func testPresetErrors() throws {
         let missing = run("preset", "use", "nope")
         XCTAssertEqual(missing.exitCode, 1)
@@ -307,6 +342,15 @@ final class PresetCLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 1)
         XCTAssertTrue(result.output.contains("nothing to undo"), result.output)
         XCTAssertEqual(try json("undo")["error"].flatMap { ($0 as? [String: Any])?["code"] as? String }, "noBackup")
+    }
+
+    func testUndoWithUnreadableBackupGivesAClearError() throws {
+        run("set", "1khz", "+6")
+        try "{ broken".write(to: dir.appendingPathComponent("eq.json.1"), atomically: true, encoding: .utf8)
+        let result = run("undo")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("backup eq.json.1 is unreadable — see eq undo --list"), result.output)
+        XCTAssertEqual(try json("undo")["error"].flatMap { ($0 as? [String: Any])?["code"] as? String }, "unreadableBackup")
     }
 
     func testUndoListSummarisesEachBackup() throws {
