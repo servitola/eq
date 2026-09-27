@@ -122,7 +122,7 @@ final class ZonesTests: XCTestCase {
         }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
         var emitted: [String] = []
-        var keys: [UInt8?] = [UInt8(ascii: "z"), UInt8(ascii: "z"), UInt8(ascii: "z"), nil]
+        var keys: [String?] = ["z", "z", "z", nil]
         _ = Watch.run(source: Source(lines: Array(repeating: line, count: 4)), size: { (100, 30) },
                       emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() })
         let frames = emitted.filter { $0.contains("\u{1B}[H") }

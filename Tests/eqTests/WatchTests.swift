@@ -241,7 +241,7 @@ final class WatchTests: XCTestCase {
         var frames = 0
         let code = Watch.run(source: Source(lines: Array(repeating: line, count: 5)),
                              emit: { emitted.append($0); if $0.hasPrefix("\u{1B}[H") { frames += 1 } },
-                             readKey: { frames >= 2 ? UInt8(ascii: "q") : nil })
+                             readKey: { frames >= 2 ? "q" : nil })
         XCTAssertEqual(code, 0)
         XCTAssertEqual(frames, 2)
         XCTAssertEqual(emitted.first, Watch.enter)
@@ -297,7 +297,7 @@ final class WatchTests: XCTestCase {
         }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
         var emitted: [String] = []
-        let code = Watch.run(source: Source(lines: [line]), size: { (24, 10) },
+        let code = Watch.run(source: Source(lines: [line]), size: { (24, 10) }, hintDismissed: true,
                              emit: { emitted.append($0) }, readKey: { nil })
         XCTAssertEqual(code, 1)
         let drawn = try XCTUnwrap(emitted.first { $0.contains("\u{1B}[H") })

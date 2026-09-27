@@ -9,9 +9,12 @@ enum Table {
 
     static let shortLabels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
 
-    static func labelsRow(width: Int = width, short: Bool = false, columns: Int = Config.bandLabels.count) -> String {
-        let labels = (short ? shortLabels : Config.bandLabels).prefix(max(columns, 0))
-        return Paint.ink(.dim, labels.map { $0.leftPadded(to: width) }.joined())
+    static func labelsRow(width: Int = width, short: Bool = false, columns: Int = Config.bandLabels.count,
+                          bold: Int? = nil) -> String {
+        let labels = (short ? shortLabels : Config.bandLabels).prefix(max(columns, 0)).map { $0.leftPadded(to: width) }
+        guard let bold, labels.indices.contains(bold) else { return Paint.ink(.dim, labels.joined()) }
+        func dim(_ part: ArraySlice<String>) -> String { part.isEmpty ? "" : Paint.ink(.dim, part.joined()) }
+        return dim(labels[..<bold]) + Paint.ink(.bold, labels[bold]) + dim(labels[(bold + 1)...])
     }
 
     /// Below six columns "+12.0" plus a gap no longer fits, so the cell shows whole decibels.

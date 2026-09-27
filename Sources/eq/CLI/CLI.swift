@@ -53,7 +53,7 @@ enum CLI {
       eq daemon                   run the audio engine (used by the LaunchAgent)
       eq doctor                   diagnose config, daemon, permission and audio
       eq stream                   meter frames as JSON lines, 30 per second, until Ctrl-C
-      eq watch [--zones]          the live equalizer in the terminal; z zones, q to quit
+      eq watch [--zones]          the live equalizer; tune with 1…0, h for keys, q to quit
       eq zones                    which bands carry which instruments, under the current curve
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
     --json on any command: the answer as JSON
@@ -402,13 +402,50 @@ enum CLI {
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
         LiveTerminal.enterRaw()
-        let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) }, zones: args.isEmpty ? .off : .compact, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
+        let marker = hintOffMarker(ctx)
+        let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
+                                 zones: args.isEmpty ? .off : .compact,
+                                 hintDismissed: FileManager.default.fileExists(atPath: marker.path),
+                                 emit: LiveTerminal.emit, readKey: LiveTerminal.readKey,
+                                 edit: { try watchEdit($0, ctx) },
+                                 dismissHint: {
+                                     try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+                                     FileManager.default.createFile(atPath: marker.path, contents: nil)
+                                 })
         LiveTerminal.leaveRaw()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
         output.exitCode = exitCode
         output.streamed = true
         return output
+    }
+
+    static func hintOffMarker(_ ctx: CLIContext) -> URL {
+        ctx.store.url.deletingLastPathComponent().appendingPathComponent("watch-hint-off")
+    }
+
+    /// One step from `eq watch`, on the same device `eq set` would edit. Rounded to hundredths so
+    /// an imported 3.7 stepped up saves as 4.2, not 4.2000000000000002.
+    static func watchEdit(_ action: WatchAction, _ ctx: CLIContext) throws {
+        var config = try loadConfig(ctx)
+        let target = try currentDevice(ctx)
+        let before = editableProfile(config, target)
+        var profile = before
+        func stepped(_ value: Double, _ delta: Double, _ range: ClosedRange<Double>) -> Double {
+            (min(max(value + delta, range.lowerBound), range.upperBound) * 100).rounded() / 100
+        }
+        switch action {
+        case .bandStep(let band, let delta):
+            guard profile.bands.indices.contains(band) else { return }
+            profile.bands[band] = stepped(profile.bands[band], delta, Config.gainRange)
+        case .preamp(let delta):
+            profile.preamp = stepped(profile.preamp, delta, Config.preampRange)
+        case .zones, .help, .dismissHelp, .quit:
+            return
+        }
+        guard profile != before else { return }
+        config.setProfile(profile, forDeviceUID: target.uid)
+        try ctx.store.save(config)
     }
 
     /// Laid out like a wide watch frame without the meter, so the spans line up under the labels.

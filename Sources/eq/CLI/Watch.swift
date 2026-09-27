@@ -60,8 +60,11 @@ enum Watch {
     }
 
     /// Header, `meterRows` of bars, the live level row, labels, gains, up to `zoneRows` of zones,
-    /// and — when not every band fits — a note to widen the terminal.
-    static func frame(_ f: MeterFrame, layout: WatchLayout, zones: [Zone] = []) -> [String] {
+    /// and one footer row: a `note`, else the one-line hint when the box does not fit, else — when
+    /// not every band fits — a note to widen the terminal. Sharing that row keeps the frame inside
+    /// the height `WatchLayout.fit` budgeted.
+    static func frame(_ f: MeterFrame, layout: WatchLayout, zones: [Zone] = [], hint: Bool = false,
+                      flash: Int? = nil, note: String? = nil) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -105,17 +108,44 @@ enum Watch {
             let text = outLevels[i] <= floorDB + 0.5 ? "·" : String(Int(outLevels[i].rounded()))
             return paint(barInks[i], text.leftPadded(to: w))
         }.joined())
-        body += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns),
+        body += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns, bold: flash),
                  Table.gainsRow(gains, width: w)]
         let margin = String(repeating: " ", count: indent)
         // The header centres with the bars when it fits beside them, and slides left rather than truncate.
         let headerIndent = String(repeating: " ", count: min(indent, max(layout.width - title.plain, 0)))
         var lines = [headerIndent + title.painted] + body.map { margin + $0 }
+        let boxFits = HintBox.width * 2 <= layout.width && rows >= HintBox.rows.count
+        if hint, boxFits {
+            let column = max(indent + tableWidth - HintBox.width, 0)
+            for (i, row) in HintBox.rows.enumerated() { lines[1 + i] = overlay(lines[1 + i], row, at: column, width: HintBox.width) }
+        }
         lines += Zones.render(shownZones, layout: layout, levels: outLevels, gains: gains)
-        if columns < bands {
-            lines.append(margin + Paint.ink(.dim, String("… widen for all bands".prefix(max(layout.width - indent, 1)))))
+        if let footer = note ?? (hint && !boxFits ? HintBox.compact : nil) ?? (columns < bands ? "… widen for all bands" : nil) {
+            lines.append(margin + Paint.ink(.dim, String(footer.prefix(max(layout.width - indent, 1)))))
         }
         return lines
+    }
+
+    /// Splices `text` over `width` visible columns of a painted line: escapes don't take a column,
+    /// and the colour running under the box is cut before it and resumed after it.
+    static func overlay(_ line: String, _ text: String, at column: Int, width: Int) -> String {
+        var head = "", tail = "", active = "", escape = ""
+        var visible = 0
+        for c in line {
+            if !escape.isEmpty || c == "\u{1B}" {
+                escape.append(c)
+                guard c.isLetter else { continue }
+                if visible >= column + width { tail += escape } else if visible < column { head += escape }
+                if visible < column + width { active = escape == "\u{1B}[0m" ? "" : escape }
+                escape = ""
+                continue
+            }
+            if visible < column { head.append(c) } else if visible >= column + width { tail.append(c) }
+            visible += 1
+        }
+        head += String(repeating: " ", count: max(column - visible, 0))
+        let reset = Paint.enabled ? "\u{1B}[0m" : ""
+        return head + reset + text + (tail.isEmpty ? "" : active + tail)
     }
 
     /// A flat band has no colour of its own; a loud one still has to stand out from dim.
@@ -176,13 +206,25 @@ enum Watch {
         return compose()
     }
 
+    /// Frame counts at the daemon's 30 frames a second.
+    static let hintFrames = 240
+    static let flashFrames = 15
+    static let noteFrames = 60
+
     /// Redraws on every frame the source delivers; the key and the terminal size are checked
     /// between frames, which at 30 frames a second is quicker than a person notices.
+    /// `edit` saves a band or preamp step; what it throws is shown in the footer for two seconds.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
-                    zones: ZoneMode = .off, emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
+                    zones: ZoneMode = .off, hintDismissed: Bool = false, emit: (String) -> Void,
+                    readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
+                    dismissHint: () -> Void = {}) -> Int32 {
         emit(enter)
         var current = size()
         var mode = zones
+        var dismissed = hintDismissed
+        var hintLeft = dismissed ? 0 : hintFrames
+        var flash: (band: Int, left: Int)?
+        var note: (text: String, left: Int)?
         var layout = WatchLayout.fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
@@ -194,16 +236,35 @@ enum Watch {
                     // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
                     clear = "\u{1B}[2J"
                 }
-                emit(clear + "\u{1B}[H" + frame(f, layout: layout, zones: mode.zones).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
+                let lines = frame(f, layout: layout, zones: mode.zones, hint: hintLeft > 0, flash: flash?.band, note: note?.text)
+                emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
+                hintLeft = max(hintLeft - 1, 0)
+                flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
+                note = note.flatMap { $0.left > 1 ? ($0.text, $0.left - 1) : nil }
             }
-            switch readKey() {
-            case UInt8(ascii: "q"), UInt8(ascii: "Q"), 3: return false
-            case UInt8(ascii: "z"), UInt8(ascii: "Z"):
-                mode = mode.next
-                layout = .fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
-                return true
-            default: return true
+            guard let keys = readKey() else { return true }
+            hintLeft = 0
+            // An arrow or function key arrives as one escape sequence; none of it is a command.
+            guard !keys.contains("\u{1B}") else { return true }
+            for action in keys.compactMap({ WatchKeys.action(for: String($0)) }) {
+                switch action {
+                case .quit: return false
+                case .zones:
+                    mode = mode.next
+                    layout = .fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
+                case .help: hintLeft = hintFrames
+                case .dismissHelp:
+                    if !dismissed { dismissed = true; dismissHint() }
+                case .bandStep, .preamp:
+                    do {
+                        try edit(action)
+                        if case .bandStep(let band, _) = action { flash = (band, flashFrames) }
+                    } catch {
+                        note = (String(describing: error).split(separator: "\n").first.map(String.init) ?? "", noteFrames)
+                    }
+                }
             }
+            return true
         }
         emit(leave)
         return eof ? 1 : 0
@@ -243,11 +304,15 @@ enum LiveTerminal {
         if termiosSaved { tcsetattr(0, TCSANOW, &savedTermios) }
     }
 
-    static func readKey() -> UInt8? {
+    /// Up to eight bytes, so a multi-byte character (`№` is three in UTF-8) or a whole escape
+    /// sequence arrives as one string instead of being split across frames.
+    static func readKey() -> String? {
         var pfd = pollfd(fd: 0, events: Int16(POLLIN), revents: 0)
         guard poll(&pfd, 1, 0) > 0 else { return nil }
-        var byte: UInt8 = 0
-        return read(0, &byte, 1) == 1 ? byte : nil
+        var bytes = [UInt8](repeating: 0, count: 8)
+        let count = read(0, &bytes, bytes.count)
+        guard count > 0 else { return nil }
+        return String(decoding: bytes.prefix(count), as: UTF8.self)
     }
 
     static func emit(_ text: String) {
