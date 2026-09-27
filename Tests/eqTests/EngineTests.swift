@@ -107,6 +107,30 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(buffer[10], 0.5, accuracy: 1e-6)
     }
 
+    func testFilterCountChangeTakesEffectOnNextCycle() {
+        let processor = EQProcessor()
+        processor.configure(sampleRate: 48000)
+        let frames = 4096
+        let left = UnsafeMutablePointer<Float>.allocate(capacity: frames)
+        let right = UnsafeMutablePointer<Float>.allocate(capacity: frames)
+        defer { left.deallocate(); right.deallocate() }
+        let input = sine(amplitude: 0.25, frames: frames)
+        processor.apply(profile: .flat, enabled: true)
+        left.initialize(from: input, count: frames)
+        right.initialize(from: input, count: frames)
+        processor.process(channels: [left, right], frameCount: frames)
+
+        var cut = Profile.flat
+        cut.filters = [Filter(type: .peak, frequency: 1000, gain: -6, q: 1), Filter(type: .peak, frequency: 50, gain: 0, q: 1)]
+        processor.apply(profile: cut, enabled: true)
+        left.update(from: input, count: frames)
+        right.update(from: input, count: frames)
+        processor.process(channels: [left, right], frameCount: frames)
+        let reference = 20 * log10(0.25 / 2.0.squareRoot())
+        XCTAssertEqual(rmsDB(Array(UnsafeBufferPointer(start: left, count: frames)).suffix(2048)) - reference, -6, accuracy: 0.5)
+        XCTAssertEqual(rmsDB(Array(UnsafeBufferPointer(start: right, count: frames)).suffix(2048)) - reference, -6, accuracy: 0.5)
+    }
+
     func testLowShelfFilterLowersBass() {
         let coefficients = Profile(name: nil, preamp: 0, bands: Profile.flat.bands,
                                    filters: [Filter(type: .lowShelf, frequency: 105, gain: -4.2, q: 0.7)])

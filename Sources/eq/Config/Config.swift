@@ -46,6 +46,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
     case unsupportedVersion(Int)
     case bandCount(String, Int)
     case gainOutOfRange(String, Double)
+    case preampOutOfRange(String, Double)
     case invalidJSON(String)
     case filterOutOfRange(String, String)
 
@@ -54,6 +55,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .unsupportedVersion(let v): return "unsupported config version \(v) (expected 1)"
         case .bandCount(let key, let n): return "profile \"\(key)\" has \(n) bands, expected \(Config.bandFrequencies.count)"
         case .gainOutOfRange(let key, let g): return "profile \"\(key)\" has gain \(g) dB outside \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound)"
+        case .preampOutOfRange(let key, let g): return "profile \"\(key)\" has preamp \(g) dB outside \(Config.preampRange.lowerBound)…\(Config.preampRange.upperBound)"
         case .invalidJSON(let why): return "config is not valid JSON: \(why)"
         case .filterOutOfRange(let key, let what): return "profile \"\(key)\" has a filter with \(what) outside the allowed range"
         }
@@ -64,6 +66,12 @@ struct Config: Codable, Equatable {
     static let bandFrequencies: [Double] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     static let bandLabels = ["32Hz", "64Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]
     static let gainRange: ClosedRange<Double> = -12...12
+    // An imported curve with a large boost carries a matching negative preamp, which can sink
+    // below the band floor; the ceiling stays at the band ceiling.
+    static let preampRange: ClosedRange<Double> = -30...12
+    // Each filter costs a biquad per channel on the render thread, and AutoEq profiles stay
+    // around ten filters; the cap bounds the cost of a hand-edited config.
+    static let maxFilters = 32
     static let filterFrequencyRange: ClosedRange<Double> = 10...24000
     static let filterGainRange: ClosedRange<Double> = -30...30
     static let filterQRange: ClosedRange<Double> = 0.1...30
@@ -95,8 +103,12 @@ struct Config: Codable, Equatable {
         guard profile.bands.count == bandFrequencies.count else {
             throw ConfigError.bandCount(key, profile.bands.count)
         }
-        for gain in profile.bands + [profile.preamp] where !gainRange.contains(gain) {
+        for gain in profile.bands where !gainRange.contains(gain) {
             throw ConfigError.gainOutOfRange(key, gain)
+        }
+        guard preampRange.contains(profile.preamp) else { throw ConfigError.preampOutOfRange(key, profile.preamp) }
+        guard profile.filters.count <= maxFilters else {
+            throw ConfigError.filterOutOfRange(key, "count \(profile.filters.count) (max \(maxFilters))")
         }
         for filter in profile.filters {
             if !filterFrequencyRange.contains(filter.frequency) { throw ConfigError.filterOutOfRange(key, "frequency \(filter.frequency) Hz") }

@@ -10,6 +10,10 @@ import os.lock
 final class EQProcessor {
     struct Snapshot {
         var coefficients: [BiquadCoefficients] = []
+        // Filter history travels with the coefficients so a new filter count arrives with its
+        // storage already allocated on the main queue; the render thread never resizes it for a
+        // band-count change. Flattened [channel][band], sized for stereo.
+        var states: [BiquadState] = []
         var preampLinear: Float = 1
         var outputGainLinear: Float = 1
         var limiterEnabled = true
@@ -19,17 +23,13 @@ final class EQProcessor {
 
     private var snapshot = Snapshot()
     private var pendingSnapshot: Snapshot?
-    // Dropping the last reference to a Snapshot frees its coefficient array; parking it here moves
-    // that free off the audio thread and onto the next update() call.
+    // Dropping the last reference to a Snapshot frees its arrays; parking it here moves that free
+    // off the audio thread and onto the next update() call. It is also why `snapshot.states` is
+    // uniquely referenced on the render thread: pendingSnapshot is cleared on swap and the retired
+    // copy holds the previous snapshot's buffers, never the current one's.
     private var retiredSnapshot: Snapshot?
     private var lock = os_unfair_lock()
 
-    // Render-thread state (only touched on the audio thread).
-    // Pre-sized for stereo × the fixed band count so the first real profile does not allocate on
-    // the audio thread; process() still resizes for any other topology.
-    private var states = Array(repeating: BiquadState(), count: 2 * Config.bandFrequencies.count)  // flattened [channel][band]
-    private var stateChannelCount = 2
-    private var stateBandCount = Config.bandFrequencies.count
     private var limiterEnvelope: Float = 0
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
@@ -43,7 +43,7 @@ final class EQProcessor {
     /// enters its prolonged-silence fast path. Keeping the existing storage
     /// avoids allocating from the realtime callback.
     func resetRenderState() {
-        for index in states.indices { states[index] = BiquadState() }
+        for index in snapshot.states.indices { snapshot.states[index] = BiquadState() }
         limiterEnvelope = 0
     }
 
@@ -54,6 +54,7 @@ final class EQProcessor {
         snap.coefficients = bands.filter(\.isEnabled).map {
             BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: sampleRate)
         }
+        snap.states = Array(repeating: BiquadState(), count: 2 * snap.coefficients.count)
         snap.preampLinear = Float(pow(10, preampDB / 20))
         snap.outputGainLinear = Float(pow(10, outputGainDB / 20))
         snap.limiterEnabled = limiterEnabled
@@ -69,32 +70,36 @@ final class EQProcessor {
     func process(channels: [UnsafeMutablePointer<Float>], frameCount: Int) {
         if os_unfair_lock_trylock(&lock) {
             if let pending = pendingSnapshot {
+                pendingSnapshot = nil
                 retiredSnapshot = snapshot
                 snapshot = pending
-                pendingSnapshot = nil
             }
             os_unfair_lock_unlock(&lock)
         }
-        let snap = snapshot
-        if snap.bypassed { return }
+        if snapshot.bypassed { return }
 
-        // (Re)size filter state to match topology. The initial empty snapshot, which the IOProc
-        // runs with until the daemon's first apply lands, never touches `states`, so it must not
-        // shrink the pre-sized storage either.
+        // Copied out rather than read through `snapshot` inside the closure below: that closure
+        // holds a modify access on `snapshot` for the states, and a second access would trap.
+        let coefficients = snapshot.coefficients
+        let preampLinear = snapshot.preampLinear
+        let outputGainLinear = snapshot.outputGainLinear
+        let limiterEnabled = snapshot.limiterEnabled
+        let limiterCeilingLinear = snapshot.limiterCeilingLinear
         let channelCount = channels.count
-        let bandCount = snap.coefficients.count
-        if bandCount > 0, stateChannelCount != channelCount || stateBandCount != bandCount {
-            states = Array(repeating: BiquadState(), count: channelCount * bandCount)
-            stateChannelCount = channelCount
-            stateBandCount = bandCount
+        let bandCount = coefficients.count
+
+        // update() sizes states for stereo; only a device with another channel count gets here,
+        // and that allocates once, on the first cycle after the swap.
+        if snapshot.states.count != channelCount * bandCount {
+            snapshot.states = Array(repeating: BiquadState(), count: channelCount * bandCount)
             limiterEnvelope = 0
         }
 
         // Work through raw buffers so mutating filter state does not trigger an
         // Array copy-on-write uniqueness check for every sample and band.
         channels.withUnsafeBufferPointer { channelBuffers in
-            states.withUnsafeMutableBufferPointer { stateBuffer in
-                snap.coefficients.withUnsafeBufferPointer { coefficientBuffer in
+            snapshot.states.withUnsafeMutableBufferPointer { stateBuffer in
+                coefficients.withUnsafeBufferPointer { coefficientBuffer in
                     let stateBase = stateBuffer.baseAddress
                     let coefficientBase = coefficientBuffer.baseAddress
 
@@ -102,22 +107,22 @@ final class EQProcessor {
                         // Stereo-linked limiter: find the loudest post-EQ sample across channels.
                         var maxMag: Float = 0
                         for ch in 0..<channelCount {
-                            var sample = channelBuffers[ch][frame] * snap.preampLinear
+                            var sample = channelBuffers[ch][frame] * preampLinear
                             if bandCount > 0, let stateBase, let coefficientBase {
                                 let channelStates = stateBase + ch * bandCount
                                 for band in 0..<bandCount {
                                     sample = channelStates[band].process(sample, coefficientBase[band])
                                 }
                             }
-                            sample *= snap.outputGainLinear
+                            sample *= outputGainLinear
                             channelBuffers[ch][frame] = sample
                             maxMag = max(maxMag, abs(sample))
                         }
-                        if snap.limiterEnabled {
+                        if limiterEnabled {
                             // Instant attack: a lagging envelope let onsets through above 0 dBFS and the DAC clipped them.
                             limiterEnvelope = maxMag > limiterEnvelope ? maxMag : limiterRelease * limiterEnvelope + (1 - limiterRelease) * maxMag
-                            if limiterEnvelope > snap.limiterCeilingLinear {
-                                let gain = snap.limiterCeilingLinear / limiterEnvelope
+                            if limiterEnvelope > limiterCeilingLinear {
+                                let gain = limiterCeilingLinear / limiterEnvelope
                                 for ch in 0..<channelCount { channelBuffers[ch][frame] *= gain }
                             }
                         }

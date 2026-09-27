@@ -43,8 +43,10 @@ final class ConfigTests: XCTestCase {
             XCTAssertEqual(error as? ConfigError, .gainOutOfRange("X", 12.5))
         }
         config.devices["X"] = Profile(name: nil, preamp: -13, bands: Array(repeating: 0, count: 10))
+        XCTAssertNoThrow(try config.validate())
+        config.devices["X"] = Profile(name: nil, preamp: -31, bands: Array(repeating: 0, count: 10))
         XCTAssertThrowsError(try config.validate()) { error in
-            XCTAssertEqual(error as? ConfigError, .gainOutOfRange("X", -13))
+            XCTAssertEqual(error as? ConfigError, .preampOutOfRange("X", -31))
         }
     }
 
@@ -99,6 +101,16 @@ final class ConfigTests: XCTestCase {
         XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "gain 31.0 dB")) }
         config.devices["X"]?.filters = [Filter(type: .peak, frequency: 1000, gain: 0, q: 0.05)]
         XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "q 0.05")) }
+    }
+
+    func testValidateCapsFilterCount() {
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        let filter = Filter(type: .peak, frequency: 1000, gain: 0, q: 1)
+        config.devices["X"] = Profile(name: nil, preamp: 0, bands: Profile.flat.bands,
+                                      filters: Array(repeating: filter, count: Config.maxFilters))
+        XCTAssertNoThrow(try config.validate())
+        config.devices["X"]?.filters.append(filter)
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "count 33 (max 32)")) }
     }
 
     func testEngineBandsCombineBandsAndFilters() {
