@@ -34,9 +34,27 @@ final class EQProcessor {
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
 
+    let meter = BandMeter(frequencies: Config.bandFrequencies)
+    /// Written on the main queue, read once per callback on the audio thread.
+    var meteringEnabled = false
+    private(set) var limiting = false
+    // The tap engine's scratch buffers are at least this large; a longer callback goes unmetered
+    // rather than allocating on the audio thread.
+    static let meterCapacity = 4096
+    private let meterInput = UnsafeMutablePointer<Float>.allocate(capacity: EQProcessor.meterCapacity)
+    private let meterInputChannels: [UnsafeMutablePointer<Float>]
+
+    init() {
+        meterInput.initialize(repeating: 0, count: Self.meterCapacity)
+        meterInputChannels = [meterInput]
+    }
+
+    deinit { meterInput.deallocate() }
+
     func configure(sampleRate: Double) {
         self.sampleRate = sampleRate
         limiterRelease = Float(exp(-1.0 / (0.080 * sampleRate)))
+        meter.configure(sampleRate: sampleRate)
     }
 
     /// Audio thread only. Clear filter and limiter history before the engine
@@ -45,6 +63,7 @@ final class EQProcessor {
     func resetRenderState() {
         for index in snapshot.states.indices { snapshot.states[index] = BiquadState() }
         limiterEnvelope = 0
+        meter.reset()
     }
 
     /// Called from the daemon's main queue whenever parameters change.
@@ -76,6 +95,20 @@ final class EQProcessor {
 
     /// Process non-interleaved Float32 channel buffers in place. Audio thread only.
     func process(channels: [UnsafeMutablePointer<Float>], frameCount: Int) {
+        let metering = meteringEnabled && frameCount <= Self.meterCapacity && !channels.isEmpty
+        if metering { captureMonoInput(channels, frameCount) }
+        render(channels: channels, frameCount: frameCount)
+        if metering { meter.feed(input: meterInputChannels, output: channels, frameCount: frameCount) }
+    }
+
+    private func captureMonoInput(_ channels: [UnsafeMutablePointer<Float>], _ frameCount: Int) {
+        let left = channels[0]
+        let right = channels.count > 1 ? channels[1] : left
+        for frame in 0..<frameCount { meterInput[frame] = 0.5 * (left[frame] + right[frame]) }
+    }
+
+    private func render(channels: [UnsafeMutablePointer<Float>], frameCount: Int) {
+        limiting = false
         if os_unfair_lock_trylock(&lock) {
             if let pending = pendingSnapshot {
                 pendingSnapshot = nil
@@ -130,6 +163,7 @@ final class EQProcessor {
                             // Instant attack: a lagging envelope let onsets through above 0 dBFS and the DAC clipped them.
                             limiterEnvelope = maxMag > limiterEnvelope ? maxMag : limiterRelease * limiterEnvelope + (1 - limiterRelease) * maxMag
                             if limiterEnvelope > limiterCeilingLinear {
+                                limiting = true
                                 let gain = limiterCeilingLinear / limiterEnvelope
                                 for ch in 0..<channelCount { channelBuffers[ch][frame] *= gain }
                             }
