@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.2 — 2026-09-27
+
 ### Added
 
 - `EQ_IO_FRAMES` env (daemon only, 64…4096) overrides the requested IO buffer size, for
