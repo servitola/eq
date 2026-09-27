@@ -60,7 +60,7 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands |
 | `eq preset` | list presets; the current device's one marked `*` |
-| `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device Q` for another device) |
+| `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
 | `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
 | `eq undo [--list]` | put the config back as it was before the last change / list the ten backups |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |

@@ -15,6 +15,7 @@ struct CLIContext {
     var streamLimit: Int? = nil
     var emit: (String) -> Void = { line in print(line); fflush(stdout) }
     var terminal: () -> (isTTY: Bool, cols: Int, rows: Int) = LiveTerminal.probe
+    var width: (Int32) -> Int = LiveTerminal.width
 
     static func live() -> CLIContext {
         CLIContext(
@@ -37,33 +38,6 @@ struct CLIContext {
 }
 
 enum CLI {
-    static let usage = """
-    usage:
-      eq                          show the current device's profile
-      eq init                     write the default config if none exists
-      eq set [--device Q] <band> <gain> …   e.g. eq set 64hz +4 1khz -3
-      eq preamp [--device Q] <gain>
-      eq flat [--device Q]
-      eq copy --to Q              copy the current profile onto device Q
-      eq import <file|url|name> [--device Q] [--source S] [--keep-bands] [--refresh]
-      eq import --clear [--device Q]
-      eq devices                  known profiles and connected outputs
-      eq on | eq off              enable / bypass
-      eq status
-      eq daemon                   run the audio engine (used by the LaunchAgent)
-      eq doctor                   diagnose config, daemon, permission and audio
-      eq stream                   meter frames as JSON lines, 30 per second, until Ctrl-C
-      eq watch [--zones]          the live equalizer; tune with 1…0, h for keys, q to quit
-      eq zones                    which bands carry which instruments, under the current curve
-      eq preset                   list presets; the current device's one marked *
-      eq preset save|use <name> [--device Q]   save the curve as <name> / apply <name>
-      eq preset show|rm <name>    show / delete a preset
-      eq preset rename <old> <new>
-      eq undo [--list]            restore the config before the last change (twice = redo)
-    bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
-    --json on any command: the answer as JSON
-    """
-
     static let permissionHint = "System Settings → Privacy & Security → Screen & System Audio Recording → enable EQ, then: launchctl kickstart -k gui/$UID/com.servitola.eq"
 
     /// `isError` marks a thrown error, the only output that belongs on stderr; a report that merely
@@ -71,6 +45,7 @@ enum CLI {
     static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String, isError: Bool, streamed: Bool) {
         let wantsJSON = args.contains("--json")
         let args = args.filter { $0 != "--json" }
+        let command = args.first ?? "show"
         do {
             if wantsJSON && args.first == "watch" { throw CLIError.usage("eq watch has no JSON form; use eq stream") }
             let output = try dispatch(args, context)
@@ -86,7 +61,9 @@ enum CLI {
             }
             if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)"))), true, false) }
             switch error {
-            case .usage, .unknownBand, .badGain, .gainOutOfRange: return (code, "error: \(error)\n\(usage)", true, false)
+            case .usage, .unknownBand, .badGain, .gainOutOfRange:
+                let help = helpText(for: command, width: context.width(2), paint: Paint.enabled(fd: 2))
+                return (code, "error: \(error)\n\n\(help)", true, false)
             case .daemonNotRunning: return (code, "\(error)", true, false)
             default: return (code, "error: \(error)", true, false)
             }
@@ -108,6 +85,11 @@ enum CLI {
     private static func dispatch(_ args: [String], _ ctx: CLIContext) throws -> Output {
         var rest = args
         let command = rest.isEmpty ? "show" : rest.removeFirst()
+        if rest.contains("--help") || rest.contains("-h") || ["help", "-h", "--help"].contains(command) {
+            let topic = ["help", "-h", "--help"].contains(command) ? (rest.first { !$0.hasPrefix("-") } ?? "") : command
+            let text = helpText(for: topic, width: ctx.width(1), paint: Paint.enabled)
+            return Output(text, UsageReport(usage: helpText(for: topic, width: 80, paint: false)))
+        }
         switch command {
         case "show": return try show(ctx)
         case "init": return try initialise(ctx)
@@ -126,9 +108,15 @@ enum CLI {
         case "zones": return try zones(rest, ctx)
         case "preset": return try preset(rest, ctx)
         case "undo": return try undo(rest, ctx)
-        case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
+    }
+
+    /// One command's block when the topic names a command, the whole grouped help otherwise.
+    static func helpText(for topic: String, width: Int, paint: Bool) -> String {
+        let entries = CommandHelp.entries(for: topic)
+        guard !entries.isEmpty else { return HelpRenderer.render(width: width, paint: paint) }
+        return HelpRenderer.render(width: width, paint: paint, entries: entries, footer: false)
     }
 
     // MARK: - Commands
@@ -170,7 +158,7 @@ enum CLI {
 
     private static func preamp(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
-        guard rest.count == 1 else { throw CLIError.usage("eq preamp [--device Q] <gain>") }
+        guard rest.count == 1 else { throw CLIError.usage("eq preamp [--device DEVICE] <gain>") }
         let gain = try BandParser.gain(rest[0])
         var config = try loadConfig(ctx)
         let target: Target
@@ -185,7 +173,7 @@ enum CLI {
 
     private static func flat(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
-        guard rest.isEmpty else { throw CLIError.usage("eq flat [--device Q]") }
+        guard rest.isEmpty else { throw CLIError.usage("eq flat [--device DEVICE]") }
         var config = try loadConfig(ctx)
         let target: Target
         if let explicit { target = explicit } else { target = try currentDevice(ctx) }
@@ -198,7 +186,7 @@ enum CLI {
 
     private static func copy(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (target, rest) = try splitDeviceOption(args, flag: "--to", ctx)
-        guard let target, rest.isEmpty else { throw CLIError.usage("eq copy --to Q") }
+        guard let target, rest.isEmpty else { throw CLIError.usage("eq copy --to DEVICE") }
         var config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
         var profile = config.profile(forDeviceUID: current.uid).profile
@@ -241,10 +229,10 @@ enum CLI {
         }
         if clear {
             guard sourceOption == nil, !keepBands, !refresh else { throw CLIError.usage("--clear takes only --device") }
-            guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device Q]") }
+            guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device DEVICE]") }
         } else {
             guard positional.count == 1 else {
-                throw CLIError.usage("eq import <file|url|name> [--device Q] [--source S] [--keep-bands] [--refresh]")
+                throw CLIError.usage("eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--keep-bands] [--refresh]")
             }
         }
 
@@ -529,7 +517,7 @@ enum CLI {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         var config = try loadConfig(ctx)
         _ = config.seedPresetsIfNeeded()
-        let usage = "eq preset [save|use|show|rm <name> | rename <old> <new>] [--device Q]"
+        let usage = "eq preset [save|use|show|rm <name> | rename <old> <new>] [--device DEVICE]"
         func target() throws -> Target { if let explicit { return explicit } else { return try currentDevice(ctx) } }
         func existing(_ name: String) throws -> (name: String, profile: Profile) {
             guard let found = config.preset(named: name) else { throw CLIError.noSuchPreset(name) }

@@ -12,14 +12,21 @@ enum Paint {
 
     static var forced: Bool?
 
-    static var enabled: Bool {
-        forced ?? (isatty(1) == 1
+    static var enabled: Bool { enabled(fd: 1) }
+
+    /// stderr can be a terminal while stdout is piped, so errors decide on fd 2 separately.
+    static func enabled(fd: Int32) -> Bool {
+        forced ?? (isatty(fd) == 1
             && ProcessInfo.processInfo.environment["NO_COLOR"] == nil
             && ProcessInfo.processInfo.environment["TERM"] != "dumb")
     }
 
     static func ink(_ ink: Ink, _ text: String) -> String {
-        guard enabled else { return text }
+        self.ink(ink, text, on: enabled)
+    }
+
+    static func ink(_ ink: Ink?, _ text: String, on: Bool) -> String {
+        guard on, let ink else { return text }
         return "\u{1B}[\(ink.rawValue)m\(text)\u{1B}[0m"
     }
 

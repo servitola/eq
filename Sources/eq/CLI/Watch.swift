@@ -341,6 +341,12 @@ private func restoreTerminalAndExit(_: Int32) {
 }
 
 enum LiveTerminal {
+    static func width(fd: Int32) -> Int {
+        var size = winsize()
+        guard isatty(fd) == 1, ioctl(fd, TIOCGWINSZ, &size) == 0, size.ws_col > 0 else { return 80 }
+        return Int(size.ws_col)
+    }
+
     static func probe() -> (isTTY: Bool, cols: Int, rows: Int) {
         var size = winsize()
         guard isatty(0) == 1, isatty(1) == 1, ioctl(1, TIOCGWINSZ, &size) == 0 else { return (false, 0, 0) }
