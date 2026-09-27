@@ -60,10 +60,17 @@ final class EQProcessor {
         snap.limiterEnabled = limiterEnabled
         snap.limiterCeilingLinear = Float(pow(10, limiterCeilingDB / 20))
         snap.bypassed = bypassed
+
+        // `snap` must not survive the swap: a second live reference to its `states` buffer
+        // would force the audio thread into a COW copy if it swaps this snapshot in mid-window.
+        var incoming: Snapshot? = snap
         os_unfair_lock_lock(&lock)
-        pendingSnapshot = snap
+        swap(&pendingSnapshot, &incoming)
+        let retired = retiredSnapshot
         retiredSnapshot = nil
         os_unfair_lock_unlock(&lock)
+        _ = retired
+        _ = incoming
     }
 
     /// Process non-interleaved Float32 channel buffers in place. Audio thread only.
