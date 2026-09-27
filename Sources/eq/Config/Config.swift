@@ -17,6 +17,60 @@ struct Filter: Codable, Equatable {
     }
 }
 
+/// AutoEq's preference layer on top of the curve: its bass and treble boosts, the same shelves at
+/// the same corners (`DEFAULT_BASS_BOOST_FC` 105 Hz, `DEFAULT_TREBLE_BOOST_FC` 10 kHz, Q 0.7), and
+/// its tilt in dB per octave around 632 Hz, the log-centre of 20 Hz–20 kHz (`log_tilt`).
+struct Preference: Codable, Equatable {
+    var bass: Double = 0
+    var treble: Double = 0
+    var tilt: Double = 0
+
+    static let bassShelf = (frequency: 105.0, q: 0.7)
+    static let trebleShelf = (frequency: 10000.0, q: 0.7)
+    static let tiltCentre = 20 * (1000.0).squareRoot()
+    // ±6 dB at 20 Hz and 20 kHz: the same 12 dB end to end the bass and treble ranges allow.
+    static let tiltRange: ClosedRange<Double> = -1.2...1.2
+    // A straight line in log-frequency is no biquad. Two shelves a side, 2.5 octaves apart at
+    // Q 0.6, stay within 0.25 dB per dB/octave of it from 20 Hz to 20 kHz and flatten outside,
+    // where AutoEq's line would keep climbing; more shelves buy little and cost a biquad each.
+    static let tiltSpacing = 2.5
+    static let tiltQ = 0.6
+
+    init(bass: Double = 0, treble: Double = 0, tilt: Double = 0) {
+        self.bass = bass; self.treble = treble; self.tilt = tilt
+    }
+
+    private enum CodingKeys: String, CodingKey { case bass, treble, tilt }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bass = try c.decodeIfPresent(Double.self, forKey: .bass) ?? 0
+        treble = try c.decodeIfPresent(Double.self, forKey: .treble) ?? 0
+        tilt = try c.decodeIfPresent(Double.self, forKey: .tilt) ?? 0
+    }
+
+    var isFlat: Bool { bass == 0 && treble == 0 && tilt == 0 }
+
+    /// Only what is set: a zero shelf would still cost a biquad per channel.
+    var engineBands: [(label: String, band: EQBand)] {
+        var bands: [(label: String, band: EQBand)] = []
+        if bass != 0 {
+            bands.append(("bass shelf", EQBand(type: .lowShelf, frequency: Self.bassShelf.frequency, gain: bass, q: Self.bassShelf.q)))
+        }
+        if treble != 0 {
+            bands.append(("treble shelf", EQBand(type: .highShelf, frequency: Self.trebleShelf.frequency, gain: treble, q: Self.trebleShelf.q)))
+        }
+        if tilt != 0 {
+            let step = tilt * Self.tiltSpacing
+            for octaves in [0.5, 1.5].map({ $0 * Self.tiltSpacing }) {
+                bands.append(("tilt", EQBand(type: .lowShelf, frequency: Self.tiltCentre / pow(2, octaves), gain: -step, q: Self.tiltQ)))
+                bands.append(("tilt", EQBand(type: .highShelf, frequency: Self.tiltCentre * pow(2, octaves), gain: step, q: Self.tiltQ)))
+            }
+        }
+        return bands
+    }
+}
+
 struct Profile: Codable, Equatable {
     var name: String?
     var preamp: Double
@@ -24,13 +78,16 @@ struct Profile: Codable, Equatable {
     var filters: [Filter]
     var imported: String?
     var preset: String?
+    /// nil when flat, so a config without the layer reads and writes as before.
+    var preference: Preference?
 
-    init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil, preset: String? = nil) {
+    init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil, preset: String? = nil,
+         preference: Preference? = nil) {
         self.name = name; self.preamp = preamp; self.bands = bands; self.filters = filters; self.imported = imported
-        self.preset = preset
+        self.preset = preset; self.preference = preference
     }
 
-    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset }
+    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset, preference }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -47,12 +104,20 @@ struct Profile: Codable, Equatable {
             return filter
         }
         preset = try c.decodeIfPresent(String.self, forKey: .preset)
+        preference = try c.decodeIfPresent(Preference.self, forKey: .preference)
+    }
+
+    /// Stores nil rather than an all-zero layer.
+    mutating func setPreference(_ edit: (inout Preference) -> Void) {
+        var layer = preference ?? Preference()
+        edit(&layer)
+        preference = layer.isFlat ? nil : layer
     }
 
     /// `==` stays exact so the daemon still sees a renamed device or a new preset label as a change;
     /// "modified" is about what you hear.
     func sameCurve(as other: Profile) -> Bool {
-        bands == other.bands && preamp == other.preamp
+        bands == other.bands && preamp == other.preamp && (preference ?? Preference()) == (other.preference ?? Preference())
             && filters.count == other.filters.count && zip(filters, other.filters).allSatisfy { $0.sounds(like: $1) }
     }
 
@@ -61,12 +126,16 @@ struct Profile: Codable, Equatable {
     var engineBands: [EQBand] {
         zip(Config.bandFrequencies, bands).map { EQBand(type: .peak, frequency: $0, gain: $1, q: 1.41) }
             + filters.map { EQBand(type: $0.type, frequency: $0.frequency, gain: $0.gain, q: $0.q) }
+            + (preference?.engineBands.map(\.band) ?? [])
     }
 
     /// Names an `engineBands` index the way the user numbers it: a graphic band or "filter N" as `eq filter` lists it.
     func engineBandLabel(_ index: Int) -> String {
         let graphic = min(Config.bandFrequencies.count, bands.count)
-        return index < graphic ? "band \(index + 1)" : "filter \(index - graphic + 1)"
+        if index < graphic { return "band \(index + 1)" }
+        if index < graphic + filters.count { return "filter \(index - graphic + 1)" }
+        let layer = preference?.engineBands ?? []
+        return layer.indices.contains(index - graphic - filters.count) ? layer[index - graphic - filters.count].label : "band \(index + 1)"
     }
 }
 
@@ -84,6 +153,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
     case filterOutOfRange(String, String)
     case badPresetName(String)
     case filterUnstable(String, Int)
+    case preferenceOutOfRange(String, String)
 
     var description: String {
         switch self {
@@ -95,6 +165,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .filterOutOfRange(let key, let what): return "profile \"\(key)\" has a filter with \(what) outside the allowed range"
         case .filterUnstable(let key, let number):
             return "profile \"\(key)\": filter \(number) would be unstable at \(Int(Config.stabilityCheckRate / 1000)) kHz (its output would ring or grow without end); change its frequency or Q"
+        case .preferenceOutOfRange(let key, let what): return "profile \"\(key)\" has \(what) outside the allowed range"
         case .badPresetName(let name): return "preset name \"\(name)\" is not 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ . (or repeats another name)"
         }
     }
@@ -196,6 +267,13 @@ struct Config: Codable, Equatable {
         }
         if let number = firstUnstableFilter(profile.filters, sampleRate: stabilityCheckRate) {
             throw ConfigError.filterUnstable(key, number)
+        }
+        if let layer = profile.preference {
+            if !gainRange.contains(layer.bass) { throw ConfigError.preferenceOutOfRange(key, "bass \(layer.bass) dB (\(span(gainRange)) dB)") }
+            if !gainRange.contains(layer.treble) { throw ConfigError.preferenceOutOfRange(key, "treble \(layer.treble) dB (\(span(gainRange)) dB)") }
+            if !Preference.tiltRange.contains(layer.tilt) {
+                throw ConfigError.preferenceOutOfRange(key, "tilt \(layer.tilt) dB/octave (\(span(Preference.tiltRange)) dB/octave)")
+            }
         }
     }
 

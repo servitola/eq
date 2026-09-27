@@ -13,6 +13,12 @@ its entries under a dated version.
   freq=… gain=… q=… type=…` changes one, `eq filter rm <n>|all` removes. All take `--device`
   and `--json`. `eq` shows a `source` column, `import` or `hand`; the config stores it as
   `"origin"` on each filter.
+- Bass, treble and tilt on top of the curve, as AutoEq defines them: `eq bass <gain>` (low shelf
+  105 Hz, Q 0.7), `eq treble <gain>` (high shelf 10 kHz, Q 0.7), both ±12 dB, and `eq tilt
+  <slope>` in dB per octave around 632 Hz (±1.2), each with `--device` and `--json`. `eq` shows
+  a `preference:` line when any is set; presets carry them; `eq flat` drops them. In `eq watch`
+  `b`/`B` and `t`/`T` (`и`/`И`, `е`/`Е` on a Russian layout) step bass and treble by 0.5 dB, and
+  the header shows `bass +3 treble -2`.
 
 ### Changed
 

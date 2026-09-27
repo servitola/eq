@@ -70,7 +70,7 @@ enum Watch {
     /// `WatchLayout.fit` budgeted. With a `focus` the strip shows only that instrument.
     static func frame(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
                       hint: Bool = false, flash: Int? = nil, note: String? = nil,
-                      preset: Table.PresetMark? = nil, prompt: String? = nil) -> [String] {
+                      preset: Table.PresetMark? = nil, preference: Preference? = nil, prompt: String? = nil) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -92,7 +92,7 @@ enum Watch {
 
         let tableWidth = layout.tableWidth
         let indent = stripped.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Strip.placement(layout).start
-        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, focus: focus)
+        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, preference: preference, focus: focus)
         let margin = String(repeating: " ", count: indent)
 
         var top: [String] = []
@@ -200,7 +200,7 @@ enum Watch {
     /// Segments drop from the right until the line fits, then the flags, then the focus: the
     /// flags explain a surprising sound, and the focus explains why most bars went dim.
     private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int,
-                               preset: Table.PresetMark?, focus: Instrument?) -> (plain: Int, painted: String) {
+                               preset: Table.PresetMark?, preference: Preference?, focus: Instrument?) -> (plain: Int, painted: String) {
         let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
         let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
@@ -212,6 +212,13 @@ enum Watch {
             ("preamp \(preamp) dB", "preamp \(Paint.ink(Paint.gain(f.preamp), preamp)) dB"),
         ]
         if let preset { segments.append((preset.name + (preset.modified ? "*" : ""), Table.presetLabel(preset))) }
+        if let preference {
+            let parts = [("bass", preference.bass), ("treble", preference.treble), ("tilt", preference.tilt)].filter { $0.1 != 0 }
+            if !parts.isEmpty {
+                segments.append((parts.map { "\($0.0) \(String(format: "%+g", $0.1))" }.joined(separator: " "),
+                                 parts.map { "\($0.0) " + Paint.ink(Paint.gain($0.1), String(format: "%+g", $0.1)) }.joined(separator: " ")))
+            }
+        }
         segments.append(("peak \(peak) dB", "peak \(peak) dB"))
         var focusSegment = focus.map { instrument -> (plain: String, painted: String) in
             let text = focusText(instrument)
@@ -291,7 +298,7 @@ enum Watch {
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
                     zones: Bool = false, hintDismissed: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
-                    preset: () -> Table.PresetMark? = { nil },
+                    preset: () -> Table.PresetMark? = { nil }, preference: () -> Preference? = { nil },
                     dismissHint: () -> Void = {}, send: (String) throws -> Void = { _ in }) -> Int32 {
         emit(enter)
         var current = size()
@@ -304,6 +311,7 @@ enum Watch {
         var note: (text: String, left: Int)?
         var prompt: String?
         var mark = preset()
+        var layer = preference()
         var framesSinceMark = 0
         var rate: Double?
         var focused: Instrument? { focus.map { Instruments.all[$0] } }
@@ -325,6 +333,7 @@ enum Watch {
                 show(String(describing: error).split(separator: "\n").first.map(String.init) ?? "")
             }
             mark = preset()
+            layer = preference()
             framesSinceMark = 0
         }
         func request(_ range: HzRange?) -> Bool {
@@ -361,9 +370,9 @@ enum Watch {
                     clear = "\u{1B}[2J"
                 }
                 framesSinceMark += 1
-                if framesSinceMark >= markFrames { mark = preset(); framesSinceMark = 0 }
+                if framesSinceMark >= markFrames { mark = preset(); layer = preference(); framesSinceMark = 0 }
                 let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0,
-                                  flash: flash?.band, note: note?.text, preset: mark, prompt: prompt)
+                                  flash: flash?.band, note: note?.text, preset: mark, preference: layer, prompt: prompt)
                 emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
                 hintLeft = max(hintLeft - 1, 0)
                 flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
@@ -408,7 +417,7 @@ enum Watch {
                     } else {
                         listening = request(instrument.outerSpan)
                     }
-                case .bandStep, .preamp, .cyclePreset, .previousPreset, .undo, .savePreset:
+                case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset:
                     apply(action)
                 }
             }

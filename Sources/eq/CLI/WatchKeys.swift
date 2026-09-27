@@ -3,6 +3,7 @@ import Foundation
 enum WatchAction: Equatable {
     case bandStep(Int, Double)
     case preamp(Double)
+    case bass(Double), treble(Double)
     case cyclePreset, previousPreset, undo
     case savePreset(String)
     case startSave, zones, help, dismissHelp, quit
@@ -24,6 +25,10 @@ enum WatchKeys {
         switch c {
         case "+", "=": return .preamp(step)
         case "-", "_": return .preamp(-step)
+        case "b", "и": return .bass(step)
+        case "B", "И": return .bass(-step)
+        case "t", "е": return .treble(step)
+        case "T", "Е": return .treble(-step)
         case "z", "Z", "я", "Я": return .zones
         case "p", "P", "з", "З": return .cyclePreset
         case "u", "U", "г", "Г": return .undo
@@ -124,7 +129,7 @@ struct KeyBuffer {
 
 enum HintBox {
     static let width = 29
-    private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "p ↑↓ preset", "u undo", "s save",
+    private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "b bass", "t treble", "p ↑↓ preset", "u undo", "s save",
                                           "z zones", "[ ] focus", "l listen", "h help", "q quit"]
 
     /// Whole segments drop from the right to fit `width`, except `q quit`: the way out always shows.
@@ -139,6 +144,7 @@ enum HintBox {
         [("1…0", "band up   0.5 dB")],
         [("⇧1…0", "band down 0.5 dB")],
         [("+ −", "preamp")],
+        [("b t", "bass/treble, ⇧ down")],
         [("p ↑↓", "preset  "), ("u", "undo")],
         [("s", "save as preset")],
         [("z", "zones   "), ("h", "this hint")],

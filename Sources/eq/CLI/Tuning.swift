@@ -133,4 +133,31 @@ extension CLI {
         }
         return number - 1
     }
+
+    /// `eq bass|treble|tilt <value>`: sets that part of the preference layer, 0 removes it.
+    static func preference(_ part: String, _ args: [String], _ ctx: CLIContext) throws -> Output {
+        let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
+        let unit = part == "tilt" ? "dB/octave" : "dB"
+        guard rest.count == 1 else { throw CLIError.usage("eq \(part) [--device DEVICE] <\(part == "tilt" ? "slope" : "gain")>") }
+        let value: Double
+        if part == "tilt" {
+            guard let slope = Double(rest[0].replacingOccurrences(of: ",", with: ".")), slope.isFinite else { throw CLIError.badGain(rest[0]) }
+            guard Preference.tiltRange.contains(slope) else {
+                throw CLIError.usage("tilt \(slope) dB/octave outside \(Preference.tiltRange.lowerBound)…\(Preference.tiltRange.upperBound)")
+            }
+            value = slope
+        } else {
+            value = try BandParser.gain(rest[0])
+        }
+        return try editProfile(explicit, ctx) { profile in
+            profile.setPreference { layer in
+                switch part {
+                case "bass": layer.bass = value
+                case "treble": layer.treble = value
+                default: layer.tilt = value
+                }
+            }
+            return "\(part) " + String(format: "%+.1f", value) + " \(unit)"
+        }
+    }
 }

@@ -50,7 +50,9 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq set 64hz +4 1khz -3` | change bands on the current output's curve |
 | `eq set --device JBL 16khz +1` | on another device, by a piece of its name |
 | `eq preamp -1.5` | preamp for the current curve |
-| `eq flat` | reset: everything to 0, dropping the preset label, filters and any import |
+| `eq bass +3`, `eq treble -2` | AutoEq-style bass / treble shelf on top of the curve, `0` removes it |
+| `eq tilt -0.5` | tilt the whole curve, in dB per octave |
+| `eq flat` | reset: everything to 0, dropping the preset label, filters, bass/treble/tilt and any import |
 | `eq copy --to AirPods` | give another device this curve |
 | `eq devices` | who has a curve, who is connected, which is active |
 | `eq off`, `eq on` | bypass, and back |
@@ -112,6 +114,20 @@ import replaces only the imported filters and puts yours after them; `eq import 
 only the imported ones. A config from before this marks its filters `import` when the profile
 names an import, else `hand`.
 
+## Bass, treble and tilt
+
+A third layer sits on top of the bands and filters, taken from AutoEq's own preference
+settings so the numbers mean the same thing as its `--bass-boost`, `--treble-boost` and
+`--tilt`: `eq bass <gain>` is a low shelf at 105 Hz, `eq treble <gain>` a high shelf at
+10 kHz, both Q 0.7 and −12…+12 dB; `eq tilt <slope>` slopes the whole curve by that many dB per
+octave around 632 Hz (the middle of 20 Hz–20 kHz on a log scale), −1.2…+1.2, positive
+brighter. A straight slope is not something a biquad can do, so tilt runs as four shelves that
+stay within 0.25 dB per dB/octave of AutoEq's line from 20 Hz to 20 kHz and level off outside
+it. All three take `--device DEVICE`; `0` removes that part, and only the parts that are set
+cost any processing. `eq` shows a `preference:` line when any is set, the config stores them
+as `"preference"` on the profile, presets carry them, and `eq flat` drops them. A boost adds
+gain the preamp does not take back; the limiter catches peaks, or lower the preamp yourself.
+
 ## Undo
 
 Every save of the config first copies the previous file to `eq.json.1`, shifting the older
@@ -171,6 +187,8 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 | `1` … `9`, `0` | raise band 32 Hz … 16 kHz by 0.5 dB (`0` is the tenth band, 16 kHz) |
 | Shift + the same key | lower it by 0.5 dB — `! @ # $ % ^ & * ( )` on a US layout, `! " № ; % : * ( )` on a Russian one |
 | `+` / `-` | preamp ±0.5 dB (`=` and `_` work too, no Shift needed) |
+| `b` / `B` | bass shelf ±0.5 dB |
+| `t` / `T` | treble shelf ±0.5 dB |
 | `p`, `↓` | next preset, alphabetically, wrapping round |
 | `↑` | previous preset, wrapping round |
 | `u` | undo the last change made in this session, back to how it started |
@@ -189,11 +207,11 @@ picks it up and the slider marker moves on the next frame, while the band's labe
 bold. When the edit cannot be saved (no config yet, say), the reason shows in a dim line at
 the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
 band 7 (2 kHz) can only be lowered from a US layout; the letter keys work from the same
-physical keys on either layout (`з` for `p`, `г` for `u`, `ы` for `s`, `х`/`ъ` for `[`/`]`,
+physical keys on either layout (`и` for `b`, `е` for `t`, `з` for `p`, `г` for `u`, `ы` for `s`, `х`/`ъ` for `[`/`]`,
 `д` for `l`, and so on). `←` and `→` are reserved and do nothing yet.
 
 The header names the device's preset after the preamp, with the yellow `*` once the curve has
-moved away from it. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
+moved away from it. Bass, treble and tilt follow it when set: `bass +3 treble -2`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
 through this session's steps, preset changes included, one per press, until the curve is as it
 was when the session started; it does not reach past the session — that is `eq undo`. `s`
 turns the bottom line into `save as: ▏`; while it is open every key types into it, digits

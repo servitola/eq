@@ -53,6 +53,7 @@ enum Table {
             rows.append(profile.bands.map { Paint.ink(Paint.gain($0), Paint.glyph(for: $0).leftPadded(to: width)) }.joined())
         }
         rows += [labelsRow(), gainsRow(profile.bands)]
+        if let layer = profile.preference, !layer.isFlat { rows.append("  preference: " + preference(layer)) }
         var lines = rows.joined(separator: "\n")
         if !profile.filters.isEmpty {
             lines += "\n" + filters(profile.filters, imported: profile.imported)
@@ -83,6 +84,14 @@ enum Table {
             return Paint.ink(.bold, base) + Paint.ink(ink, " (\(suffix) · ") + presetLabel(preset) + Paint.ink(ink, ")")
         }
         return Paint.ink(.bold, header) + Paint.ink(.dim, " (") + presetLabel(preset) + Paint.ink(.dim, ")")
+    }
+
+    /// "bass +3.0 dB  tilt -0.5 dB/oct", naming only the parts that are set.
+    static func preference(_ layer: Preference) -> String {
+        [("bass", layer.bass, "dB"), ("treble", layer.treble, "dB"), ("tilt", layer.tilt, "dB/oct")]
+            .filter { $0.1 != 0 }
+            .map { "\($0.0) " + Paint.ink(Paint.gain($0.1), gain($0.1)) + " \($0.2)" }
+            .joined(separator: "  ")
     }
 
     static func compactGains(_ bands: [Double]) -> String {

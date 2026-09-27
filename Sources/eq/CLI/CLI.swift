@@ -105,6 +105,7 @@ enum CLI {
         case "copy": return try copy(rest, ctx)
         case "import": return try importCommand(rest, ctx)
         case "filter": return try filter(rest, ctx)
+        case "bass", "treble", "tilt": return try preference(command, rest, ctx)
         case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
@@ -429,7 +430,7 @@ enum CLI {
                                  zones: !args.isEmpty,
                                  hintDismissed: FileManager.default.fileExists(atPath: marker.path),
                                  emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
-                                 edit: session.apply, preset: session.presetMark,
+                                 edit: session.apply, preset: session.presetMark, preference: session.preference,
                                  dismissHint: {
                                      try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
                                      FileManager.default.createFile(atPath: marker.path, contents: nil)
@@ -462,6 +463,11 @@ enum CLI {
         private var backedUp = false
 
         init(_ ctx: CLIContext) { self.ctx = ctx }
+
+        func preference() -> Preference? {
+            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
+            return config.profile(forDeviceUID: target.uid).profile.preference
+        }
 
         func presetMark() -> Table.PresetMark? {
             guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
@@ -502,6 +508,10 @@ enum CLI {
                 profile.bands[band] = stepped(profile.bands[band], delta, Config.gainRange)
             case .preamp(let delta):
                 profile.preamp = stepped(profile.preamp, delta, Config.preampRange)
+            case .bass(let delta):
+                profile.setPreference { $0.bass = stepped($0.bass, delta, Config.gainRange) }
+            case .treble(let delta):
+                profile.setPreference { $0.treble = stepped($0.treble, delta, Config.gainRange) }
             case .cyclePreset, .previousPreset:
                 _ = config.seedPresetsIfNeeded()
                 let names = (config.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
@@ -534,7 +544,7 @@ enum CLI {
         var profile = editableProfile(config, target)
         if let old = config.preset(named: name) { config.presets?[old.name] = nil }
         config.presets?[name] = Profile(name: nil, preamp: profile.preamp, bands: profile.bands,
-                                        filters: profile.filters, imported: profile.imported)
+                                        filters: profile.filters, imported: profile.imported, preference: profile.preference)
         profile.preset = name
         config.setProfile(profile, forDeviceUID: target.uid)
     }
