@@ -57,6 +57,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
 | `eq init` | write the default config if there is none |
 | `eq import "WH-1000XM4"` | fetch and apply an AutoEq correction by headphone name |
+| `eq import "airpods pro 2" --variant anc-on` | pick one device state when a model has several |
+| `eq import --search wh1000xm4` | list what a name matches, with source and variant, without importing |
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands |
 | `eq preset` | list presets; the current device's one marked `*` |
@@ -263,6 +265,17 @@ not exact — the `ParametricEQ.txt` of the same model is preferred when both ex
 `--source NAME` to pick a reviewer (oratory1990, crinacle, Rtings, …) when a name matches
 several, and `--keep-bands` to layer the correction on top of your hand-tuned bands instead
 of resetting them to flat.
+
+Names are matched loosely: case, spaces and hyphens don't count (`wh1000xm4`, `airpods pro2`),
+the brand may be left out, and a few nicknames are known (`xm4`, `app2`). A typo gets a "did
+you mean" list instead of a guess, and a name that fits several models lists them.
+
+Many models are measured in several states, written as a tag after the name: `(ANC on)`,
+`(ANC off)`, `(transparency mode)`, `(sample 2)`. Without `--variant`, `eq import` takes the
+entry with no tag, then the ANC-on one, and otherwise stops and lists the variants.
+`--variant` takes the tag in any spelling, or its start (`anc-off`, `transparency`, `51db`).
+`eq import --search <name>` shows every match — model, variant, source — and marks with `*`
+the one a plain `eq import` would apply; `--json` gives the same list.
 
 ## How it works
 

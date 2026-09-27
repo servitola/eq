@@ -9,7 +9,7 @@ final class AutoEqIndexTests: XCTestCase {
 
     func testParseDecodesPathsAndSources() throws {
         let e = try entries()
-        XCTAssertEqual(e.count, 9)
+        XCTAssertEqual(e.count, 19)
         XCTAssertEqual(e[1], AutoEqEntry(name: "Sony WH-1000XM4", path: "oratory1990/over-ear/Sony WH-1000XM4", source: "oratory1990"))
         XCTAssertEqual(e[3].path, "Rtings/Bruel & Kjaer 5128 over-ear/Sony WH-1000XM4")
         XCTAssertEqual(e[8], AutoEqEntry(name: "1MORE Aero (ANC Off)", path: "HypetheSonics/GRAS RA0045 in-ear/1MORE Aero (ANC Off)", source: "HypetheSonics"))
@@ -25,7 +25,7 @@ final class AutoEqIndexTests: XCTestCase {
     func testExactNameBeatsSubstringAndAmbiguityLists() throws {
         let e = try entries()
         XCTAssertEqual(AutoEqIndex.match("sony wh-1000xm5", in: e, source: nil), .one(e[4]))
-        XCTAssertEqual(AutoEqIndex.match("sony", in: e, source: nil), .ambiguous(["Sony WH-1000XM3", "Sony WH-1000XM4", "Sony WH-1000XM5"]))
+        XCTAssertEqual(AutoEqIndex.match("sony", in: e, source: nil), .ambiguous(["Sony WF-1000XM4", "Sony WH-1000XM3", "Sony WH-1000XM4", "Sony WH-1000XM5"]))
         XCTAssertEqual(AutoEqIndex.match("bose", in: e, source: nil), .none)
     }
 

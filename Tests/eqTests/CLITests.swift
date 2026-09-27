@@ -340,6 +340,84 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("AirPods Pro 2"), result.output)
     }
 
+    private final class Fetches { var urls: [String] = [] }
+
+    @discardableResult
+    private func serveFixtureIndex() throws -> Fetches {
+        let index = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "INDEX", withExtension: "md", subdirectory: "Fixtures")))
+        let parametric = try fixtureText("Sony WH-1000XM4 ParametricEQ")
+        let fetches = Fetches()
+        context.fetch = { url in
+            fetches.urls.append(url.absoluteString)
+            return Data((url == AutoEqIndex.indexURL ? index : parametric).utf8)
+        }
+        return fetches
+    }
+
+    func testImportVariantPicksTheTaggedEntry() throws {
+        _ = runCLI("init")
+        let fetches = try serveFixtureIndex()
+        let result = runCLI("import", "wh1000xm4", "--variant", "anc-off")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        let urls = fetches.urls
+        XCTAssertTrue(urls[1].contains("HypetheSonics/over-ear/Sony%20WH-1000XM4%20(ANC%20Off)/"), urls[1])
+        XCTAssertEqual(try context.store.load().devices["BUILTIN"]?.imported, "AutoEq HypetheSonics · Sony WH-1000XM4 (ANC Off) · 2026-09-27")
+    }
+
+    func testImportAsksForVariantAndSuggestsOnTypo() throws {
+        _ = runCLI("init")
+        try serveFixtureIndex()
+        let before = try context.store.load()
+        var result = runCLI("import", "moondrop aria")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("several variants — pick one with --variant:\n  sample-1\n  sample-2"), result.output)
+        XCTAssertEqual((try json("import", "moondrop aria")["error"] as? [String: Any])?["code"] as? String, "importVariant")
+        result = runCLI("import", "airpods pro 2", "--variant", "bogus")
+        XCTAssertTrue(result.output.contains("has no variant \"bogus\""), result.output)
+        result = runCLI("import", "sony wh-1000xm6")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("did you mean:\n  Sony WH-1000XM3\n  Sony WH-1000XM4"), result.output)
+        XCTAssertEqual((try json("import", "sony wh-1000xm6")["error"] as? [String: Any])?["code"] as? String, "importNotFound")
+        XCTAssertEqual(try context.store.load(), before)
+    }
+
+    func testImportSearchListsWithoutImporting() throws {
+        let fetches = try serveFixtureIndex()
+        let result = runCLI("import", "--search", "wh1000xm4")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(fetches.urls.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: context.store.url.path))
+        let lines = result.output.components(separatedBy: "\n")
+        XCTAssertEqual(lines[0], "5 matches for \"wh1000xm4\"")
+        XCTAssertTrue(lines[1].hasPrefix("* Sony WH-1000XM4  —        oratory1990"), lines[1])
+        XCTAssertTrue(lines[5].contains("anc-on   HypetheSonics"), lines[5])
+        XCTAssertEqual(lines.last, "* is what eq import \"wh1000xm4\" applies")
+
+        let j = try json("import", "--search", "airpods pro 2", "--source", "crinacle")
+        let results = try XCTUnwrap(j["results"] as? [[String: Any]])
+        XCTAssertEqual(results.count, 4)
+        XCTAssertEqual(results[0]["variantKey"] as? String, "51db-anc")
+        XCTAssertEqual(results[0]["model"] as? String, "Apple AirPods Pro 2")
+        XCTAssertEqual(results[0]["database"] as? String, "AutoEq")
+        XCTAssertEqual(results.filter { $0["pick"] as? Bool == true }.map { $0["variant"] as? String }, ["ANC mode"])
+
+        let variants = runCLI("import", "--search", "moondrop aria")
+        XCTAssertTrue(variants.output.hasSuffix("several variants — add --variant sample-1 | sample-2"), variants.output)
+    }
+
+    func testImportSearchWithoutMatchSuggestsAndFails() throws {
+        try serveFixtureIndex()
+        let result = runCLI("import", "--search", "moondorp aria")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertFalse(result.isError)
+        XCTAssertEqual(result.output, "no headphone matches \"moondorp aria\" — did you mean: Moondrop Aria")
+        let j = try json("import", "--search", "moondorp aria")
+        XCTAssertEqual(j["suggestions"] as? [String], ["Moondrop Aria"])
+        XCTAssertEqual((j["results"] as? [Any])?.count, 0)
+        XCTAssertEqual(runCLI("import", "--search", "sony", "--device", "jbl").exitCode, 2)
+        XCTAssertEqual(runCLI("import", "--search", "sony", "--keep-bands").exitCode, 2)
+    }
+
     func testImportAmbiguityListIsCapped() {
         _ = runCLI("init")
         let index = (1...25).map { "- [Model \($0)](./s/r/Model \($0)) by s" }.joined(separator: "\n")
@@ -354,10 +432,10 @@ final class CLITests: XCTestCase {
         _ = runCLI("init")
         let file = dir.appendingPathComponent("xm4.txt")
         try fixtureText("Sony WH-1000XM4 ParametricEQ").write(to: file, atomically: true, encoding: .utf8)
-        for args in [[file.path, "--source", "crinacle"], ["https://example.com/x.txt", "--refresh"]] {
+        for args in [[file.path, "--source", "crinacle"], ["https://example.com/x.txt", "--refresh"], [file.path, "--variant", "anc-on"]] {
             let result = CLI.run(["import"] + args, context: context)
             XCTAssertEqual(result.exitCode, 2)
-            XCTAssertTrue(result.output.contains("--source and --refresh apply to a headphone name"), result.output)
+            XCTAssertTrue(result.output.contains("--source, --variant and --refresh apply to a headphone name"), result.output)
         }
     }
 

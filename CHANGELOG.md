@@ -5,6 +5,22 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq import --search <name>` lists every headphone a name matches, with its variant and
+  source, marking with `*` the one `eq import` would apply; `--json` gives the list. Nothing
+  is imported.
+- `eq import <name> --variant <tag>` picks a device state such as `anc-on`, `anc-off`,
+  `transparency-mode` or `sample-2`. Without it, the untagged entry wins, then ANC on; a
+  model with only other variants lists them and asks.
+
+### Changed
+
+- Headphone names match loosely: case, spaces and hyphens are ignored (`wh1000xm4`,
+  `airpods pro2`), the brand can be omitted, and `xm4`, `app2` and a few other nicknames
+  work. A typo now answers "did you mean" with the closest models instead of "no
+  ParametricEQ.txt".
+
 ## 2026.09.27.8 — 2026-09-27
 
 ### Added

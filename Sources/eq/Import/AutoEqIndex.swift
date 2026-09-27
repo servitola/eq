@@ -1,6 +1,6 @@
 import Foundation
 
-struct AutoEqEntry: Equatable {
+struct AutoEqEntry: Headphone {
     var name: String
     var path: String
     var source: String
@@ -12,11 +12,7 @@ enum AutoEqIndex {
     static let cacheMaxAge: TimeInterval = 7 * 24 * 3600
     static let preferredSources = ["oratory1990", "crinacle", "Rtings"]
 
-    enum Match: Equatable {
-        case one(AutoEqEntry)
-        case none
-        case ambiguous([String])
-    }
+    typealias Match = HeadphoneMatch.Match<AutoEqEntry>
 
     private static let lineRegex = try! NSRegularExpression(
         pattern: #"^- \[([^\]]+)\]\(\./(.+)\) by (.+?)(?: on .*)?$"#
@@ -34,34 +30,12 @@ enum AutoEqIndex {
         }
     }
 
-    static func match(_ query: String, in entries: [AutoEqEntry], source: String?) -> Match {
-        let lowerQuery = query.lowercased()
-        var candidates = entries.filter { $0.name.lowercased().contains(lowerQuery) }
-        let exact = candidates.filter { $0.name.lowercased() == lowerQuery }
-        if !exact.isEmpty { candidates = exact }
+    static func match(_ query: String, in entries: [AutoEqEntry], source: String?, variant: String? = nil) -> Match {
+        HeadphoneMatch.match(query, in: entries, source: source, variant: variant, rank: rank)
+    }
 
-        let uniqueNames = Set(candidates.map { $0.name.lowercased() })
-        if uniqueNames.count > 1 {
-            let names = Array(Set(candidates.map { $0.name })).sorted()
-            return .ambiguous(names)
-        }
-        guard !candidates.isEmpty else { return .none }
-
-        if let source {
-            let bySource = candidates.filter { $0.source.lowercased() == source.lowercased() }
-            guard let first = bySource.first else { return .none }
-            return .one(first)
-        }
-
-        func rank(_ entry: AutoEqEntry) -> Int {
-            preferredSources.firstIndex { $0.lowercased() == entry.source.lowercased() } ?? preferredSources.count
-        }
-        let ranked = candidates.sorted {
-            let r0 = rank($0), r1 = rank($1)
-            if r0 != r1 { return r0 < r1 }
-            return $0.source < $1.source
-        }
-        return .one(ranked[0])
+    static func rank(_ entry: AutoEqEntry) -> Int {
+        preferredSources.firstIndex { $0.lowercased() == entry.source.lowercased() } ?? preferredSources.count
     }
 
     static func fileURL(for entry: AutoEqEntry) -> URL {

@@ -118,7 +118,7 @@ final class HelpTests: XCTestCase {
     func testCommandsOfEachBlock() {
         XCTAssertEqual(CommandHelp.entries(for: "on").count, 1)
         XCTAssertEqual(CommandHelp.entries(for: "off").count, 1)
-        XCTAssertEqual(CommandHelp.entries(for: "import").count, 2)
+        XCTAssertEqual(CommandHelp.entries(for: "import").count, 3)
         XCTAssertEqual(CommandHelp.entries(for: "show").count, 1)
         XCTAssertEqual(CommandHelp.tokens("[--device"), [.punctuation("["), .flag("--device")])
         XCTAssertEqual(CommandHelp.tokens("DEVICE]"), [.placeholder("DEVICE"), .punctuation("]")])

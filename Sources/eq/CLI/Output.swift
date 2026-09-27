@@ -86,6 +86,8 @@ extension CLIError {
         case .importUnrecognized: return "importUnrecognized"
         case .importNotFound: return "importNotFound"
         case .importAmbiguous: return "importAmbiguous"
+        case .importSuggest: return "importNotFound"
+        case .importVariant: return "importVariant"
         case .network: return "network"
         case .noSuchPreset: return "noSuchPreset"
         case .badPresetName: return "badPresetName"

@@ -208,6 +208,8 @@ enum CLI {
     private static func importCommand(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, afterDevice) = try splitDeviceOption(args, flag: "--device", ctx)
         var sourceOption: String?
+        var variantOption: String?
+        var search = false
         var keepBands = false
         var refresh = false
         var clear = false
@@ -219,6 +221,13 @@ enum CLI {
                 guard i + 1 < afterDevice.count else { throw CLIError.usage("--source needs a value") }
                 sourceOption = afterDevice[i + 1]
                 i += 2
+            case "--variant":
+                guard i + 1 < afterDevice.count else { throw CLIError.usage("--variant needs a value") }
+                variantOption = afterDevice[i + 1]
+                i += 2
+            case "--search":
+                search = true
+                i += 1
             case "--keep-bands":
                 keepBands = true
                 i += 1
@@ -235,12 +244,18 @@ enum CLI {
                 i += 1
             }
         }
+        if search {
+            guard positional.count == 1, explicit == nil, variantOption == nil, !keepBands, !clear else {
+                throw CLIError.usage("eq import --search <name> [--source SOURCE] [--refresh]")
+            }
+            return try searchHeadphones(positional[0], sourceOption: sourceOption, refresh: refresh, ctx)
+        }
         if clear {
-            guard sourceOption == nil, !keepBands, !refresh else { throw CLIError.usage("--clear takes only --device") }
+            guard sourceOption == nil, variantOption == nil, !keepBands, !refresh else { throw CLIError.usage("--clear takes only --device") }
             guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device DEVICE]") }
         } else {
             guard positional.count == 1 else {
-                throw CLIError.usage("eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--keep-bands] [--refresh]")
+                throw CLIError.usage("eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--variant VARIANT] [--keep-bands] [--refresh]")
             }
         }
 
@@ -260,7 +275,7 @@ enum CLI {
         }
 
         let query = positional[0]
-        let (text, origin, what) = try resolveImportSource(query, sourceOption: sourceOption, refresh: refresh, ctx)
+        let (text, origin, what) = try resolveImportSource(query, sourceOption: sourceOption, variant: variantOption, refresh: refresh, ctx)
 
         let result: AutoEqParser.Result
         do { result = try AutoEqParser.parse(text) }
@@ -293,12 +308,12 @@ enum CLI {
     }
 
     private static func resolveImportSource(
-        _ query: String, sourceOption: String?, refresh: Bool, _ ctx: CLIContext
+        _ query: String, sourceOption: String?, variant: String?, refresh: Bool, _ ctx: CLIContext
     ) throws -> (text: String, origin: String, what: String) {
         let isFile = FileManager.default.fileExists(atPath: query)
         let isURL = query.hasPrefix("http://") || query.hasPrefix("https://")
-        if (isFile || isURL) && (sourceOption != nil || refresh) {
-            throw CLIError.usage("--source and --refresh apply to a headphone name")
+        if (isFile || isURL) && (sourceOption != nil || variant != nil || refresh) {
+            throw CLIError.usage("--source, --variant and --refresh apply to a headphone name")
         }
         if isFile {
             let text: String
@@ -315,15 +330,11 @@ enum CLI {
             return (String(decoding: data, as: UTF8.self), "url \(url.host ?? query)", query)
         }
 
-        let entries: [AutoEqEntry]
-        do { entries = try AutoEqCache(directory: ctx.cacheDirectory).load(fetch: ctx.fetch, refresh: refresh) }
-        catch {
-            let cachePath = ctx.cacheDirectory.appendingPathComponent("INDEX.md").path
-            throw CLIError.network("\(error) — the last index is kept in \(cachePath); pass --refresh to retry")
-        }
-
-        switch AutoEqIndex.match(query, in: entries, source: sourceOption) {
+        let entries = try loadAutoEqIndex(refresh: refresh, ctx)
+        switch AutoEqIndex.match(query, in: entries, source: sourceOption, variant: variant) {
         case .none: throw CLIError.importNotFound(sourceOption.map { "\(query) from \($0)" } ?? query)
+        case .didYouMean(let names): throw CLIError.importSuggest(query, names)
+        case .variants(let model, let keys): throw CLIError.importVariant(model, keys, asked: variant)
         case .ambiguous(let names):
             let shown = 20
             let listed = names.count > shown ? Array(names.prefix(shown)) + ["… and \(names.count - shown) more"] : names
@@ -337,6 +348,29 @@ enum CLI {
             let origin = "AutoEq \(entry.source) · \(entry.name)"
             return (String(decoding: data, as: UTF8.self), origin, what)
         }
+    }
+
+    private static func loadAutoEqIndex(refresh: Bool, _ ctx: CLIContext) throws -> [AutoEqEntry] {
+        do { return try AutoEqCache(directory: ctx.cacheDirectory).load(fetch: ctx.fetch, refresh: refresh) }
+        catch {
+            let cachePath = ctx.cacheDirectory.appendingPathComponent("INDEX.md").path
+            throw CLIError.network("\(error) — the last index is kept in \(cachePath); pass --refresh to retry")
+        }
+    }
+
+    private static func searchHeadphones(_ query: String, sourceOption: String?, refresh: Bool, _ ctx: CLIContext) throws -> Output {
+        var entries = try loadAutoEqIndex(refresh: refresh, ctx)
+        if let sourceOption { entries = entries.filter { $0.source.lowercased() == sourceOption.lowercased() } }
+        let found = HeadphoneMatch.search(query, in: entries, rank: AutoEqIndex.rank)
+        let pick: AutoEqEntry?
+        let hint: [String]
+        switch AutoEqIndex.match(query, in: entries, source: nil) {
+        case .one(let entry): pick = entry; hint = []
+        case .variants(_, let keys): pick = nil; hint = keys
+        default: pick = nil; hint = []
+        }
+        let rows = found.hits.map { ImportSearch.Row(name: $0.name, source: $0.source, database: "AutoEq", pick: $0 == pick) }
+        return ImportSearch.output(query: query, rows: rows, suggestions: found.suggestions, variants: hint)
     }
 
     private static func devices(_ ctx: CLIContext) throws -> Output {
