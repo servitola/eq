@@ -157,8 +157,8 @@ final class Daemon {
             out: processor.meter.outputDB.map(MeterFrame.round1),
             peak: MeterFrame.round1(processor.meter.peakDB),
             limiting: processor.limiting,
-            gains: profile?.bands ?? [],
-            preamp: profile?.preamp ?? 0,
+            gains: (profile?.bands ?? []).map(MeterFrame.round1),
+            preamp: MeterFrame.round1(profile?.preamp ?? 0),
             enabled: config.enabled)
     }
 

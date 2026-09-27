@@ -32,6 +32,7 @@ final class MeterServer {
         let path = socketURL.path
         let bytes = path.utf8CString
         guard bytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else { throw Failure.pathTooLong(path) }
+        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
         addr.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &addr.sun_path) { raw in bytes.withUnsafeBytes { raw.copyMemory(from: $0) } }
 
@@ -123,8 +124,13 @@ final class MeterServer {
         guard let line = try? MeterFrame.encodeLine(source()) else { return }
         for fd in clientFDs {
             let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
-            // EAGAIN: a slow reader's buffer is full; skipping one frame beats blocking the daemon.
-            if written == 0 || (written < 0 && errno != EAGAIN) { drop(fd, notify: true) }
+            if written < 0 {
+                // EAGAIN: a slow reader's buffer is full; skipping one frame beats blocking the daemon.
+                if errno != EAGAIN { drop(fd, notify: true) }
+            } else if written < line.count {
+                // A short write would glue the next line onto this one's tail for the reader; drop instead.
+                drop(fd, notify: true)
+            }
         }
     }
 }

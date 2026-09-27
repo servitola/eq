@@ -22,4 +22,10 @@ final class MeterFrameTests: XCTestCase {
             XCTAssertTrue(text.contains("\"\(key)\":"), key)
         }
     }
+
+    func testRound1() {
+        XCTAssertEqual(MeterFrame.round1(3.14159), 3.1)
+        XCTAssertTrue(abs(MeterFrame.round1(-0.04)) < 1e-9)
+        XCTAssertEqual(MeterFrame.round1(4.85), 4.9)
+    }
 }
