@@ -102,6 +102,8 @@ final class Daemon {
     private var rebuilding = false
     private var signalSources: [DispatchSourceSignal] = []
     private var meterServer: MeterServer?
+    // The daemon's copy survives engine stops, which clear the processor's; applyProfile re-applies it.
+    private var solo: SoloRange?
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     private lazy var settle = Debouncer(delay: DaemonPolicy.settleDelay, queue: queue) { [weak self] in self?.reconcile() }
     private var power: SystemPower?
@@ -194,13 +196,28 @@ final class Daemon {
             onClientsChanged: { n in
                 processor.meteringEnabled = n > 0
                 Log.write("meter: \(n) client\(n == 1 ? "" : "s")")
-            })
+            },
+            onSolo: { [unowned self] range in self.setSolo(range) })
         do {
             try server.start()
             meterServer = server
         } catch {
             Log.write("meter socket unavailable: \(error)")
         }
+    }
+
+    private func setSolo(_ range: SoloRange?) -> Bool {
+        let processor = engine.processor
+        guard let range else {
+            if solo != nil { Log.write("solo off") }
+            solo = nil
+            processor.clearSolo()
+            return true
+        }
+        guard processor.setSolo(low: range.low, high: range.high) else { return false }
+        if solo != range { Log.write("solo \(Int(range.low))–\(Int(range.high)) Hz") }
+        solo = range
+        return true
     }
 
     private func frame() -> MeterFrame {
@@ -216,7 +233,8 @@ final class Daemon {
             limiting: processor.limiting,
             gains: (profile?.bands ?? []).map(MeterFrame.round1),
             preamp: MeterFrame.round1(profile?.preamp ?? 0),
-            enabled: config.enabled)
+            enabled: config.enabled,
+            solo: processor.effectiveSolo)
     }
 
     // MARK: - Engine
@@ -319,6 +337,7 @@ final class Daemon {
         }
         announcedUID = device.uid
         profileSource = resolved.source
+        engine.processor.solo = solo
         let unstable = engine.processor.apply(profile: resolved.profile, enabled: config.enabled)
         let rate = Int(engine.processor.sampleRate)
         filterWarnings = unstable.map { "\(resolved.profile.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }

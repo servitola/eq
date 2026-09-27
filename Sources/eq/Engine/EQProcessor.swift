@@ -30,6 +30,17 @@ final class EQProcessor {
     private var retiredSnapshot: Snapshot?
     private var lock = os_unfair_lock()
 
+    private struct Parameters {
+        var bands: [EQBand], preampDB: Double, outputGainDB: Double
+        var limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool
+    }
+    // Kept so a solo change can rebuild the snapshot without the caller resending the profile.
+    private var parameters: Parameters?
+    /// Main queue only. The requested range; `effectiveSolo` is what it becomes at the current rate.
+    /// Assigning it takes effect on the next `update`; `setSolo`/`clearSolo` rebuild at once.
+    var solo: SoloRange?
+    var effectiveSolo: SoloRange? { solo.flatMap { Self.clampSolo(low: $0.low, high: $0.high, sampleRate: sampleRate) } }
+
     private var limiterEnvelope: Float = 0
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
@@ -70,6 +81,33 @@ final class EQProcessor {
         meter.reset()
     }
 
+    static func clampSolo(low: Double, high: Double, sampleRate: Double) -> SoloRange? {
+        guard low.isFinite, high.isFinite, sampleRate > 0 else { return nil }
+        let clamped = SoloRange(low: max(low, 20), high: min(high, 0.45 * sampleRate))
+        return clamped.low < clamped.high ? clamped : nil
+    }
+
+    /// Main queue. Returns false, changing nothing, when the range is empty after clamping.
+    @discardableResult
+    func setSolo(low: Double, high: Double) -> Bool {
+        guard Self.clampSolo(low: low, high: high, sampleRate: sampleRate) != nil else { return false }
+        solo = SoloRange(low: low, high: high)
+        rebuild()
+        return true
+    }
+
+    func clearSolo() {
+        guard solo != nil else { return }
+        solo = nil
+        rebuild()
+    }
+
+    private func rebuild() {
+        guard let p = parameters else { return }
+        update(bands: p.bands, preampDB: p.preampDB, outputGainDB: p.outputGainDB,
+               limiterEnabled: p.limiterEnabled, limiterCeilingDB: p.limiterCeilingDB, bypassed: p.bypassed)
+    }
+
     /// Races the audio thread; call only while nothing is rendering.
     func renderStateForTesting() -> [Float] {
         snapshot.states.flatMap { [$0.z1, $0.z2] } + [limiterEnvelope]
@@ -80,7 +118,10 @@ final class EQProcessor {
     @discardableResult
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
                 limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) -> [Int] {
+        parameters = Parameters(bands: bands, preampDB: preampDB, outputGainDB: outputGainDB,
+                                limiterEnabled: limiterEnabled, limiterCeilingDB: limiterCeilingDB, bypassed: bypassed)
         var unstable: [Int] = []
+        let solo = effectiveSolo
         // Built inside a closure so no local keeps a second reference to the `states` buffer:
         // one would force the audio thread into a COW copy if it swaps this snapshot in mid-window.
         var incoming: Snapshot? = {
@@ -96,12 +137,18 @@ final class EQProcessor {
                 }
                 return c
             }
+            if let solo {
+                // Listening to a range with the EQ switched off still has to isolate it, so the
+                // user's curve is dropped but the solo pair runs.
+                if bypassed { snap.coefficients = [] }
+                snap.coefficients += Self.soloCoefficients(solo, sampleRate: sampleRate)
+            }
             snap.states = Array(repeating: BiquadState(), count: 2 * snap.coefficients.count)
-            snap.preampLinear = Float(pow(10, preampDB / 20))
-            snap.outputGainLinear = Float(pow(10, outputGainDB / 20))
+            snap.preampLinear = bypassed ? 1 : Float(pow(10, preampDB / 20))
+            snap.outputGainLinear = bypassed ? 1 : Float(pow(10, outputGainDB / 20))
             snap.limiterEnabled = limiterEnabled
             snap.limiterCeilingLinear = Float(pow(10, limiterCeilingDB / 20))
-            snap.bypassed = bypassed
+            snap.bypassed = bypassed && solo == nil
             return snap
         }()
         os_unfair_lock_lock(&lock)
@@ -112,6 +159,14 @@ final class EQProcessor {
         _ = retired
         _ = incoming
         return unstable
+    }
+
+    // Two 2nd-order Butterworth sections per edge: a 4th-order slope, -6 dB at the edge itself.
+    private static func soloCoefficients(_ solo: SoloRange, sampleRate: Double) -> [BiquadCoefficients] {
+        let q = 0.5.squareRoot()
+        let hp = BiquadCoefficients.make(type: .highPass, frequency: solo.low, gainDB: 0, q: q, sampleRate: sampleRate)
+        let lp = BiquadCoefficients.make(type: .lowPass, frequency: solo.high, gainDB: 0, q: q, sampleRate: sampleRate)
+        return [hp, hp, lp, lp].map { $0.isStable ? $0 : BiquadCoefficients() }
     }
 
     /// Process non-interleaved Float32 channel buffers in place. Audio thread only.
