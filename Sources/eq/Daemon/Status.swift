@@ -17,6 +17,7 @@ struct Status: Codable, Equatable {
     var sampleRate: Double
     var profile: ProfileSource?
     var framesProcessed: UInt64
+    var callbacks: UInt64
     var enabled: Bool
     var error: String?
     var pid: Int32
@@ -58,5 +59,26 @@ struct Status: Codable, Equatable {
 
     func isAlive(now: Date = Date()) -> Bool {
         isFresh(now: now) && kill(pid, 0) == 0
+    }
+}
+
+extension Status {
+    private enum CodingKeys: String, CodingKey {
+        case state, device, sampleRate, profile, framesProcessed, callbacks, enabled, error, pid, updatedAt
+    }
+
+    // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        state = try c.decode(State.self, forKey: .state)
+        device = try c.decodeIfPresent(Device.self, forKey: .device)
+        sampleRate = try c.decode(Double.self, forKey: .sampleRate)
+        profile = try c.decodeIfPresent(ProfileSource.self, forKey: .profile)
+        framesProcessed = try c.decode(UInt64.self, forKey: .framesProcessed)
+        callbacks = try c.decodeIfPresent(UInt64.self, forKey: .callbacks) ?? 0
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        pid = try c.decode(Int32.self, forKey: .pid)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
 }

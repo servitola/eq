@@ -77,6 +77,7 @@ final class ProcessTapEngine {
 
     /// Written on the audio thread, read racily by the status writer; a torn read is harmless.
     private(set) var framesProcessed: UInt64 = 0
+    private(set) var callbacks: UInt64 = 0
 
     private var tapID: AudioObjectID = 0
     private var aggregateID: AudioObjectID = 0
@@ -236,6 +237,7 @@ final class ProcessTapEngine {
         cleanup()
         targetDeviceID = 0
         framesProcessed = 0
+        callbacks = 0
         if state != .stopped { transition(to: .stopped) }
     }
 
@@ -321,6 +323,7 @@ final class ProcessTapEngine {
     // MARK: - Render path (audio thread)
 
     func render(input: UnsafePointer<AudioBufferList>, output: UnsafeMutablePointer<AudioBufferList>) {
+        callbacks &+= 1
         let inputList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         let outputList = UnsafeMutableAudioBufferListPointer(output)
         guard inputList.count > 0, outputList.count > 0 else {

@@ -21,4 +21,14 @@ final class DaemonPolicyTests: XCTestCase {
         XCTAssertEqual(DaemonPolicy.permissionRetry, 30)
         XCTAssertEqual(DaemonPolicy.statusInterval, 5)
     }
+
+    func testStallNeedsTwoUnchangedTicks() {
+        var r = DaemonPolicy.stalled(previous: 100, current: 100, unchangedTicks: 0)
+        XCTAssertEqual(r.unchangedTicks, 1); XCTAssertFalse(r.stalled)
+        r = DaemonPolicy.stalled(previous: 100, current: 100, unchangedTicks: 1)
+        XCTAssertEqual(r.unchangedTicks, 2); XCTAssertTrue(r.stalled)
+        r = DaemonPolicy.stalled(previous: 100, current: 160, unchangedTicks: 1)
+        XCTAssertEqual(r.unchangedTicks, 0); XCTAssertFalse(r.stalled)
+        XCTAssertEqual(DaemonPolicy.stallTicks, 2)
+    }
 }

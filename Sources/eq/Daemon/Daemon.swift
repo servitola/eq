@@ -7,6 +7,7 @@ enum DaemonPolicy {
     static let permissionRetry: TimeInterval = 30
     static let failedRetry: TimeInterval = 30
     static let statusInterval: TimeInterval = 5
+    static let stallTicks = 2
 
     /// A tap that cannot be created is, on a machine that ran yesterday, almost always the
     /// System Audio Recording grant missing or revoked; every other engine failure is transient.
@@ -17,6 +18,12 @@ enum DaemonPolicy {
     static func shouldRebuild(current: AudioObjectID, newDefault: AudioObjectID?) -> Bool {
         guard let newDefault else { return false }
         return newDefault != current
+    }
+
+    static func stalled(previous: UInt64, current: UInt64, unchangedTicks: Int) -> (stalled: Bool, unchangedTicks: Int) {
+        guard current == previous else { return (false, 0) }
+        let ticks = unchangedTicks + 1
+        return (ticks >= stallTicks, ticks)
     }
 }
 
@@ -34,6 +41,8 @@ final class Daemon {
     private var configError: String?
     private var state: Status.State = .starting
     private var statusTimer: DispatchSourceTimer?
+    private var lastCallbacks: UInt64 = 0
+    private var unchangedTicks = 0
     private var retryWork: DispatchWorkItem?
     // Our own aggregate create/destroy fires the devices listener; cleared only when a rebuild succeeds, and failures retry on a timer, so a self-fired Devices event can never restart the cycle.
     private var rebuilding = false
@@ -58,6 +67,7 @@ final class Daemon {
             Log.write("another eq daemon is running (pid \(other.pid)) — exiting")
             exit(1)
         }
+        writeStatus()
         AudioDeviceManager.destroyStaleAggregates()
         engine.onSampleRateChange = { [weak self] in
             Log.write("sample rate changed — restarting engine on the same device")
@@ -114,7 +124,8 @@ final class Daemon {
                 fail(why, retryIn: DaemonPolicy.permissionRetry, as: .noPermission)
             } else if attempt < DaemonPolicy.rebuildAttempts {
                 Log.write("rebuild \(attempt)/\(DaemonPolicy.rebuildAttempts) failed: \(why)")
-                setState(.starting, error: why)
+                lastError = why
+                writeStatus()
                 scheduleRebuild(attempt: attempt + 1, after: DaemonPolicy.rebuildDelay)
             } else {
                 fail(why, retryIn: DaemonPolicy.failedRetry)
@@ -127,14 +138,14 @@ final class Daemon {
         // path is live before declaring success, otherwise retry the whole build.
         retryWork = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            if self.engine.state == .running, self.engine.framesProcessed > 0 || attempt >= DaemonPolicy.rebuildAttempts {
-                if self.engine.framesProcessed == 0 {
-                    Log.write("declaring running without frames after \(attempt) attempts")
+            if self.engine.state == .running, self.engine.callbacks > 0 || attempt >= DaemonPolicy.rebuildAttempts {
+                if self.engine.callbacks == 0 {
+                    Log.write("declaring running without IO callbacks after \(attempt) attempts")
                 }
                 self.rebuilding = false
                 self.setState(self.config.enabled ? .running : .bypassed, error: nil)
             } else if self.engine.state == .running {
-                Log.write("no frames after \(attempt) attempt(s) — rebuilding")
+                Log.write("no IO callbacks after \(attempt) attempt(s) — rebuilding")
                 self.rebuild(attempt: attempt + 1)
             } else {
                 let why: String
@@ -253,7 +264,24 @@ final class Daemon {
     private func startStatusTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + DaemonPolicy.statusInterval, repeating: DaemonPolicy.statusInterval)
-        timer.setEventHandler { [weak self] in self?.writeStatus() }
+        // Callbacks, not frames: the silence gate stops frames on a quiet Mac, but a live IO proc keeps calling back.
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if self.state == .running || self.state == .bypassed {
+                let r = DaemonPolicy.stalled(previous: self.lastCallbacks, current: self.engine.callbacks, unchangedTicks: self.unchangedTicks)
+                self.unchangedTicks = r.unchangedTicks
+                if r.stalled {
+                    Log.write("IO stalled for \(Int(Double(DaemonPolicy.stallTicks) * DaemonPolicy.statusInterval)) s — rebuilding")
+                    self.unchangedTicks = 0
+                    self.rebuild(attempt: 1)
+                    return
+                }
+            } else {
+                self.unchangedTicks = 0
+            }
+            self.lastCallbacks = self.engine.callbacks
+            self.writeStatus()
+        }
         timer.resume()
         statusTimer = timer
     }
@@ -265,6 +293,7 @@ final class Daemon {
             sampleRate: engine.processor.sampleRate,
             profile: profileSource,
             framesProcessed: engine.framesProcessed,
+            callbacks: engine.callbacks,
             enabled: config.enabled,
             error: lastError ?? configError,
             pid: getpid(),
