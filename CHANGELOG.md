@@ -5,6 +5,33 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq watch` focuses on one instrument: `]`/`Tab` and `[` pick it, `Esc` lets go. The header
+  names it with its range (`focus: voice (85 Hz–9 kHz)`), a bracket row marks its ranges over
+  the bars, bands it does not touch go dim, and a digit key for a band outside it is refused
+  with a note instead of editing.
+- `l` in `eq watch` listens to the focused instrument alone: the daemon band-limits the output
+  to the instrument's span (two high-pass and two low-pass sections) until `l`, `Esc`, a focus
+  change (which moves it), quitting or a dropped connection. The header shows `SOLO`. Nothing
+  is written to the config.
+- `↑`/`↓` in `eq watch` step to the previous/next preset, like `p` in both directions.
+- The meter socket takes requests: a client may send `{"solo":{"low":L,"high":H}}` or
+  `{"solo":null}`, one JSON object per line. `eq stream` frames carry `"solo"`, `null` when off.
+
+### Changed
+
+- Instruments are real frequency ranges instead of groups of bands: kick, bass, snare, guitar,
+  piano, voice (fundamental, F1, F2, presence, sibilance), cymbals, air. `eq zones` lists them
+  in Hz with the bands each range touches; `--json` gives `ranges: [{name, low, high}]`. The old
+  sub, mud and sibilance zones are gone (sibilance is now part of voice).
+- `z` in `eq watch` toggles the instrument strip on and off, and the strip now sits inside the
+  meter above the level row, drawn on the bars' own frequency axis, rather than cycling through
+  compact and full band lists under the gains.
+
+After upgrading, restart the daemon (`launchctl kickstart -k gui/$UID/com.servitola.eq`): an
+older daemon ignores `l`, and its frames have no `solo`.
+
 ## 2026.09.27.7 — 2026-09-27
 
 ### Changed

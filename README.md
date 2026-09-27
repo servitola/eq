@@ -65,8 +65,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq undo [--list]` | put the config back as it was before the last change / list the ten backups |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
 | `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
-| `eq zones` | which bands carry which instruments, under the current curve |
-| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C |
+| `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
+| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
 
 `--json` works on any command; the answer becomes one JSON document on stdout, exit codes
 unchanged.
@@ -151,10 +151,14 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 | `1` … `9`, `0` | raise band 32 Hz … 16 kHz by 0.5 dB (`0` is the tenth band, 16 kHz) |
 | Shift + the same key | lower it by 0.5 dB — `! @ # $ % ^ & * ( )` on a US layout, `! " № ; % : * ( )` on a Russian one |
 | `+` / `-` | preamp ±0.5 dB (`=` and `_` work too, no Shift needed) |
-| `p` | next preset, alphabetically, wrapping round |
+| `p`, `↓` | next preset, alphabetically, wrapping round |
+| `↑` | previous preset, wrapping round |
 | `u` | undo the last change made in this session, back to how it started |
 | `s` | save the curve as a preset: type a name, Enter saves, Esc cancels |
-| `z` | zones: off → compact → all → off |
+| `z` | the instrument strip, on and off |
+| `]`, `Tab` / `[` | focus the next / previous instrument |
+| `Esc` | leave the focus (and stop listening) |
+| `l` | listen to the focused instrument alone, and back |
 | `h`, `?` | show the hint again |
 | `x` | hide the hint for good |
 | `q`, Ctrl‑C | exit |
@@ -165,7 +169,8 @@ picks it up and the slider marker moves on the next frame, while the band's labe
 bold. When the edit cannot be saved (no config yet, say), the reason shows in a dim line at
 the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
 band 7 (2 kHz) can only be lowered from a US layout; the letter keys work from the same
-physical keys on either layout (`з` for `p`, `г` for `u`, `ы` for `s`, and so on).
+physical keys on either layout (`з` for `p`, `г` for `u`, `ы` for `s`, `х`/`ъ` for `[`/`]`,
+`д` for `l`, and so on). `←` and `→` are reserved and do nothing yet.
 
 The header names the device's preset after the preamp, with the yellow `*` once the curve has
 moved away from it. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
@@ -180,13 +185,43 @@ any key; `h` brings it back. `x` hides it and writes the empty marker
 get it back). A terminal narrower than twice the box shows one dim line at the bottom instead,
 which leaves out whole keys rather than cut one in half, and always keeps `q quit`.
 
-### Zones
+### Instruments
 
-`z` (or `eq watch --zones`) adds rows under the gains that show which bands carry which
-instruments — sub, kick, bass, guitar, voice, cymbals, air in the compact set; `z` again adds
-mud, snare and sibilance. Each zone is a `━` span under its bands, dim except under its
-loudest band, which lends the span its bar's colour. `eq zones` prints the full set once,
-under the current curve, with a line on why each span matters.
+`z` (or `eq watch --zones`) opens a strip inside the meter, directly above the level row: one
+row per instrument — kick, bass, snare, guitar, piano, voice, cymbals, air — with each of its
+ranges drawn as a `━` span on the same frequency axis as the bars. A bar stands for the octave
+around its band, so a range that starts at 85 Hz begins between the 64 Hz and 125 Hz bars, not
+on either. Neighbouring ranges of one instrument are kept apart by a gap, and a range's name
+(`F1`, `thump`, `sibilance`) is written into its span when it fits. The spans are dim except
+near the instrument's loudest band, which lends them its bar's colour. The strip takes its rows
+from the meter, which keeps at least four; on a short terminal the lowest instruments drop.
+`eq zones` prints the same table in Hz with the bands each range touches.
+
+```
+    BE-RCA · 44.1 kHz · preamp -1.5 dB · favourite* · peak -6.0 dB · focus: voice (85 Hz–9 kHz) SOLO
+                           ┌────────────┐ ┌─── F1 ────┐ ┌── F2 ──┐ ┌──────┐ ┌────┐
+               ...
+  voice                    ━━━━━━━━━━━━━━ ━━━━ F1 ━━━━━ ━━━ F2 ━━━ ━━━━━━━━ ━━━━━━
+               -24     -24     -24     -24     -24      -9     -24     -24     -24     -24
+              32Hz    64Hz   125Hz   250Hz   500Hz    1kHz    2kHz    4kHz    8kHz   16kHz
+```
+
+`]` or `Tab` focuses the next instrument, `[` the previous one, `Esc` lets go. While focused,
+the header says `focus: voice (85 Hz–9 kHz)`, a bracket row above the bars marks each of its
+ranges, the bars, labels and gains of bands it does not touch turn dim, and its level numbers
+turn bright. The strip, when open, shows only that instrument. Digit keys still name all ten
+bands, but a band outside the focus is refused with `outside voice — Esc to unfocus` in the
+footer, so tuning stays on the instrument. A band belongs to the focus when any of the
+instrument's ranges overlaps the octave around the band's centre, which is why voice reaches
+down to the 64 Hz band.
+
+`l` listens to the focus alone: the daemon adds a steep high-pass at the instrument's lowest
+edge and a low-pass at its highest (a multi-range instrument is heard across its whole outer
+span, gaps included), and the header shows a yellow `SOLO` for as long as the daemon reports
+it. Switching focus moves the solo to the new instrument. `l` again, `Esc` and `q` switch it
+off; so does the watch going away in any other way, since the daemon drops a solo the moment
+the client that asked for it disconnects. A solo is never saved and never reaches `eq.json`.
+It is the curve you hear through, not a second curve: the EQ stays one curve per device.
 
 ## Colour
 
