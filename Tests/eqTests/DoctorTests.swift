@@ -102,16 +102,44 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(audio.detail.contains("kickstart"))
     }
 
-    func testAudioCheckSkipsSignalWhenDaemonIsOlder() {
+    func testAudioCheckSkipsSignalWhenDaemonIsPreV3() {
         var signalCount = 0
-        var s = running(); s.version = "2026.09.27.1"
+        var s = running(); s.version = nil
         var p = probes(status: s, callbacksLater: 20)
         p.signalStatus = { _ in signalCount += 1; return true }
         let report = Doctor.run(p)
         XCTAssertEqual(signalCount, 0)
         let audio = report.checks.first { $0.name == "audio" }!
         XCTAssertTrue(audio.warning)
+        XCTAssertTrue(audio.detail.contains("pre-v3"))
+        XCTAssertTrue(report.checks.first { $0.name == "daemon" }!.detail.hasSuffix("pre-v3"))
+    }
+
+    func testAudioCheckWarnsOnVersionMismatch() {
+        var signalCount = 0
+        var s = running(); s.version = "1.0"
+        var p = probes(status: s, callbacksLater: 20)
+        p.signalStatus = { _ in signalCount += 1; return true }
+        let report = Doctor.run(p)
+        XCTAssertEqual(signalCount, 2)
+        XCTAssertTrue(report.ok)
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.warning); XCTAssertFalse(audio.ok)
+        XCTAssertTrue(audio.detail.hasPrefix("callbacks 10 → 20"), audio.detail)
+        XCTAssertTrue(audio.detail.contains("daemon v1.0, this eq v\(Build.version)"), audio.detail)
         XCTAssertTrue(audio.detail.contains("restart it"))
+        XCTAssertTrue(report.checks.first { $0.name == "daemon" }!.detail.hasSuffix("v1.0"))
+    }
+
+    func testAudioCheckRefusesForeignPid() {
+        var signalCount = 0
+        var p = probes(status: running(), exe: "/usr/bin/sleep", callbacksLater: 20)
+        p.signalStatus = { _ in signalCount += 1; return true }
+        let report = Doctor.run(p)
+        XCTAssertEqual(signalCount, 0)
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.warning)
+        XCTAssertTrue(audio.detail.contains("not an eq daemon"), audio.detail)
     }
 
     func testSmokeSkipsLaunchAgentRow() {

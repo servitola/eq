@@ -27,8 +27,14 @@ stop_tone() {
 }
 trap 'stop_tone; kill ${pid:-} 2>/dev/null || true; rm -rf "$scratch"' EXIT
 
+# Every CLI call goes through a symlink, as brew installs it, so Build.version must resolve through it.
+binary=${eq:a}
+mkdir "$scratch/bin"
+ln -s "$binary" "$scratch/bin/eq"
+eq=$scratch/bin/eq
+
 "$eq" init >/dev/null
-"$eq" daemon >"$scratch/daemon.log" 2>&1 &
+"$binary" daemon >"$scratch/daemon.log" 2>&1 &
 pid=$!
 if [[ ${EQ_SMOKE_TONE:-} == 1 ]]; then
   (while true; do afplay -v 0.2 /System/Library/Sounds/Submarine.aiff; done) &
@@ -66,6 +72,8 @@ frames2=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json
 
 EQ_SMOKE=1 "$eq" doctor --json | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["ok"] else 1)' \
   || { echo "doctor not ok"; "$eq" doctor; cat "$scratch/daemon.log"; exit 1 }
+EQ_SMOKE=1 "$eq" doctor --json | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if any("this eq v" in c["detail"] for c in d["checks"]) else 0)' \
+  || { echo "the symlinked CLI reports a different version than the daemon"; EQ_SMOKE=1 "$eq" doctor; exit 1 }
 
 "$eq" import "$PWD/Tests/eqTests/Fixtures/Sony WH-1000XM4 ParametricEQ.txt" >/dev/null && sleep 1 && "$eq" | grep -q lowShelf \
   || { echo "import did not land"; exit 1 }

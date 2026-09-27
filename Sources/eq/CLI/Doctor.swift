@@ -105,7 +105,7 @@ enum Doctor {
             return DoctorCheck(name: "daemon", ok: false,
                                 detail: "not running — launchctl kickstart -k gui/$UID/com.servitola.eq", warning: false)
         }
-        return DoctorCheck(name: "daemon", ok: true, detail: "running, pid \(live.pid), v\(live.version ?? "?")", warning: false)
+        return DoctorCheck(name: "daemon", ok: true, detail: "running, pid \(live.pid), \(live.version.map { "v\($0)" } ?? "pre-v3")", warning: false)
     }
 
     private static func permissionCheck(_ live: Status?) -> DoctorCheck {
@@ -147,11 +147,15 @@ enum Doctor {
             return DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false)
         }
         let s0 = live
-        guard s0.version == Build.version else {
+        // Only v3 daemons write `version`, and only v3 has the SIGUSR1 handler — the default action would kill an older one.
+        guard let daemonVersion = s0.version else {
             return DoctorCheck(name: "audio", ok: false,
-                               detail: "daemon runs \(s0.version ?? "a pre-v3 build"), this eq is \(Build.version)"
+                               detail: "daemon runs a pre-v3 build, this eq is \(Build.version)"
                                    + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
                                warning: true)
+        }
+        guard probes.executablePath(s0.pid)?.hasSuffix("/eq") == true else {
+            return DoctorCheck(name: "audio", ok: false, detail: "pid \(s0.pid) is not an eq daemon — status file is stale", warning: true)
         }
         guard probes.signalStatus(s0.pid) else {
             return DoctorCheck(name: "audio", ok: false, detail: "could not signal the daemon", warning: true)
@@ -173,7 +177,14 @@ enum Doctor {
         guard after > before else {
             return DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks in 1 s — is the device asleep?", warning: true)
         }
-        return DoctorCheck(name: "audio", ok: true, detail: "callbacks \(before) → \(after)", warning: false)
+        let detail = "callbacks \(before) → \(after)"
+        guard daemonVersion == Build.version else {
+            return DoctorCheck(name: "audio", ok: false,
+                               detail: detail + " (daemon v\(daemonVersion), this eq v\(Build.version)"
+                                   + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq)",
+                               warning: true)
+        }
+        return DoctorCheck(name: "audio", ok: true, detail: detail, warning: false)
     }
 
     private static let staleAfterSignalDetail =
