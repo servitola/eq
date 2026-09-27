@@ -36,7 +36,13 @@ final class EQProcessor {
 
     let meter = BandMeter(frequencies: Config.bandFrequencies)
     /// Written on the main queue, read once per callback on the audio thread.
-    var meteringEnabled = false
+    var meteringEnabled = false {
+        didSet {
+            // Racy with a concurrent `feed` on the audio thread, but `reset` only zeroes
+            // pre-allocated 8-byte-aligned storage, which is safe enough here.
+            if meteringEnabled && !oldValue { meter.reset() }
+        }
+    }
     private(set) var limiting = false
     // The tap engine's scratch buffers are at least this large; a longer callback goes unmetered
     // rather than allocating on the audio thread.
@@ -51,6 +57,7 @@ final class EQProcessor {
 
     deinit { meterInput.deallocate() }
 
+    /// Call only while the IOProc is stopped.
     func configure(sampleRate: Double) {
         self.sampleRate = sampleRate
         limiterRelease = Float(exp(-1.0 / (0.080 * sampleRate)))

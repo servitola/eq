@@ -79,4 +79,58 @@ final class BandMeterTests: XCTestCase {
         XCTAssertEqual(processor.meter.inputDB, Array(repeating: -60, count: 10))
         XCTAssertEqual(processor.meter.peakDB, -60)
     }
+
+    func testInputIsMeasuredBeforeTheChain() {
+        let processor = EQProcessor()
+        processor.configure(sampleRate: rate)
+        processor.apply(profile: Profile(name: nil, preamp: -12, bands: Profile.flat.bands), enabled: true)
+        processor.meteringEnabled = true
+        feedSine(processor)
+        feedSine(processor)
+        XCTAssertEqual(processor.meter.inputDB[5], -6, accuracy: 1.5)
+        XCTAssertEqual(processor.meter.outputDB[5], -18, accuracy: 1.5)
+    }
+
+    func testLimitingFlagWhileHot() {
+        var bands = Profile.flat.bands
+        bands[5] = 12
+        let processor = EQProcessor()
+        processor.configure(sampleRate: rate)
+        processor.apply(profile: Profile(name: nil, preamp: 0, bands: bands), enabled: true)
+        for i in 0..<frames {
+            left[i] = 0.9 * Float(sin(2 * Double.pi * 1000 * Double(i) / rate))
+            right[i] = left[i]
+        }
+        processor.process(channels: [left, right], frameCount: frames)
+        XCTAssertTrue(processor.limiting)
+
+        // One 4096-frame buffer (85 ms) is less than the 80 ms release time constant needs to
+        // unwind a 12 dB overshoot; loop a few buffers of zeros to give the envelope room to fall
+        // below the ceiling, same pattern as testReleaseFalls below. `process` mutates its buffers
+        // in place, so each iteration must re-zero them — otherwise it feeds the previous filter
+        // ring-down back in as new input instead of silence.
+        for _ in 0..<3 {
+            left.update(repeating: 0, count: frames)
+            right.update(repeating: 0, count: frames)
+            processor.process(channels: [left, right], frameCount: frames)
+        }
+        XCTAssertFalse(processor.limiting)
+    }
+
+    func testMeterSkipsOversizedCallbacks() {
+        let processor = makeProcessor(metering: true)
+        let oversized = 5000
+        let bigLeft = UnsafeMutablePointer<Float>.allocate(capacity: oversized)
+        let bigRight = UnsafeMutablePointer<Float>.allocate(capacity: oversized)
+        defer {
+            bigLeft.deallocate()
+            bigRight.deallocate()
+        }
+        for i in 0..<oversized {
+            bigLeft[i] = 0.5 * Float(sin(2 * Double.pi * 1000 * Double(i) / rate))
+            bigRight[i] = bigLeft[i]
+        }
+        processor.process(channels: [bigLeft, bigRight], frameCount: oversized)
+        XCTAssertEqual(processor.meter.outputDB[5], -60)
+    }
 }
