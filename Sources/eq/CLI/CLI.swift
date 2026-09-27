@@ -10,6 +10,7 @@ struct CLIContext {
     var fetch: (URL) throws -> Data
     var cacheDirectory: URL
     var today: () -> String
+    var doctorProbes: (() -> DoctorProbes)? = nil
 
     static func live() -> CLIContext {
         CLIContext(
@@ -46,6 +47,7 @@ enum CLI {
       eq on | eq off              enable / bypass
       eq status
       eq daemon                   run the audio engine (used by the LaunchAgent)
+      eq doctor                   diagnose config, daemon, permission and audio
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
     --json on any command: the answer as JSON
     """
@@ -99,6 +101,7 @@ enum CLI {
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
         case "status": return try status(ctx)
+        case "doctor": return doctor(ctx)
         case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
@@ -344,6 +347,14 @@ enum CLI {
         if let error = status.error { lines.append("error: \(error)") }
         if status.state == .noPermission { lines.append(permissionHint) }
         return Output(lines.joined(separator: "\n"), status)
+    }
+
+    private static func doctor(_ ctx: CLIContext) -> Output {
+        let probes = ctx.doctorProbes?() ?? DoctorProbes.live(store: ctx.store, statusURL: ctx.statusURL)
+        let report = Doctor.run(probes)
+        var output = Output(Doctor.text(report), report)
+        output.exitCode = report.ok ? 0 : 1
+        return output
     }
 
     // MARK: - Helpers

@@ -143,6 +143,24 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(runCLI("status", "--json").output.contains("\"no-permission\""))
     }
 
+    func testDoctorExitCodeAndJSON() {
+        context.doctorProbes = {
+            DoctorProbes(
+                osVersion: { OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 0) },
+                loadConfig: { Config.initial(builtInUID: nil, builtInName: nil) },
+                readStatus: { nil },
+                launchAgentLoaded: { true },
+                executablePath: { _ in nil },
+                sleep: { _ in },
+                smoke: false)
+        }
+        let result = runCLI("doctor")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("✗ daemon"), result.output)
+        let j = try? json("doctor")
+        XCTAssertEqual(j?["ok"] as? Bool, false)
+    }
+
     func testUnknownCommandShowsUsage() {
         let result = runCLI("bogus")
         XCTAssertEqual(result.exitCode, 2)
