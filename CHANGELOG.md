@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.5 — 2026-09-27
+
 ### Added
 
 - Presets: named curves any device can use. `eq preset` lists them, `eq preset save|use
