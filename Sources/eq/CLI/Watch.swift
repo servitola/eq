@@ -18,8 +18,9 @@ struct WatchLayout: Equatable {
 
     /// Two rows beyond the four fixed ones (header, live row, labels, gains) stay free, one of
     /// them for the "widen" note, so the frame never scrolls the alternate screen.
+    /// Four columns is the floor: at three, neighbouring labels and numbers run together.
     static func fit(cols: Int, rows: Int) -> WatchLayout {
-        let cellWidth = min(max((cols - 2) / 10, 3), 8)
+        let cellWidth = min(max((cols - 2) / 10, 4), 8)
         return WatchLayout(columns: min(Config.bandLabels.count, max(1, (cols - 2) / cellWidth)),
                            cellWidth: cellWidth, meterRows: max(4, rows - 5),
                            shortLabels: cellWidth < 6, width: cols)
@@ -55,7 +56,9 @@ enum Watch {
         let gains = padded(f.gains, to: bands, with: 0).prefix(columns).map { min(max($0, -12), 12) }
         let inLevels = padded(f.in, to: bands, with: floorDB).prefix(columns).map(clampLevel)
         let outLevels = padded(f.out, to: bands, with: floorDB).prefix(columns).map(clampLevel)
-        let pad = String(repeating: " ", count: w - 1)
+        let barWidth = w >= 7 ? 3 : (w >= 5 ? 2 : 1)
+        let pad = String(repeating: " ", count: max(w - barWidth, 0))
+        func bar(_ glyph: String) -> String { String(repeating: glyph, count: barWidth) }
         let barInks = (0..<columns).map { i -> Paint.Ink? in
             let hot = outLevels[i] >= hotDB
             // A flat band has no colour of its own; a loud one still has to stand out from dim.
@@ -68,33 +71,41 @@ enum Watch {
         let outTops = outLevels.map { height($0, rows: rows) }
         let inTops = inLevels.map { height($0, rows: rows) }
 
-        var lines = [header(f, layout: layout, tableWidth: columns * w)]
+        let tableWidth = columns * w
+        let indent = max(layout.width - tableWidth, 0) / 2
+        let title = header(f, layout: layout, tableWidth: tableWidth)
+
+        var body: [String] = []
         for r in 0..<rows {
             let b = rows - 1 - r
-            lines.append((0..<columns).map { i -> String in
+            body.append((0..<columns).map { i -> String in
+                // The marker wins over a partial top: where the slider sits matters more than an eighth of a row.
                 if r == markers[i] {
-                    return pad + Paint.ink(Paint.level(Paint.gain(gains[i]), hot: abs(gains[i]) > 6), "▬")
+                    return pad + Paint.ink(Paint.level(Paint.gain(gains[i]), hot: abs(gains[i]) > 6), bar("▬"))
                 }
                 let full = Int(outTops[i])
                 let fraction = outTops[i] - Double(full)
-                if b < full { return pad + paint(barInks[i], "█") }
+                if b < full { return pad + paint(barInks[i], bar("█")) }
                 if b == full, fraction > 0 {
-                    return pad + paint(barInks[i], partials[min(Int(fraction * 8), partials.count - 1)])
+                    return pad + paint(barInks[i], bar(partials[min(Int(fraction * 8), partials.count - 1)]))
                 }
-                if Double(b) < inTops[i] { return pad + Paint.ink(.dim, "░") }
-                return pad + " "
+                if Double(b) < inTops[i] { return pad + Paint.ink(.dim, bar("░")) }
+                return pad + bar(" ")
             }.joined())
         }
-        lines.append((0..<columns).map { i -> String in
+        body.append((0..<columns).map { i -> String in
             let text = outLevels[i] <= floorDB + 0.5 ? "·" : String(Int(outLevels[i].rounded()))
             return paint(barInks[i], text.leftPadded(to: w))
         }.joined())
-        lines += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns),
-                  Table.gainsRow(gains, width: w)]
+        body += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns),
+                 Table.gainsRow(gains, width: w)]
         if columns < bands {
-            lines.append(Paint.ink(.dim, String("… widen for all bands".prefix(max(layout.width, 1)))))
+            body.append(Paint.ink(.dim, String("… widen for all bands".prefix(max(layout.width - indent, 1)))))
         }
-        return lines
+        let margin = String(repeating: " ", count: indent)
+        // The header centres with the bars when it fits beside them, and slides left rather than truncate.
+        let headerIndent = String(repeating: " ", count: min(indent, max(layout.width - title.plain, 0)))
+        return [headerIndent + title.painted] + body.map { margin + $0 }
     }
 
     private static func clampLevel(_ db: Double) -> Double {
@@ -112,7 +123,7 @@ enum Watch {
 
     /// Segments drop from the right until the line fits; the BYPASS/LIMIT flags outlive them
     /// because they are the ones that explain a surprising sound.
-    private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int) -> String {
+    private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int) -> (plain: Int, painted: String) {
         let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
         let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
@@ -143,19 +154,29 @@ enum Watch {
         while compose().plain > cols, !flags.isEmpty { flags.removeLast() }
         if compose().plain > cols {
             let cut = String(device.prefix(cols))
-            return Paint.ink(.bold, cut)
+            return (cut.count, Paint.ink(.bold, cut))
         }
-        return compose().painted
+        return compose()
     }
 
-    /// Redraws on every frame the source delivers; the key is checked between frames, which at
-    /// 30 frames a second is quicker than a person notices.
-    static func run(source: MeterSource, layout: WatchLayout = .fit(cols: 80, rows: 24),
+    /// Redraws on every frame the source delivers; the key and the terminal size are checked
+    /// between frames, which at 30 frames a second is quicker than a person notices.
+    static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
                     emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
         emit(enter)
+        var current = size()
+        var layout = WatchLayout.fit(cols: current.cols, rows: current.rows)
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
-                emit("\u{1B}[H" + frame(f, layout: layout).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
+                let now = size()
+                var clear = ""
+                if now != current {
+                    current = now
+                    layout = .fit(cols: now.cols, rows: now.rows)
+                    // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
+                    clear = "\u{1B}[2J"
+                }
+                emit(clear + "\u{1B}[H" + frame(f, layout: layout).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
             }
             switch readKey() {
             case UInt8(ascii: "q"), UInt8(ascii: "Q"), 3: return false

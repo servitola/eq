@@ -27,7 +27,7 @@ final class WatchTests: XCTestCase {
         return ctx
     }
 
-    private let wide = WatchLayout(columns: 10, cellWidth: 6, meterRows: 12, shortLabels: false, width: 64)
+    private let wide = WatchLayout(columns: 10, cellWidth: 6, meterRows: 12, shortLabels: false, width: 60)
 
     private func cell(_ line: String, _ column: Int, width: Int = 6) -> Character {
         Array(line)[column * width + width - 1]
@@ -36,11 +36,11 @@ final class WatchTests: XCTestCase {
     func testFitCases() {
         XCTAssertEqual(WatchLayout.fit(cols: 200, rows: 50), WatchLayout(columns: 10, cellWidth: 8, meterRows: 45, shortLabels: false, width: 200))
         XCTAssertEqual(WatchLayout.fit(cols: 64, rows: 16), WatchLayout(columns: 10, cellWidth: 6, meterRows: 11, shortLabels: false, width: 64))
-        XCTAssertEqual(WatchLayout.fit(cols: 40, rows: 12), WatchLayout(columns: 10, cellWidth: 3, meterRows: 7, shortLabels: true, width: 40))
-        XCTAssertEqual(WatchLayout.fit(cols: 24, rows: 10), WatchLayout(columns: 7, cellWidth: 3, meterRows: 5, shortLabels: true, width: 24))
-        XCTAssertEqual(WatchLayout.fit(cols: 32, rows: 5).columns, 10)
-        XCTAssertEqual(WatchLayout.fit(cols: 31, rows: 5).columns, 9)
-        XCTAssertEqual(WatchLayout.fit(cols: 0, rows: 0), WatchLayout(columns: 1, cellWidth: 3, meterRows: 4, shortLabels: true, width: 0))
+        XCTAssertEqual(WatchLayout.fit(cols: 40, rows: 12), WatchLayout(columns: 9, cellWidth: 4, meterRows: 7, shortLabels: true, width: 40))
+        XCTAssertEqual(WatchLayout.fit(cols: 24, rows: 10), WatchLayout(columns: 5, cellWidth: 4, meterRows: 5, shortLabels: true, width: 24))
+        XCTAssertEqual(WatchLayout.fit(cols: 42, rows: 5).columns, 10)
+        XCTAssertEqual(WatchLayout.fit(cols: 41, rows: 5).columns, 9)
+        XCTAssertEqual(WatchLayout.fit(cols: 0, rows: 0), WatchLayout(columns: 1, cellWidth: 4, meterRows: 4, shortLabels: true, width: 0))
     }
 
     func testFrameShape() {
@@ -60,6 +60,9 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(cell(meter[0], 2), " ")
         // out -6 at 12 rows reaches 10.8 rows: ten full cells and a 0.8 partial above them.
         XCTAssertEqual(cell(meter[1], 2), "▇")
+        // A six-column cell draws a two-glyph bar, right-aligned under a space.
+        XCTAssertEqual(Array(meter[1])[12..<18].map(String.init).joined(), "    ▇▇")
+        XCTAssertEqual(Array(meter[0])[0..<6].map(String.init).joined(), "    ▬▬")
         for row in 2...11 where row != 6 { XCTAssertEqual(cell(meter[row], 2), "█", "row \(row)") }
         XCTAssertEqual(cell(meter[6], 2), "▬")
         XCTAssertFalse(meter.joined().contains("░"))
@@ -82,14 +85,14 @@ final class WatchTests: XCTestCase {
     func testNarrowShowsLowestBandsAndNote() {
         let layout = WatchLayout.fit(cols: 24, rows: 10)
         let lines = Watch.frame(frame(gains: Config.screenshotCurve), layout: layout)
-        XCTAssertEqual(lines[lines.count - 3], " 32 64125250500 1k 2k")
-        XCTAssertEqual(lines[lines.count - 2], " +5 +4 +4 +2  0 -3  0")
-        XCTAssertEqual(lines.last, "… widen for all bands")
-        XCTAssertEqual(lines[1 + layout.meterRows].count, 21)
+        XCTAssertEqual(lines[lines.count - 3], "    32  64 125 250 500")
+        XCTAssertEqual(lines[lines.count - 2], "    +5  +4  +4  +2   0")
+        XCTAssertEqual(lines.last, "  … widen for all bands")
+        XCTAssertEqual(lines[1 + layout.meterRows].count, 22)
     }
 
     func testFractionalTop() {
-        let flat = WatchLayout(columns: 10, cellWidth: 6, meterRows: 12, shortLabels: false, width: 64)
+        let flat = WatchLayout(columns: 10, cellWidth: 6, meterRows: 12, shortLabels: false, width: 60)
         var gains = Array(repeating: -12.0, count: 10)
         gains[0] = -12
         let exact = Array(Watch.frame(frame(out: -30, gains: gains), layout: flat)[1...12])
@@ -108,7 +111,7 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(Watch.frame(frame(out: -60), layout: wide)[13], String(repeating: "     ·", count: 10))
         XCTAssertEqual(Watch.frame(frame(out: -0.3), layout: wide)[13], String(repeating: "     0", count: 10))
         let short = WatchLayout.fit(cols: 40, rows: 12)
-        XCTAssertEqual(Watch.frame(frame(out: -27), layout: short)[1 + short.meterRows], String(repeating: "-27", count: 10))
+        XCTAssertEqual(Watch.frame(frame(out: -27), layout: short)[1 + short.meterRows], "  " + String(repeating: " -27", count: 9))
     }
 
     func testHotShades() {
@@ -125,7 +128,7 @@ final class WatchTests: XCTestCase {
         XCTAssertTrue(big.contains("\u{1B}[95m▬"), big)
         // A flat band never gets a colour, but when hot its bar must not stay dim.
         let flatHot = Watch.frame(frame(out: -3), layout: wide)
-        XCTAssertTrue(flatHot[5].contains("     █"), flatHot[5])
+        XCTAssertTrue(flatHot[5].contains("    ██"), flatHot[5])
         XCTAssertFalse(flatHot[5].contains("\u{1B}[2m█"), flatHot[5])
         let flatCool = Watch.frame(frame(out: -20), layout: wide).joined()
         XCTAssertTrue(flatCool.contains("\u{1B}[2m█"), flatCool)
@@ -133,20 +136,48 @@ final class WatchTests: XCTestCase {
 
     func testHeaderTruncation() {
         let narrow = Watch.frame(frame(), layout: WatchLayout.fit(cols: 40, rows: 12))
-        XCTAssertEqual(narrow[0], "BE-RCA · 44.1 kHz · preamp -1.5 dB")
+        XCTAssertEqual(narrow[0], "  BE-RCA · 44.1 kHz · preamp -1.5 dB")
         let flagged = Watch.frame(frame(limiting: true, enabled: false), layout: WatchLayout.fit(cols: 40, rows: 12))
-        XCTAssertEqual(flagged[0], "BE-RCA · 44.1 kHz BYPASS LIMIT")
+        XCTAssertEqual(flagged[0], "  BE-RCA · 44.1 kHz BYPASS       LIMIT")
+        XCTAssertEqual(flagged[0].count, flagged[1].count, "LIMIT ends where the bars do")
         let tiny = Watch.frame(frame(), layout: WatchLayout.fit(cols: 4, rows: 12))
         XCTAssertLessThanOrEqual(tiny[0].count, 4, tiny[0])
     }
 
     func testFrameShowsInputAboveOutputAndHeaderFlags() {
-        let lines = Watch.frame(frame(out: -40, in: 0, limiting: true, enabled: false), layout: wide)
-        XCTAssertEqual(cell(lines[1], 0), "░")
-        XCTAssertEqual(cell(lines[12], 0), "█")
-        XCTAssertTrue(lines[0].hasPrefix("BE-RCA · 44.1 kHz · preamp -1.5 dB · peak -6.0 dB BYPASS"), lines[0])
+        let layout = WatchLayout(columns: 10, cellWidth: 6, meterRows: 12, shortLabels: false, width: 64)
+        let lines = Watch.frame(frame(out: -40, in: 0, limiting: true, enabled: false), layout: layout)
+        XCTAssertEqual(cell(String(lines[1].dropFirst(2)), 0), "░")
+        XCTAssertEqual(cell(String(lines[12].dropFirst(2)), 0), "█")
+        XCTAssertTrue(lines[0].hasPrefix("  BE-RCA · 44.1 kHz · preamp -1.5 dB · peak -6.0 dB BYPASS"), lines[0])
         XCTAssertTrue(lines[0].hasSuffix("LIMIT"), lines[0])
-        XCTAssertEqual(lines[0].count, 62)
+        XCTAssertEqual(lines[0].count, 64)
+    }
+
+    func testFrameCentresInWideTerminal() {
+        let layout = WatchLayout.fit(cols: 100, rows: 30)
+        let lines = Watch.frame(frame(), layout: layout)
+        XCTAssertTrue(lines[0].hasPrefix(String(repeating: " ", count: 10) + "BE-RCA"), lines[0])
+        for line in lines.dropFirst() {
+            XCTAssertTrue(line.hasPrefix(String(repeating: " ", count: 10)), line)
+            XCTAssertEqual(line.count, 90, line)
+        }
+        XCTAssertEqual(lines.last, String(repeating: " ", count: 10) + Table.gainsRow(Array(repeating: 0, count: 10), width: 8))
+    }
+
+    func testCellWidthSetsBarWidth() {
+        for (cellWidth, glyphs) in [(4, 1), (5, 2), (6, 2), (7, 3), (8, 3)] {
+            let layout = WatchLayout(columns: 10, cellWidth: cellWidth, meterRows: 12, shortLabels: cellWidth < 6, width: cellWidth * 10)
+            let bottom = Watch.frame(frame(), layout: layout)[12]
+            let firstCell = String(Array(bottom)[0..<cellWidth])
+            XCTAssertEqual(firstCell, String(repeating: " ", count: cellWidth - glyphs) + String(repeating: "█", count: glyphs), "\(cellWidth)")
+        }
+    }
+
+    func testMarkerWinsOverPartialTop() {
+        // out -27 at 12 rows tops out at 6.6 rows: the partial sits on row index 5, where gain +1 puts the marker.
+        let lines = Watch.frame(frame(out: -27, gains: Array(repeating: 1, count: 10)), layout: wide)
+        XCTAssertEqual(cell(lines[1 + 5], 0), "▬")
     }
 
     func testFrameNoEscapesWhenPlain() {
@@ -233,5 +264,43 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(code, 1)
         XCTAssertEqual(emitted.first, Watch.enter)
         XCTAssertEqual(emitted.last, Watch.leave)
+    }
+
+    func testRunClearsOnceAfterResize() throws {
+        struct Source: MeterSource {
+            let lines: [String]
+            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
+                for line in lines { guard handle(line) else { return false } }
+                return true
+            }
+        }
+        let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
+        var emitted: [String] = []
+        var calls = 0
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 5)),
+                      size: { calls += 1; return calls <= 3 ? (80, 24) : (100, 30) },
+                      emit: { emitted.append($0) }, readKey: { nil })
+        let frames = emitted.filter { $0.contains("\u{1B}[H") }
+        XCTAssertEqual(frames.count, 5)
+        XCTAssertEqual(frames.map { $0.components(separatedBy: "\u{1B}[2J").count - 1 }, [0, 0, 1, 0, 0])
+        XCTAssertTrue(frames[2].contains("BE-RCA"))
+        XCTAssertTrue(frames[4].contains(String(repeating: " ", count: 10) + "BE-RCA"), "the new layout is centred for 100 columns")
+    }
+
+    func testRunRendersTinyTerminal() throws {
+        struct Source: MeterSource {
+            let lines: [String]
+            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
+                for line in lines { guard handle(line) else { return false } }
+                return true
+            }
+        }
+        let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
+        var emitted: [String] = []
+        let code = Watch.run(source: Source(lines: [line]), size: { (24, 10) },
+                             emit: { emitted.append($0) }, readKey: { nil })
+        XCTAssertEqual(code, 1)
+        let drawn = try XCTUnwrap(emitted.first { $0.contains("\u{1B}[H") })
+        XCTAssertTrue(drawn.contains("… widen for all bands"), drawn)
     }
 }

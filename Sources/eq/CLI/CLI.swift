@@ -400,7 +400,7 @@ enum CLI {
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
         LiveTerminal.enterRaw()
-        let exitCode = Watch.run(source: client, layout: .fit(cols: terminal.cols, rows: terminal.rows), emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
+        let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) }, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
         LiveTerminal.leaveRaw()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
