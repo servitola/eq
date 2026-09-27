@@ -197,4 +197,15 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(missing.exitCode, 1)
         XCTAssertTrue(missing.output.contains("\"daemonNotRunning\""))
     }
+
+    func testJSONDevicesEmitsNullCurrentAndTransport() throws {
+        _ = runCLI("init")
+        context.connectedDevices = { [] }
+        context.defaultOutput = { nil }
+        let j = try json("devices")
+        XCTAssertTrue(j["current"] is NSNull)
+        let devices = try XCTUnwrap(j["devices"] as? [[String: Any]])
+        let disconnected = try XCTUnwrap(devices.first { $0["uid"] as? String == "BUILTIN" })
+        XCTAssertTrue(disconnected["transport"] is NSNull)
+    }
 }

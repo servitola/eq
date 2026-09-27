@@ -15,8 +15,27 @@ struct Output {
 
 struct DeviceRef: Encodable { var uid: String; var name: String }
 struct ProfileReport: Encodable { var device: DeviceRef; var source: String; var profile: Profile }
-struct DeviceRow: Encodable { var uid: String; var name: String; var transport: String?; var connected: Bool; var profile: String }
-struct DevicesReport: Encodable { var current: String?; var devices: [DeviceRow] }
+struct DeviceRow: Encodable {
+    var uid: String; var name: String; var transport: String?; var connected: Bool; var profile: String
+    enum CodingKeys: String, CodingKey { case uid, name, transport, connected, profile }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(uid, forKey: .uid)
+        try container.encode(name, forKey: .name)
+        try container.encode(transport, forKey: .transport)
+        try container.encode(connected, forKey: .connected)
+        try container.encode(profile, forKey: .profile)
+    }
+}
+struct DevicesReport: Encodable {
+    var current: String?; var devices: [DeviceRow]
+    enum CodingKeys: String, CodingKey { case current, devices }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(current, forKey: .current)
+        try container.encode(devices, forKey: .devices)
+    }
+}
 struct ToggleReport: Encodable { var enabled: Bool }
 struct InitReport: Encodable { var path: String; var created: Bool }
 struct UsageReport: Encodable { var usage: String }
