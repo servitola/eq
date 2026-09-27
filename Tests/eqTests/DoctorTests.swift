@@ -38,6 +38,15 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(report.checks.allSatisfy(\.ok))
     }
 
+    func testTextPaintsNamesAndVerdict() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20))
+        XCTAssertFalse(Doctor.text(report).contains("\u{1B}"))
+        Paint.forced = true
+        let text = Doctor.text(report)
+        XCTAssertTrue(text.contains("\u{1B}[32m✓\u{1B}[0m \u{1B}[1mconfig\u{1B}[0m — ok"), text)
+        XCTAssertTrue(text.hasSuffix("\u{1B}[32mok\u{1B}[0m"), text)
+    }
+
     func testNoDaemonFailsDaemonAndEngineRows() {
         let report = Doctor.run(probes(status: nil))
         XCTAssertFalse(report.ok)

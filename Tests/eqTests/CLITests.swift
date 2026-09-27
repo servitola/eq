@@ -437,6 +437,42 @@ final class CLITests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains("\u{1B}") || $0.contains("\n") })
     }
 
+    func testHumanLinesArePaintedOnlyWhenColourIsOn() throws {
+        let esc = "\u{1B}["
+        func lines(_ forced: Bool) throws -> [String: String] {
+            Paint.forced = forced
+            try? FileManager.default.removeItem(at: context.store.url)
+            var out: [String: String] = ["init": runCLI("init").output]
+            out["init again"] = runCLI("init").output
+            out["on"] = runCLI("on").output
+            out["off"] = runCLI("off").output
+            out["copy"] = runCLI("copy", "--to", "JBL").output
+            out["devices"] = runCLI("devices").output
+            out["undo"] = runCLI("undo").output
+            try Status(state: .running, device: .init(uid: "BUILTIN", name: "MacBook Pro Speakers", transport: "builtin"),
+                       sampleRate: 48000, profile: .device, framesProcessed: 1, callbacks: 2, writes: 1, enabled: true,
+                       error: nil, pid: getpid(), version: "1", updatedAt: Date())
+                .write(to: context.statusURL)
+            out["status"] = runCLI("status").output
+            return out
+        }
+        let painted = try lines(true)
+        XCTAssertTrue(painted["init"]!.hasPrefix(esc + "32mwrote" + esc + "0m " + esc + "2m"), painted["init"]!)
+        XCTAssertTrue(painted["init again"]!.contains(esc + "2m" + context.store.url.path), painted["init again"]!)
+        XCTAssertEqual(painted["on"], "eq " + esc + "32mon" + esc + "0m")
+        XCTAssertEqual(painted["off"], "eq " + esc + "33moff (bypass)" + esc + "0m")
+        XCTAssertTrue(painted["copy"]!.contains(esc + "1mJBL Big" + esc + "0m"), painted["copy"]!)
+        XCTAssertTrue(painted["devices"]!.contains(esc + "1mJBL Big" + esc + "0m"), painted["devices"]!)
+        XCTAssertTrue(painted["undo"]!.contains(esc + "32mrestored"), painted["undo"]!)
+        XCTAssertTrue(painted["status"]!.contains(esc + "2mstate:" + esc + "0m " + esc + "32mrunning"), painted["status"]!)
+        XCTAssertTrue(painted["status"]!.contains(esc + "32mdevice profile"), painted["status"]!)
+        let plain = try lines(false)
+        for (command, text) in plain { XCTAssertFalse(text.contains("\u{1B}"), "\(command): \(text)") }
+        XCTAssertEqual(plain["on"], "eq on")
+        XCTAssertEqual(plain["off"], "eq off (bypass)")
+        XCTAssertTrue(plain["status"]!.hasPrefix("state: running\ndevice: MacBook Pro Speakers [builtin] 48000 Hz, device profile"), plain["status"]!)
+    }
+
     func testStreamExitsOneWhenDaemonCloses() throws {
         let socketURL = dir.appendingPathComponent("meter.sock")
         context.meterSocketURL = socketURL

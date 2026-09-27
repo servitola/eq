@@ -198,6 +198,13 @@ curve's shape reads at a glance. Piped or redirected output has no colour and no
 so it keeps the three-line shape above; `NO_COLOR` or `TERM=dumb` turn colour off on a
 terminal too.
 
+`eq --help` is grouped into look, tune and setup, with commands bold, flags cyan and
+placeholders such as `DEVICE` yellow; descriptions wrap inside their column at the terminal's
+width, and below 60 columns each description moves under its command. `eq <command> --help`
+shows one command, and a usage error shows only the command it is about. `--json` on a
+terminal is coloured like `jq`; piped, it is the same bytes as before, and `eq stream` is never
+coloured. `NO_COLOR` turns all of it off.
+
 ## AutoEq
 
 `eq import <file|url|"headphone name">` applies a published correction for a specific

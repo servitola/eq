@@ -144,7 +144,8 @@ enum CLI {
         let existed = ctx.store.exists()
         var config = try ctx.store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
         if config.seedPresetsIfNeeded() { try ctx.store.save(config, backup: false) }
-        let text = existed ? "config already exists: \(ctx.store.url.path)" : "wrote \(ctx.store.url.path)"
+        let path = Paint.ink(.dim, ctx.store.url.path)
+        let text = existed ? "config already exists: \(path)" : Paint.ink(.green, "wrote") + " \(path)"
         return Output(text, InitReport(path: ctx.store.url.path, created: !existed))
     }
 
@@ -199,7 +200,8 @@ enum CLI {
         profile.name = target.name
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        let text = Paint.ink(.green, "copied \(current.name) → \(target.name)") + "\n" + Table.profile(profile, header: target.name, preset: presetMark(profile, config))
+        let copied = Paint.ink(.green, "copied ") + Paint.ink(.bold, current.name) + " → " + Paint.ink(.bold, target.name)
+        let text = copied + "\n" + Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
@@ -279,7 +281,7 @@ enum CLI {
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
 
-        var lines = [Paint.ink(.green, "imported \(origin) (\(result.format))")]
+        var lines = [Paint.ink(.green, "imported ") + Paint.ink(.cyan, origin) + Paint.ink(.dim, " (\(result.format))")]
         lines.append(contentsOf: warnings.map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         lines.append(Table.profile(profile, header: target.name, preset: presetMark(profile, config)))
         let report = ImportReport(
@@ -346,7 +348,7 @@ enum CLI {
         for device in connected {
             let isCurrent = device.uid == currentUID
             let marker = isCurrent ? Paint.ink(.green, "*") + " " : "  "
-            let name = isCurrent ? Paint.ink(.bold, device.name) : device.name
+            let name = Paint.ink(.bold, device.name)
             let hasOwn = config.devices[device.uid] != nil
             let profileLabel = hasOwn ? Paint.ink(.green, "own profile") : Paint.ink(.yellow, "default profile")
             let transport = Paint.ink(.dim, "[\(device.transport)]")
@@ -355,7 +357,7 @@ enum CLI {
         }
         for (uid, profile) in config.devices.sorted(by: { ($0.value.name ?? $0.key) < ($1.value.name ?? $1.key) })
             where !connected.contains(where: { $0.uid == uid }) {
-            lines.append("  \(profile.name ?? uid)  \(Paint.ink(.dim, "[disconnected]"))  \(Paint.ink(.green, "own profile"))")
+            lines.append("  \(Paint.ink(.bold, profile.name ?? uid))  \(Paint.ink(.dim, "[disconnected]"))  \(Paint.ink(.green, "own profile"))")
             rows.append(DeviceRow(uid: uid, name: profile.name ?? uid, transport: nil, connected: false, profile: "own"))
         }
         return Output(lines.joined(separator: "\n"), DevicesReport(current: currentUID, devices: rows))
@@ -365,22 +367,31 @@ enum CLI {
         var config = try loadConfig(ctx)
         config.enabled = enabled
         try ctx.store.save(config)
-        let text = enabled ? "eq on" : "eq off (bypass)"
+        let text = "eq " + (enabled ? Paint.ink(.green, "on") : Paint.ink(.yellow, "off (bypass)"))
         return Output(text, ToggleReport(enabled: enabled))
     }
 
     private static func status(_ ctx: CLIContext) throws -> Output {
         guard let status = Status.read(from: ctx.statusURL), status.isAlive() else { throw CLIError.daemonNotRunning }
-        var lines = ["state: \(Paint.ink(Paint.state(status.state), status.state.rawValue))"]
+        func label(_ text: String) -> String { Paint.ink(.dim, text + ":") }
+        var lines = ["\(label("state")) \(Paint.ink(Paint.state(status.state), status.state.rawValue))"]
         if let device = status.device {
             let hz = Paint.ink(.yellow, "\(Int(status.sampleRate)) Hz")
-            lines.append("device: \(Paint.ink(.bold, device.name)) [\(device.transport)] \(hz), \(status.profile?.rawValue ?? "-") profile")
+            let transport = Paint.ink(.dim, "[\(device.transport)]")
+            let profile: String
+            switch status.profile {
+            case .device?: profile = Paint.ink(.green, "device profile")
+            case .default?: profile = Paint.ink(.yellow, "default profile")
+            case nil: profile = "- profile"
+            }
+            lines.append("\(label("device")) \(Paint.ink(.bold, device.name)) \(transport) \(hz), \(profile)")
         }
         let callbacks = Paint.ink(.yellow, "\(status.callbacks)")
         let frames = Paint.ink(.yellow, "\(status.framesProcessed)")
         let pid = Paint.ink(.yellow, "\(status.pid)")
         let version = Paint.ink(.yellow, status.version ?? "-")
-        lines.append("callbacks: \(callbacks)  frames: \(frames)  enabled: \(status.enabled)  pid: \(pid)  version: \(version)")
+        let enabled = Paint.ink(status.enabled ? .green : .yellow, "\(status.enabled)")
+        lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
@@ -621,7 +632,7 @@ enum CLI {
             throw CLIError.unreadableBackup(1)
         }
         let config = try ctx.store.load()
-        let heading = Paint.ink(.green, "restored the config from \(backupTime(newest.date))")
+        let heading = Paint.ink(.green, "restored the config from ") + Paint.ink(.dim, backupTime(newest.date))
         guard let device else {
             return Output(heading, ["restored": newest.url.path])
         }
@@ -651,7 +662,7 @@ enum CLI {
             lines.append(line)
             rows.append(BackupRow(index: backup.index, path: backup.url.path, date: backup.date, profile: profile))
         }
-        let text = lines.isEmpty ? "no backups yet" : lines.joined(separator: "\n")
+        let text = lines.isEmpty ? Paint.ink(.dim, "no backups yet") : lines.joined(separator: "\n")
         return Output(text, BackupsReport(backups: rows))
     }
 

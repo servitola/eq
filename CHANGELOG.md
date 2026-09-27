@@ -5,6 +5,16 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Changed
+
+- `eq --help` fits the terminal: grouped into look, tune and setup, in colour, descriptions
+  wrapped inside their own column (one column below 60). `eq <command> --help` shows one
+  command; a usage error shows only that command's help instead of the whole list.
+- The device placeholder is `DEVICE` instead of `Q`, which read like filter Q.
+- `--json` on a terminal is coloured like `jq`; piped output is unchanged byte for byte.
+- `init`, `on`/`off`, `copy`, `import`, `undo`, `devices`, `status` and `doctor` colour every
+  line by the same rules: names bold, paths and labels dim, success green, warnings yellow.
+
 ## 2026.09.27.5 — 2026-09-27
 
 ### Added
