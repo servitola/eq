@@ -135,4 +135,66 @@ final class ZonesTests: XCTestCase {
                       emit: { emitted.append($0) }, readKey: { nil })
         XCTAssertTrue(emitted.contains { $0.contains("voice") })
     }
+
+    func testInstrumentsAllRangesAreValidAndWithinAudibleSpectrum() {
+        XCTAssertEqual(Instruments.all.count, 8)
+        for instrument in Instruments.all {
+            XCTAssertFalse(instrument.ranges.isEmpty, instrument.name)
+            XCTAssertEqual(instrument.short.count, 3, instrument.name)
+            for range in instrument.ranges {
+                XCTAssertLessThan(range.low, range.high, "\(instrument.name) \(range.name)")
+                XCTAssertGreaterThanOrEqual(range.low, 20, "\(instrument.name) \(range.name)")
+                XCTAssertLessThanOrEqual(range.high, 20000, "\(instrument.name) \(range.name)")
+            }
+        }
+    }
+
+    /// 85 Hz (voice's fundamental low edge) falls inside band 64's octave window [45.25, 90.51],
+    /// so the touched set starts at 64 Hz, not 125 Hz as a naive read of the low edge suggests.
+    func testVoiceTouchesBandsFromSixtyFourToEightThousand() {
+        let voice = try! XCTUnwrap(Instruments.all.first { $0.name == "voice" })
+        XCTAssertEqual(voice.bands.map { Config.bandFrequencies[$0] }, [64, 125, 250, 500, 1000, 2000, 4000, 8000])
+    }
+
+    func testKickHasTwoDisjointRanges() {
+        let kick = try! XCTUnwrap(Instruments.all.first { $0.name == "kick" })
+        XCTAssertEqual(kick.ranges.count, 2)
+        XCTAssertLessThan(kick.ranges[0].high, kick.ranges[1].low, "thump and beater click do not overlap")
+        XCTAssertEqual(kick.bands.map { Config.bandFrequencies[$0] }, [64, 125, 2000, 4000], "two disjoint groups of touched bands")
+    }
+
+    func testOuterSpanCoversTheFullInstrumentEvenAcrossAGap() {
+        let kick = try! XCTUnwrap(Instruments.all.first { $0.name == "kick" })
+        XCTAssertEqual(kick.outerSpan, HzRange(name: "kick", low: 50, high: 5000))
+    }
+
+    func testInstrumentsJSONShape() throws {
+        let data = try JSONEncoder().encode(Instruments.all)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        XCTAssertEqual(json.count, 8)
+        let kick = try XCTUnwrap(json.first { $0["name"] as? String == "kick" })
+        XCTAssertEqual(Set(kick.keys), ["name", "ranges", "bands"])
+        XCTAssertEqual(kick["bands"] as? [Double], [64, 125, 2000, 4000])
+        let ranges = try XCTUnwrap(kick["ranges"] as? [[String: Any]])
+        XCTAssertEqual(ranges.map { $0["name"] as? String }, ["thump", "beater click"])
+        XCTAssertEqual(ranges.map { $0["low"] as? Double }, [50, 2000])
+        XCTAssertEqual(ranges.map { $0["high"] as? Double }, [100, 5000])
+    }
+
+    func testInstrumentTableRendersOneLinePerRangeWithinAModestWidth() {
+        let lines = InstrumentTable.render(Instruments.all)
+        XCTAssertEqual(lines.count, Instruments.all.reduce(0) { $0 + $1.ranges.count })
+        for line in lines { XCTAssertLessThanOrEqual(line.count, 90, line) }
+        XCTAssertTrue(lines[0].hasPrefix("kick"), lines[0])
+        XCTAssertTrue(lines[0].contains("thump 50Hz–100Hz"), lines[0])
+        XCTAssertTrue(lines[0].contains("64Hz 125Hz"), lines[0])
+        XCTAssertTrue(lines[1].hasPrefix(" "), "continuation lines leave the name column blank: \(lines[1])")
+        XCTAssertTrue(lines[1].contains("beater click 2kHz–5kHz"), lines[1])
+    }
+
+    func testHzFormatsUnderAndOverAKilohertz() {
+        XCTAssertEqual(InstrumentTable.hz(50), "50Hz")
+        XCTAssertEqual(InstrumentTable.hz(2000), "2kHz")
+        XCTAssertEqual(InstrumentTable.hz(4200), "4.2kHz")
+    }
 }

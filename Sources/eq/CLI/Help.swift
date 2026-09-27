@@ -71,7 +71,7 @@ struct CommandHelp {
         CommandHelp(.look, "eq devices", "known profiles and connected outputs; the current one marked *"),
         CommandHelp(.look, "eq status", "is the daemon alive, on which device, at what rate"),
         CommandHelp(.look, "eq watch [--zones]", "the live equalizer; tune with 1…0, h for keys, q to quit"),
-        CommandHelp(.look, "eq zones", "which bands carry which instruments, under the current curve"),
+        CommandHelp(.look, "eq zones", "instrument frequency ranges and the bands they touch"),
         CommandHelp(.look, "eq stream", "meter frames as JSON lines, 30 per second, until Ctrl-C"),
         CommandHelp(.tune, "eq set [--device DEVICE] <band> <gain> …", "change bands on the current device, or on DEVICE",
                     examples: ["eq set 64hz +4 1khz -3", "eq set --device JBL 16khz +1"]),

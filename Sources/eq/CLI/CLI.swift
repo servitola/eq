@@ -674,17 +674,10 @@ enum CLI {
         return formatter.string(from: date)
     }
 
-    /// Laid out like a wide watch frame without the meter, so the spans line up under the labels.
+    /// One row per instrument range: its Hz span and the band columns it touches.
     private static func zones(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq zones") }
-        let config = try loadConfig(ctx)
-        let gains = config.profile(forDeviceUID: try currentDevice(ctx).uid).profile.bands
-        let layout = WatchLayout(columns: Config.bandLabels.count, cellWidth: Table.width, meterRows: 0, shortLabels: false,
-                                 width: Table.width * Config.bandLabels.count + 2 * Zones.fullNameWidth)
-        let margin = String(repeating: " ", count: Zones.placement(layout).start)
-        let rows = [margin + Table.labelsRow(), margin + Table.gainsRow(gains)]
-            + Zones.render(Zones.all, layout: layout, levels: [], gains: gains, why: true)
-        return Output(rows.joined(separator: "\n"), Zones.all)
+        return Output(InstrumentTable.render(Instruments.all).joined(separator: "\n"), Instruments.all)
     }
 
     private static func doctor(_ ctx: CLIContext) -> Output {
