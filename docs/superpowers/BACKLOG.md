@@ -9,7 +9,10 @@
 - Every text output painted by the same sixteen-colour rules: `status` (already), `devices`
   (already), `doctor` (already), `import` summaries, `copy`, `init`, `on/off`, error lines
   (`error:` red, the hint after it yellow), `zones` (names dim, spans in band inks).
-- Pipes and `NO_COLOR` stay plain; `--json` never painted.
+- `--json` on a terminal is pretty and coloured like `jq`: keys blue, strings green,
+  numbers yellow, `true/false` cyan, `null` dim, punctuation dim. Piped or `NO_COLOR` →
+  plain JSON exactly as today (scripts and the tests parse it).
+- Pipes and `NO_COLOR` stay plain.
 
 ## Follow-ups from the v4 review
 - Poll the meter socket and stdin together so keys work while the daemon sends no frames.
