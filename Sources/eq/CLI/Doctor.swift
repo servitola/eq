@@ -145,10 +145,10 @@ enum Doctor {
             return DoctorCheck(name: "tap", ok: true, detail: "skipped (daemon does not report it)", warning: false)
         }
         guard silent > tapSilenceLimit else {
-            return DoctorCheck(name: "tap", ok: true, detail: silent < 1 ? "audio arriving" : "silent for \(Int(silent)) s", warning: false)
+            return DoctorCheck(name: "tap", ok: true, detail: silent < 1 ? "audio arriving" : "silent for \(Table.whole(silent)) s", warning: false)
         }
         return DoctorCheck(name: "tap", ok: false,
-                           detail: "no audio reached the tap for \(Int(silent)) s — if something is playing, check System Audio Recording permission",
+                           detail: "no audio reached the tap for \(Table.whole(silent)) s — if something is playing, check System Audio Recording permission",
                            warning: true)
     }
 
@@ -163,7 +163,7 @@ enum Doctor {
             return DoctorCheck(name: "filters", ok: true, detail: "skipped (daemon does not report it)", warning: false)
         }
         guard !warnings.isEmpty else {
-            return DoctorCheck(name: "filters", ok: true, detail: "stable at \(Int(live.sampleRate)) Hz", warning: false)
+            return DoctorCheck(name: "filters", ok: true, detail: "stable at \(Table.whole(live.sampleRate)) Hz", warning: false)
         }
         return DoctorCheck(name: "filters", ok: false,
                            detail: warnings.joined(separator: "; ") + " — raise its frequency to use it at this rate",

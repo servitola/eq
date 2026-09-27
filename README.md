@@ -223,6 +223,13 @@ off; so does the watch going away in any other way, since the daemon drops a sol
 the client that asked for it disconnects. A solo is never saved and never reaches `eq.json`.
 It is the curve you hear through, not a second curve: the EQ stays one curve per device.
 
+Any meter client can ask for a solo by writing `{"solo":{"low":L,"high":H}}` to the socket,
+one JSON object per line, with `0 ≤ L < H ≤ 100000` Hz; any other line is ignored. The last
+accepted range wins and its sender owns it. Only the owner clears it: with `{"solo":null}`,
+with a range the daemon refuses at the current sample rate, or by disconnecting. A `null` from
+any other client is ignored, so a second `eq watch` cannot switch off the first one's solo.
+The socket takes at most eight clients at once and closes any beyond that.
+
 ## Colour
 
 On a terminal the output uses the sixteen standard terminal colours, each with one meaning

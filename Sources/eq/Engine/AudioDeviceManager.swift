@@ -102,8 +102,12 @@ enum AudioDeviceManager {
         var value: Double = 0
         var size = UInt32(MemoryLayout<Double>.size)
         guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr else { return 48000 }
-        return value
+        // A driver's value reaches Int conversions and filter design; anything no real device runs
+        // at reads as 0, which every caller already treats as "not settled yet".
+        return value.isFinite && value > 0 && value <= maxSampleRate ? value : 0
     }
+
+    static let maxSampleRate = 1_536_000.0
 
     static func tapFormat(_ id: AudioObjectID) -> AudioStreamBasicDescription? {
         var addr = address(kAudioTapPropertyFormat)

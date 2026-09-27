@@ -31,6 +31,11 @@ enum Table {
         }.joined()
     }
 
+    /// Numbers read from the status file are the daemon's word, not a guarantee: `Int(1e300)` traps.
+    static func whole(_ value: Double) -> String {
+        value.isFinite ? String(format: "%.0f", value.rounded(.towardZero)) : "?"
+    }
+
     private static func wholeGain(_ value: Double) -> String {
         guard value.isFinite else { return "0" }
         let whole = Int(min(max(value, -99), 99).rounded())

@@ -48,7 +48,7 @@ enum Paint {
     private static let glyphs = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
     static func glyph(for value: Double) -> String {
-        let index = Int(((value + 12) / 24 * 7).rounded(.down))
+        let index = value.isFinite ? Int(((min(max(value, -12), 12) + 12) / 24 * 7).rounded(.down)) : 0
         return glyphs[min(max(index, 0), glyphs.count - 1)]
     }
 

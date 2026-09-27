@@ -27,8 +27,8 @@ final class MeterServerTests: XCTestCase {
                         self?.changesLock.lock(); self?.changes.append(n); self?.changesLock.unlock()
                     },
                     onSolo: { [weak self] range in
-                        // Mirrors the daemon: an empty range is refused.
-                        if let range, range.low >= range.high { return false }
+                        // Stands in for the daemon's sample-rate clamp, as in call mode refusing air.
+                        if let range, range.low >= 10_000 { return false }
                         self?.changesLock.lock(); self?.solos.append(range); self?.changesLock.unlock()
                         return true
                     })
@@ -170,6 +170,71 @@ final class MeterServerTests: XCTestCase {
         send(fd, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
         XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice] }, "\(observedSolos())")
         XCTAssertEqual(queue.sync { server.clients }, 1)
+    }
+
+    func testOutOfBoundsRangesAreIgnoredWithoutCrashing() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        defer { close(fd) }
+        for range in [#"{"low":300,"high":1e300}"#, #"{"low":-1e300,"high":300}"#, #"{"low":2800,"high":300}"#,
+                      #"{"low":0,"high":0}"#, #"{"low":300,"high":100001}"#] {
+            send(fd, #"{"solo":"# + range + "}\n")
+        }
+        send(fd, "{\"solo\":{\"low\":0,\"high\":100000}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [SoloRange(low: 0, high: 100_000)] }, "\(observedSolos())")
+        XCTAssertEqual(queue.sync { server.clients }, 1)
+    }
+
+    func testRefusedRangeFromTheOwnerClearsItsSolo() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        defer { close(fd) }
+        send(fd, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        send(fd, "{\"solo\":{\"low\":12000,\"high\":20000}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice, nil] }, "\(observedSolos())")
+    }
+
+    func testNullFromANonOwnerIsIgnored() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let owner = try connect()
+        let other = try connect()
+        defer { close(other) }
+        send(owner, "{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice] })
+        send(other, "{\"solo\":null}\n")
+        usleep(50_000)
+        XCTAssertEqual(observedSolos(), [Self.voice])
+        close(owner)
+        XCTAssertTrue(waitUntil(0.5) { observedSolos() == [Self.voice, nil] }, "\(observedSolos())")
+    }
+
+    func testClientsBeyondTheCapAreClosed() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let kept = try (0..<MeterServer.maxClients).map { _ in try connect() }
+        defer { kept.forEach { close($0) } }
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == MeterServer.maxClients })
+        let extra = try connect()
+        defer { close(extra) }
+        var byte: UInt8 = 0
+        var closed = false
+        let deadline = Date().addingTimeInterval(0.5)
+        while Date() < deadline, !closed { closed = read(extra, &byte, 1) == 0 }
+        XCTAssertTrue(closed, "the ninth client gets EOF")
+        XCTAssertEqual(queue.sync { server.clients }, MeterServer.maxClients)
+
+        close(kept[0])
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == MeterServer.maxClients - 1 })
+        let again = try connect()
+        defer { close(again) }
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == MeterServer.maxClients })
     }
 
     func testStalePathIsReplaced() throws {

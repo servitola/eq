@@ -16,8 +16,10 @@ its entries under a dated version.
   change (which moves it), quitting or a dropped connection. The header shows `SOLO`. Nothing
   is written to the config.
 - `↑`/`↓` in `eq watch` step to the previous/next preset, like `p` in both directions.
-- The meter socket takes requests: a client may send `{"solo":{"low":L,"high":H}}` or
-  `{"solo":null}`, one JSON object per line. `eq stream` frames carry `"solo"`, `null` when off.
+- The meter socket takes requests: a client may send `{"solo":{"low":L,"high":H}}` (with
+  `0 ≤ L < H ≤ 100000`) or `{"solo":null}`, one JSON object per line. Only the client that set
+  the solo can clear it; a `null` from another client is ignored. At most eight clients connect
+  at once. `eq stream` frames carry `"solo"`, `null` when off.
 
 ### Changed
 

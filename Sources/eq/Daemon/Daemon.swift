@@ -104,6 +104,8 @@ final class Daemon {
     private var meterServer: MeterServer?
     // The daemon's copy survives engine stops, which clear the processor's; applyProfile re-applies it.
     private var solo: SoloRange?
+    private var lastSoloLog = Date.distantPast
+    private var pendingSoloLog: String?
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     private lazy var settle = Debouncer(delay: DaemonPolicy.settleDelay, queue: queue) { [weak self] in self?.reconcile() }
     private var power: SystemPower?
@@ -209,15 +211,35 @@ final class Daemon {
     private func setSolo(_ range: SoloRange?) -> Bool {
         let processor = engine.processor
         guard let range else {
-            if solo != nil { Log.write("solo off") }
+            if solo != nil { logSolo("solo off") }
             solo = nil
             processor.clearSolo()
             return true
         }
-        guard processor.setSolo(low: range.low, high: range.high) else { return false }
-        if solo != range { Log.write("solo \(Int(range.low))–\(Int(range.high)) Hz") }
+        guard processor.setSolo(low: range.low, high: range.high), let effective = processor.effectiveSolo else { return false }
+        if solo != range { logSolo(String(format: "solo %.0f–%.0f Hz", effective.low, effective.high)) }
         solo = range
         return true
+    }
+
+    /// Focus stepping through instruments sends a solo per key press; one line a second is
+    /// enough, and the line that finally lands is the state the daemon ended in.
+    private func logSolo(_ message: String) {
+        let wait = lastSoloLog.addingTimeInterval(1).timeIntervalSinceNow
+        guard wait > 0 || pendingSoloLog != nil else {
+            Log.write(message)
+            lastSoloLog = Date()
+            return
+        }
+        let scheduled = pendingSoloLog != nil
+        pendingSoloLog = message
+        guard !scheduled else { return }
+        queue.asyncAfter(deadline: .now() + max(wait, 0)) { [weak self] in
+            guard let self, let message = self.pendingSoloLog else { return }
+            self.pendingSoloLog = nil
+            Log.write(message)
+            self.lastSoloLog = Date()
+        }
     }
 
     private func frame() -> MeterFrame {
@@ -234,7 +256,9 @@ final class Daemon {
             gains: (profile?.bands ?? []).map(MeterFrame.round1),
             preamp: MeterFrame.round1(profile?.preamp ?? 0),
             enabled: config.enabled,
-            solo: processor.effectiveSolo)
+            // The daemon's copy, not the processor's: a rebuild clears the processor's for a moment,
+            // and the watch would blink SOLO off and on.
+            solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: processor.sampleRate) })
     }
 
     // MARK: - Engine

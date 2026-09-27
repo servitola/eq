@@ -376,7 +376,7 @@ enum CLI {
         func label(_ text: String) -> String { Paint.ink(.dim, text + ":") }
         var lines = ["\(label("state")) \(Paint.ink(Paint.state(status.state), status.state.rawValue))"]
         if let device = status.device {
-            let hz = Paint.ink(.yellow, "\(Int(status.sampleRate)) Hz")
+            let hz = Paint.ink(.yellow, "\(Table.whole(status.sampleRate)) Hz")
             let transport = Paint.ink(.dim, "[\(device.transport)]")
             let profile: String
             switch status.profile {

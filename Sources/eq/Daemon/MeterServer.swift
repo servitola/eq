@@ -10,21 +10,35 @@ final class MeterServer {
     private let tick: TimeInterval
     private let source: () -> MeterFrame
     private let onClientsChanged: (Int) -> Void
-    // Returns whether the range was accepted; nil clears. The sender of an accepted range owns it.
+    // Returns whether the range was accepted; nil clears. The sender of an accepted range owns it;
+    // only the owner can clear it, by `null`, by a range the daemon refuses, or by disconnecting.
     private let onSolo: (SoloRange?) -> Bool
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
+    private var acceptPaused = false
+    private var didLogFull = false
+    private var didLogOutOfFiles = false
     private var clientFDs: [Int32] = []
     private var readSources: [Int32: DispatchSourceRead] = [:]
     private var timer: DispatchSourceTimer?
     private var didLogEncodeFailure = false
-    private var didLogBadRequest = false
+    private var loggedBadRequest: Set<Int32> = []
     private var pendingInput: [Int32: [UInt8]] = [:]
     // Clients whose current line already overflowed; bytes are skipped up to its newline.
     private var discarding: Set<Int32> = []
     private var soloOwner: Int32?
 
     static let maxRequestLine = 1024
+    static let maxClients = 8
+    // A client that never stops writing must not starve the frame timer on the same queue.
+    static let maxReadsPerEvent = 16
+    static let maxSoloHz = 100_000.0
+
+    /// The protocol's own bounds, checked before the daemon sees a range; the sample-rate clamp
+    /// happens later. A range outside them is a malformed request, not a refused one.
+    static func isValid(_ range: SoloRange) -> Bool {
+        range.low.isFinite && range.high.isFinite && range.low >= 0 && range.low < range.high && range.high <= maxSoloHz
+    }
 
     private(set) var clients = 0
 
@@ -57,7 +71,7 @@ final class MeterServer {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         guard bound == 0 else { let e = errno; close(fd); throw Failure.posix("bind", e) }
-        guard listen(fd, 5) == 0 else { let e = errno; close(fd); unlink(path); throw Failure.posix("listen", e) }
+        guard listen(fd, Int32(Self.maxClients)) == 0 else { let e = errno; close(fd); unlink(path); throw Failure.posix("listen", e) }
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         listenFD = fd
 
@@ -75,6 +89,8 @@ final class MeterServer {
         for fd in clientFDs { drop(fd, notify: false) }
         guard let accepts = acceptSource else { return }
         accepts.cancel()
+        // A suspended source never runs its cancel handler, so the listening fd would leak.
+        if acceptPaused { accepts.resume(); acceptPaused = false }
         acceptSource = nil
         listenFD = -1
         unlink(socketURL.path)
@@ -83,7 +99,18 @@ final class MeterServer {
     private func acceptAll() {
         while true {
             let fd = accept(listenFD, nil, nil)
-            guard fd >= 0 else { return }
+            guard fd >= 0 else {
+                if errno == EMFILE || errno == ENFILE { pauseAccepting() }
+                return
+            }
+            guard clientFDs.count < Self.maxClients else {
+                close(fd)
+                if !didLogFull {
+                    didLogFull = true
+                    Log.write("meter: \(Self.maxClients) clients already connected — refusing more")
+                }
+                continue
+            }
             var on: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
@@ -98,9 +125,27 @@ final class MeterServer {
         }
     }
 
+    /// The pending connection stays readable, so without a pause the accept source would spin
+    /// on the same error until a descriptor frees up.
+    private func pauseAccepting() {
+        guard let accepts = acceptSource, !acceptPaused else { return }
+        accepts.suspend()
+        acceptPaused = true
+        if !didLogOutOfFiles {
+            didLogOutOfFiles = true
+            Log.write("meter: out of file descriptors — pausing accepts for 1 s")
+        }
+        queue.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.acceptPaused, let accepts = self.acceptSource else { return }
+            self.acceptPaused = false
+            accepts.resume()
+        }
+    }
+
     private func drain(_ fd: Int32) {
         var buffer = [UInt8](repeating: 0, count: Self.maxRequestLine)
-        while true {
+        // The read source is level-triggered, so what is left fires the handler again.
+        for _ in 0..<Self.maxReadsPerEvent {
             let n = read(fd, &buffer, buffer.count)
             if n > 0 {
                 receive(fd, buffer[0..<n])
@@ -123,28 +168,37 @@ final class MeterServer {
         }
         if input.count > Self.maxRequestLine {
             input.removeAll()
-            if discarding.insert(fd).inserted { badRequest() }
+            if discarding.insert(fd).inserted { badRequest(from: fd) }
         }
         pendingInput[fd] = input
     }
 
     private func handle(_ line: [UInt8], from fd: Int32) {
         guard line.count <= Self.maxRequestLine,
-              let request = try? JSONDecoder().decode(SoloRequest.self, from: Data(line)) else {
-            badRequest()
+              let request = try? JSONDecoder().decode(SoloRequest.self, from: Data(line)),
+              request.solo.map(Self.isValid) ?? true else {
+            badRequest(from: fd)
             return
         }
         if let range = request.solo {
-            if onSolo(range) { soloOwner = fd }
-        } else {
-            soloOwner = nil
-            _ = onSolo(nil)
+            if onSolo(range) {
+                soloOwner = fd
+            } else if soloOwner == fd {
+                // The owner moved on to a range this rate cannot play; the old one must not keep sounding.
+                clearSolo()
+            }
+        } else if soloOwner == fd {
+            clearSolo()
         }
     }
 
-    private func badRequest() {
-        guard !didLogBadRequest else { return }
-        didLogBadRequest = true
+    private func clearSolo() {
+        soloOwner = nil
+        _ = onSolo(nil)
+    }
+
+    private func badRequest(from fd: Int32) {
+        guard loggedBadRequest.insert(fd).inserted else { return }
         Log.write("meter: ignoring a malformed client request")
     }
 
@@ -154,11 +208,10 @@ final class MeterServer {
         readSources.removeValue(forKey: fd)?.cancel()
         pendingInput.removeValue(forKey: fd)
         discarding.remove(fd)
+        loggedBadRequest.remove(fd)
+        didLogFull = false
         // Cleared before the fd number can be reused by the next accept.
-        if soloOwner == fd {
-            soloOwner = nil
-            _ = onSolo(nil)
-        }
+        if soloOwner == fd { clearSolo() }
         if notify { clientsChanged() } else { clients = clientFDs.count }
     }
 
