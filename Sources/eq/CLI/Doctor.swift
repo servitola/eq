@@ -144,11 +144,27 @@ enum Doctor {
         guard live.state == .running else {
             return DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false)
         }
-        let before = live.callbacks
-        probes.sleep(1)
-        let after = probes.readStatus()?.callbacks ?? before
+        // The daemon rewrites status every 5 s, so two reads a second apart usually see the same
+        // sample; only a sample with a newer timestamp says anything about the IO path.
+        var fresh: Status?
+        for _ in 0..<12 {
+            probes.sleep(0.5)
+            guard let next = probes.readStatus() else {
+                return DoctorCheck(name: "audio", ok: false, detail: "daemon exited during the check", warning: true)
+            }
+            if next.updatedAt != live.updatedAt { fresh = next; break }
+        }
+        guard let fresh else {
+            return DoctorCheck(name: "audio", ok: false, detail: "status not refreshed in 6 s", warning: true)
+        }
+        let before = live.callbacks, after = fresh.callbacks
+        if before == 0 && after == 0 {
+            return DoctorCheck(name: "audio", ok: false,
+                               detail: "no IO callbacks — if the daemon predates v2, restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
+                               warning: true)
+        }
         guard after > before else {
-            return DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks in 1 s — is the device asleep?", warning: true)
+            return DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks since the last sample — is the device asleep?", warning: true)
         }
         return DoctorCheck(name: "audio", ok: true, detail: "callbacks \(before) → \(after)", warning: false)
     }

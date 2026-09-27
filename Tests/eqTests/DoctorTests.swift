@@ -6,7 +6,7 @@ final class DoctorTests: XCTestCase {
     override func tearDown() { Paint.forced = nil }
 
     private func probes(status: Status?, configThrows: Bool = false, agent: Bool = true, exe: String? = "/Applications/EQ.app/Contents/MacOS/eq",
-                        callbacksLater: UInt64? = nil) -> DoctorProbes {
+                        callbacksLater: UInt64? = nil, refreshes: Bool = true) -> DoctorProbes {
         var reads = 0
         return DoctorProbes(
             osVersion: { OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 2) },
@@ -14,6 +14,7 @@ final class DoctorTests: XCTestCase {
             readStatus: {
                 reads += 1
                 guard var s = status else { return nil }
+                if reads > 1, refreshes { s.updatedAt = s.updatedAt.addingTimeInterval(5) }
                 if reads > 1, let later = callbacksLater { s.callbacks = later }
                 return s
             },
@@ -63,6 +64,21 @@ final class DoctorTests: XCTestCase {
         let audio = report.checks.first { $0.name == "audio" }!
         XCTAssertTrue(audio.warning); XCTAssertTrue(audio.detail.contains("no IO callbacks"))
         XCTAssertTrue(Doctor.text(report).contains("! binary"))
+    }
+
+    func testStaleStatusWarnsInsteadOfComparing() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20, refreshes: false))
+        XCTAssertTrue(report.ok)
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.warning)
+        XCTAssertEqual(audio.detail, "status not refreshed in 6 s")
+    }
+
+    func testZeroCallbacksPointAtRestart() {
+        let report = Doctor.run(probes(status: running(callbacks: 0), callbacksLater: 0))
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.warning)
+        XCTAssertTrue(audio.detail.contains("kickstart"))
     }
 
     func testSmokeSkipsLaunchAgentRow() {
