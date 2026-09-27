@@ -13,6 +13,7 @@ its entries under a dated version.
   draw their own.
 - A meter socket at `~/.cache/eq/meter.sock`, created by the daemon when it starts and removed
   on exit; the band meter and its 30 Hz timer run only while a client is connected.
+- the meter socket appears after the daemon restarts (`launchctl kickstart -k gui/$UID/com.servitola.eq`)
 
 ## 2026.09.27.2 — 2026-09-27
 

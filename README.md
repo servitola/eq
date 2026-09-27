@@ -75,13 +75,19 @@ picks it up within a tenth of a second.
 ## Watch
 
 ```
-BE-RCA · 44.1 kHz · preamp -1.5 dB                                    LIMIT
-  █     █                                                 (12 rows)
-  █     █     █                 ▬
-  █ ▬   █     █     █           ░
-  █     █ ▬   █ ▬   █ ▬   █     ░     ░           ▬     ▬
-  ░     █     █     █     █     █ ▬   ░     ░ ▬   █     █
-  ░     ░     ░     ░     ░     ░     ░     ░     ░     ░
+BE-RCA · 44.1 kHz · preamp +0.0 dB
+     █     █     █                                   █      
+     █     █     █     █                             █     █
+     █     █     █     █     █     ░     █     █     █     █
+     ▬     █     █     █     █     █     █     █     █     █
+     █     ▬     ▬     ▬     █     █     █     █     ▬     ▬
+     █     █     █     █     █     █     █     █     █     █
+     █     █     █     █     ▬     █     ▬     ▬     █     █
+     █     █     █     █     █     ▬     █     █     █     █
+     █     █     █     █     █     █     █     █     █     █
+     █     █     █     █     █     █     █     █     █     █
+     █     █     █     █     █     █     █     █     █     █
+     █     █     █     █     █     █     █     █     █     █
   32Hz  64Hz 125Hz 250Hz 500Hz  1kHz  2kHz  4kHz  8kHz 16kHz
   +4.8  +4.0  +4.2  +2.3  +0.0  -3.1  +0.0  +0.0  +3.1  +2.4
 ```
@@ -170,7 +176,7 @@ connected.
 ## Development
 
 ```sh
-swift test               # 140 unit tests
+swift test               # 144 unit tests
 scripts/build-app.sh     # build/EQ.app, ad-hoc signed
 scripts/smoke.sh         # starts the daemon against a scratch config; play something first
 ```

@@ -54,11 +54,13 @@ if [[ $state != running ]]; then
 fi
 
 # Runs during the tone, ahead of the status-write window below — nothing pins it there.
-( "$eq" stream >"$scratch/stream.jsonl" 2>/dev/null & sp=$!; sleep 2; kill $sp 2>/dev/null; wait $sp 2>/dev/null || true )
+# `|| true` on the kill: under `set -e`, an already-exited stream (e.g. the daemon closed the
+# socket first) would fail the kill and take the whole script down with it.
+( "$eq" stream >"$scratch/stream.jsonl" 2>"$scratch/stream.err" & sp=$!; sleep 2; kill $sp 2>/dev/null || true; wait $sp 2>/dev/null || true )
 stream_lines=$(wc -l < "$scratch/stream.jsonl" | tr -d ' ')
-(( stream_lines >= 20 )) || { echo "stream produced $stream_lines lines/2s, want >= 20"; cat "$scratch/daemon.log"; exit 1 }
+(( stream_lines >= 20 )) || { echo "stream produced $stream_lines lines/2s, want >= 20"; cat "$scratch/daemon.log"; echo "--- stream stderr ---"; cat "$scratch/stream.err"; exit 1 }
 /usr/bin/python3 -c 'import json,sys; d=json.loads(open(sys.argv[1]).readline()); assert len(d["in"]) == 10 and len(d["out"]) == 10 and len(d["gains"]) == 10, d' "$scratch/stream.jsonl" \
-  || { echo "stream line missing 10-element in/out/gains"; exit 1 }
+  || { echo "stream line missing 10-element in/out/gains"; cat "$scratch/stream.err"; exit 1 }
 grep -q "meter: 1 client" "$scratch/daemon.log" || { echo "daemon log missing meter: 1 client"; cat "$scratch/daemon.log"; exit 1 }
 sleep 1
 grep -q "meter: 0 clients" "$scratch/daemon.log" || { echo "daemon log missing meter: 0 clients"; cat "$scratch/daemon.log"; exit 1 }
