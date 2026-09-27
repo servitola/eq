@@ -419,6 +419,24 @@ final class CLITests: XCTestCase {
         }
     }
 
+    func testStreamStaysCompactAndPlainOnATerminal() throws {
+        Paint.forced = true
+        let socketURL = dir.appendingPathComponent("meter.sock")
+        context.meterSocketURL = socketURL
+        let queue = DispatchQueue(label: "stream-colour-test")
+        let server = MeterServer(socketURL: socketURL, queue: queue, tick: 0.01,
+                                  source: { MeterFrameTests.sample }, onClientsChanged: { _ in })
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        var lines: [String] = []
+        context.emit = { lines.append($0) }
+        context.streamLimit = 3
+        let result = runCLI("stream", "--json")
+        XCTAssertEqual(result.output, "")
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertFalse(lines.contains { $0.contains("\u{1B}") || $0.contains("\n") })
+    }
+
     func testStreamExitsOneWhenDaemonCloses() throws {
         let socketURL = dir.appendingPathComponent("meter.sock")
         context.meterSocketURL = socketURL

@@ -6,7 +6,7 @@ import Foundation
 /// without re-reading labels.
 enum Paint {
     enum Ink: Int {
-        case bold = 1, dim = 2, red = 31, green = 32, yellow = 33, magenta = 35, cyan = 36
+        case bold = 1, dim = 2, red = 31, green = 32, yellow = 33, blue = 34, magenta = 35, cyan = 36
         case brightGreen = 92, brightYellow = 93, brightMagenta = 95
     }
 

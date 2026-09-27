@@ -51,7 +51,7 @@ enum CLI {
             let output = try dispatch(args, context)
             // A streamed command already printed its own lines; the empty final Output carries
             // no text in either form, JSON included, so nothing prints twice.
-            let text = (output.streamed && output.text.isEmpty) ? "" : (wantsJSON ? encode(output.json) : output.text)
+            let text = (output.streamed && output.text.isEmpty) ? "" : (wantsJSON ? json(output.json) : output.text)
             return (output.exitCode, text, false, output.streamed)
         } catch let error as CLIError {
             let code: Int32
@@ -59,7 +59,7 @@ enum CLI {
             case .usage, .unknownBand, .badGain, .gainOutOfRange: code = 2
             default: code = 1
             }
-            if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)"))), true, false) }
+            if wantsJSON { return (code, json(ErrorReport(error: .init(code: error.code, message: "\(error)"))), true, false) }
             switch error {
             case .usage, .unknownBand, .badGain, .gainOutOfRange:
                 let help = helpText(for: command, width: context.width(2), paint: Paint.enabled(fd: 2))
@@ -69,9 +69,15 @@ enum CLI {
             }
         } catch {
             let code = error is ConfigError ? "config" : "internal"
-            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: code, message: "\(error)"))), true, false) }
+            if wantsJSON { return (1, json(ErrorReport(error: .init(code: code, message: "\(error)"))), true, false) }
             return (1, "error: \(error)", true, false)
         }
+    }
+
+    /// A JSON answer goes to stdout even when it reports an error, so fd 1 decides its colour.
+    private static func json(_ value: Encodable) -> String {
+        let text = encode(value)
+        return Paint.enabled ? JSONPainter.paint(text) : text
     }
 
     static func encode(_ value: Encodable) -> String {
