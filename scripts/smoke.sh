@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Launch the daemon against a scratch config, wait for a live tap, edit a band through the
-# CLI, confirm the daemon picked it up and frames keep flowing, run doctor and an import,
-# then hold 12 s of silence to prove the watchdog stays quiet.
+# CLI, confirm the daemon picked it up and frames keep flowing while counting status.json
+# writes over 20 s (the eq set + at most one heartbeat should land ≤ 2), run doctor and an
+# import, then hold 12 s of silence to prove the watchdog stays quiet.
 # EQ_SMOKE_TONE=1: the script plays its own tone and stops it for the silence window.
 # Without it the caller supplies the audio and must stop playback when the script prints
 # "silence window"; the script never touches an afplay it did not start.
@@ -46,11 +47,20 @@ if [[ $state != running ]]; then
 fi
 
 frames1=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["framesProcessed"])')
+status_mtime=$(stat -f %m "$EQ_STATUS")
+status_writes=0
 "$eq" set 1khz -3 >/dev/null
-sleep 2
+for _ in {1..20}; do
+  sleep 1
+  mtime=$(stat -f %m "$EQ_STATUS")
+  if [[ $mtime != "$status_mtime" ]]; then
+    status_writes=$((status_writes + 1))
+    status_mtime=$mtime
+  fi
+done
+(( status_writes <= 2 )) || { echo "status writes $status_writes/20s exceeds the ≤2 budget"; cat "$scratch/daemon.log"; exit 1 }
 grep -q "config reloaded" "$scratch/daemon.log" || { echo "daemon did not reload the config"; cat "$scratch/daemon.log"; exit 1 }
 "$eq" | grep -q -- '-3.0' || { echo "CLI does not show the new gain"; cat "$scratch/daemon.log"; exit 1 }
-sleep 6
 frames2=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["framesProcessed"])')
 (( frames2 > frames1 )) || { echo "frames did not advance ($frames1 → $frames2) — is anything playing? the tap only delivers frames while audio plays"; cat "$scratch/daemon.log"; exit 1 }
 
@@ -72,4 +82,4 @@ grep -q "IO stalled" "$scratch/daemon.log" && { echo "watchdog fired on silence"
 rss=$(ps -o rss= -p $pid | tr -d ' ')
 (( rss / 1024 <= 30 )) || { echo "RSS $((rss / 1024)) MB exceeds the 30 MB budget"; exit 1 }
 callbacks=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["callbacks"])')
-echo "smoke ok: running on $("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["device"]["name"])'), frames $frames1 → $frames2, callbacks $callbacks, RSS $((rss / 1024)) MB"
+echo "smoke ok: running on $("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["device"]["name"])'), frames $frames1 → $frames2, callbacks $callbacks, RSS $((rss / 1024)) MB, status writes $status_writes/20s"

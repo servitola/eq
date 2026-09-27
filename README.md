@@ -117,6 +117,22 @@ this Mac with the same release build, 512 frames (≈21–23 ms) cut context swi
 "halves both" bar for adopting it; `EQ_IO_FRAMES` (daemon only, 64–4096) is still there to
 re-measure if the numbers ever look different on other hardware.
 
+## Footprint
+
+Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 kHz.
+
+| Metric | v2 (installed) | v3 (release @256) |
+| --- | --- | --- |
+| physical footprint | 6.4 MB | 5.2 MB |
+| CPU while playing | 0.30 % | 0.30 % |
+| context switches | 189 /s | 191 /s |
+| status.json writes | 12 /min | ≤ 2 /min (30 s heartbeat + changes) |
+| log | unrotated | capped by the cleanup job |
+| `brew uninstall` | agent stays loaded | unloads the agent; `--zap` removes the plist link |
+
+512 IO frames halves context switches but more than doubles CPU, so 256 stays the default;
+`EQ_IO_FRAMES` is the escape hatch to re-measure on other hardware (see "How it works" above).
+
 ## Limits
 
 - macOS 14.4 or newer, Apple Silicon. Tested on macOS 26.6.
