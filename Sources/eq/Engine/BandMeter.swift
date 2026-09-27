@@ -72,6 +72,13 @@ final class BandMeter {
         run(channels: output, offset: bandCount, frameCount: frameCount, trackPeak: true)
         for index in 0..<(2 * bandCount) { levels[index] = Self.decibels(envelopes[index]) }
         peakLevel = Self.decibels(peakEnvelope)
+        for index in 0..<(2 * bandCount)
+            where !envelopes[index].isFinite || !states[index].z1.isFinite || !states[index].z2.isFinite {
+            envelopes[index] = 0
+            states[index] = BiquadState()
+            levels[index] = Self.floorDB
+        }
+        if !peakEnvelope.isFinite { peakEnvelope = 0; peakLevel = Self.floorDB }
     }
 
     private func run(channels: [UnsafeMutablePointer<Float>], offset: Int, frameCount: Int, trackPeak: Bool) {
@@ -98,6 +105,6 @@ final class BandMeter {
     }
 
     private static func decibels(_ envelope: Float) -> Double {
-        20 * log10(Double(max(envelope, floorLinear)))
+        envelope > floorLinear ? 20 * log10(Double(envelope)) : floorDB
     }
 }

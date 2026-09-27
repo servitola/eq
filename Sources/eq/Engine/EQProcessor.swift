@@ -36,13 +36,10 @@ final class EQProcessor {
 
     let meter = BandMeter(frequencies: Config.bandFrequencies)
     /// Written on the main queue, read once per callback on the audio thread.
-    var meteringEnabled = false {
-        didSet {
-            // Racy with a concurrent `feed` on the audio thread, but `reset` only zeroes
-            // pre-allocated 8-byte-aligned storage, which is safe enough here.
-            if meteringEnabled && !oldValue { meter.reset() }
-        }
-    }
+    var meteringEnabled = false
+    // Read and written only on the audio thread, inside `process`, so the reset on a
+    // false→true transition never races the main queue's write to `meteringEnabled`.
+    private var wasMetering = false
     private(set) var limiting = false
     // The tap engine's scratch buffers are at least this large; a longer callback goes unmetered
     // rather than allocating on the audio thread.
@@ -103,6 +100,8 @@ final class EQProcessor {
     /// Process non-interleaved Float32 channel buffers in place. Audio thread only.
     func process(channels: [UnsafeMutablePointer<Float>], frameCount: Int) {
         let metering = meteringEnabled && frameCount <= Self.meterCapacity && !channels.isEmpty
+        if metering && !wasMetering { meter.reset() }
+        wasMetering = metering
         if metering { captureMonoInput(channels, frameCount) }
         render(channels: channels, frameCount: frameCount)
         if metering { meter.feed(input: meterInputChannels, output: channels, frameCount: frameCount) }

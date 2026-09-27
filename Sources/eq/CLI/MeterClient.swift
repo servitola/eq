@@ -34,22 +34,25 @@ final class MeterClient {
     }
 
     /// Stops on EOF, on `handle` returning false, or once `maxLines` lines were delivered — the
-    /// last only exists so tests can end a stream that otherwise runs until Ctrl-C.
-    func lines(maxLines: Int? = nil, handle: (String) -> Bool) {
-        guard fd >= 0 else { return }
+    /// last only exists so tests can end a stream that otherwise runs until Ctrl-C. Returns
+    /// true only for the EOF case, so a caller can tell a closed daemon socket apart from a
+    /// voluntary stop.
+    @discardableResult
+    func lines(maxLines: Int? = nil, handle: (String) -> Bool) -> Bool {
+        guard fd >= 0 else { return false }
         var pending = Data()
         var delivered = 0
         var chunk = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(fd, &chunk, chunk.count)
-            guard n > 0 else { return }
+            guard n > 0 else { return true }
             pending.append(contentsOf: chunk[0..<n])
             while let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
                 let line = String(decoding: pending[..<newline], as: UTF8.self)
                 pending.removeSubrange(...newline)
-                guard handle(line) else { return }
+                guard handle(line) else { return false }
                 delivered += 1
-                if let maxLines, delivered >= maxLines { return }
+                if let maxLines, delivered >= maxLines { return false }
             }
         }
     }

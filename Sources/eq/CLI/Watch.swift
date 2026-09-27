@@ -2,7 +2,9 @@ import Darwin
 import Foundation
 
 protocol MeterSource {
-    func lines(maxLines: Int?, handle: (String) -> Bool)
+    /// Returns whether the source ended because its peer closed the connection (EOF), as
+    /// opposed to `handle` returning false or `maxLines` being reached.
+    func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool
 }
 
 extension MeterClient: MeterSource {}
@@ -21,8 +23,10 @@ enum Watch {
 
     /// Truncates or pads to `n` so a daemon/CLI version skew (a shorter array on the wire)
     /// can't index out of bounds and trap — a trap bypasses every terminal-restore path.
+    /// Also sanitizes non-finite elements to `fill`, for the same reason.
     static func padded(_ a: [Double], to n: Int, with fill: Double) -> [Double] {
-        a.count >= n ? Array(a.prefix(n)) : a + Array(repeating: fill, count: n - a.count)
+        let clean = a.map { $0.isFinite ? $0 : fill }
+        return clean.count >= n ? Array(clean.prefix(n)) : clean + Array(repeating: fill, count: n - clean.count)
     }
 
     static func frame(_ f: MeterFrame, rows: Int = meterRows) -> [String] {
@@ -30,8 +34,11 @@ enum Watch {
         let inLevels = padded(f.in, to: bands, with: -60)
         let outLevels = padded(f.out, to: bands, with: -60)
         var lines = [header(f)]
-        let markers = (0..<bands).map { i in
-            min(max(Int(((12 - gains[i]) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
+        let markers = (0..<bands).map { i -> Int in
+            // A huge but finite gain (daemon/CLI skew, or corrupt state) would still overflow
+            // Int's range before `.rounded()`, trapping; clamp to the real gain range first.
+            let g = gains[i].isFinite ? min(max(gains[i], -12), 12) : 0
+            return min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
         }
         for r in 0..<rows {
             let level = -60 + 60 * Double(rows - 1 - r) / Double(rows - 1)
@@ -70,7 +77,7 @@ enum Watch {
     /// 30 frames a second is quicker than a person notices.
     static func run(source: MeterSource, emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
         emit(enter)
-        source.lines(maxLines: nil) { line in
+        let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
                 emit("\u{1B}[H" + frame(f).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
             }
@@ -80,7 +87,7 @@ enum Watch {
             }
         }
         emit(leave)
-        return 0
+        return eof ? 1 : 0
     }
 }
 

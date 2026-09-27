@@ -15,6 +15,7 @@ final class MeterServer {
     private var clientFDs: [Int32] = []
     private var readSources: [Int32: DispatchSourceRead] = [:]
     private var timer: DispatchSourceTimer?
+    private var didLogEncodeFailure = false
 
     private(set) var clients = 0
 
@@ -121,7 +122,16 @@ final class MeterServer {
     }
 
     private func broadcast() {
-        guard let line = try? MeterFrame.encodeLine(source()) else { return }
+        let line: Data
+        do {
+            line = try MeterFrame.encodeLine(source())
+        } catch {
+            if !didLogEncodeFailure {
+                Log.write("meter: frame not encodable")
+                didLogEncodeFailure = true
+            }
+            return
+        }
         for fd in clientFDs {
             let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
             if written < 0 {

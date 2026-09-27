@@ -89,6 +89,19 @@ final class WatchTests: XCTestCase {
         XCTAssertTrue(result.output.contains("eq watch has no JSON form; use eq stream"), result.output)
     }
 
+    func testFrameToleratesHugeGain() {
+        var gains = Array(repeating: 0.0, count: 10)
+        gains[3] = 1e308
+        gains[7] = -Double.infinity
+        gains[9] = Double.nan
+        let lines = Watch.frame(frame(gains: gains))
+        XCTAssertEqual(lines.count, 1 + Watch.meterRows + 2)
+        func cell(_ row: Int, _ column: Int) -> Character {
+            Array(lines[1 + row])[column * 6 + 5]
+        }
+        XCTAssertEqual(cell(0, 3), "▬")
+    }
+
     func testFrameToleratesShortArrays() {
         let short = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [-20], out: [],
                                 peak: -6, limiting: false, gains: [3], preamp: -1.5, enabled: true)
@@ -101,8 +114,9 @@ final class WatchTests: XCTestCase {
     func testRunLoopExitsOnQ() throws {
         struct Source: MeterSource {
             let lines: [String]
-            func lines(maxLines: Int?, handle: (String) -> Bool) {
-                for line in lines { guard handle(line) else { return } }
+            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
+                for line in lines { guard handle(line) else { return false } }
+                return true
             }
         }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
@@ -113,6 +127,24 @@ final class WatchTests: XCTestCase {
                              readKey: { frames >= 2 ? UInt8(ascii: "q") : nil })
         XCTAssertEqual(code, 0)
         XCTAssertEqual(frames, 2)
+        XCTAssertEqual(emitted.first, Watch.enter)
+        XCTAssertEqual(emitted.last, Watch.leave)
+    }
+
+    func testRunLoopExitsOneOnEOF() throws {
+        struct Source: MeterSource {
+            let lines: [String]
+            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
+                for line in lines { guard handle(line) else { return false } }
+                return true
+            }
+        }
+        let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
+        var emitted: [String] = []
+        let code = Watch.run(source: Source(lines: [line, line]),
+                             emit: { emitted.append($0) },
+                             readKey: { nil })
+        XCTAssertEqual(code, 1)
         XCTAssertEqual(emitted.first, Watch.enter)
         XCTAssertEqual(emitted.last, Watch.leave)
     }

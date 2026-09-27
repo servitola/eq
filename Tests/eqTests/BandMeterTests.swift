@@ -117,6 +117,25 @@ final class BandMeterTests: XCTestCase {
         XCTAssertFalse(processor.limiting)
     }
 
+    func testNaNSampleDoesNotStick() {
+        let meter = BandMeter(frequencies: Config.bandFrequencies)
+        meter.configure(sampleRate: rate)
+
+        left[0] = Float.nan
+        for i in 1..<frames { left[i] = 0 }
+        meter.feed(input: [left], output: [left], frameCount: frames)
+        XCTAssertTrue(meter.outputDB.allSatisfy { $0.isFinite }, "\(meter.outputDB)")
+        XCTAssertTrue(meter.inputDB.allSatisfy { $0.isFinite }, "\(meter.inputDB)")
+        XCTAssertTrue(meter.peakDB.isFinite)
+
+        for i in 0..<frames {
+            left[i] = 0.5 * Float(sin(2 * Double.pi * 1000 * Double(i) / rate))
+        }
+        meter.feed(input: [left], output: [left], frameCount: frames)
+        meter.feed(input: [left], output: [left], frameCount: frames)
+        XCTAssertEqual(meter.outputDB[5], -6, accuracy: 1.5)
+    }
+
     func testMeterSkipsOversizedCallbacks() {
         let processor = makeProcessor(metering: true)
         let oversized = 5000

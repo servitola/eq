@@ -66,6 +66,7 @@ extension CLIError {
         case .noCurrentDevice: return "noCurrentDevice"
         case .daemonNotRunning: return "daemonNotRunning"
         case .noMeter: return "noMeter"
+        case .daemonClosedMeter: return "daemonClosedMeter"
         case .importUnrecognized: return "importUnrecognized"
         case .importNotFound: return "importNotFound"
         case .importAmbiguous: return "importAmbiguous"

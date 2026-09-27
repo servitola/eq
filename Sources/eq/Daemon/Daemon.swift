@@ -135,7 +135,6 @@ final class Daemon {
             source: { [unowned self] in self.frame() },
             onClientsChanged: { n in
                 processor.meteringEnabled = n > 0
-                if n == 0 { processor.meter.reset() }
                 Log.write("meter: \(n) client\(n == 1 ? "" : "s")")
             })
         do {

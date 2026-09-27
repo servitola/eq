@@ -384,9 +384,10 @@ enum CLI {
         guard args.isEmpty else { throw CLIError.usage("eq stream") }
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
-        signal(SIGINT) { _ in exit(0) }
-        client.lines(maxLines: ctx.streamLimit) { line in ctx.emit(line); return true }
+        signal(SIGINT) { _ in _exit(0) }
+        let eof = client.lines(maxLines: ctx.streamLimit) { line in ctx.emit(line); return true }
         client.close()
+        if eof { throw CLIError.daemonClosedMeter }
         var output = Output("", ["ok": true])
         output.streamed = true
         return output
@@ -399,10 +400,11 @@ enum CLI {
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
         LiveTerminal.enterRaw()
-        var output = Output("", ["ok": true])
-        output.exitCode = Watch.run(source: client, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
+        let exitCode = Watch.run(source: client, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
         LiveTerminal.leaveRaw()
         client.close()
+        var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
+        output.exitCode = exitCode
         output.streamed = true
         return output
     }

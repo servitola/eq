@@ -419,6 +419,24 @@ final class CLITests: XCTestCase {
         }
     }
 
+    func testStreamExitsOneWhenDaemonCloses() throws {
+        let socketURL = dir.appendingPathComponent("meter.sock")
+        context.meterSocketURL = socketURL
+        let queue = DispatchQueue(label: "stream-eof-test")
+        let server = MeterServer(socketURL: socketURL, queue: queue, tick: 0.01,
+                                  source: { MeterFrameTests.sample }, onClientsChanged: { _ in })
+        try server.start()
+        queue.asyncAfter(deadline: .now() + 0.05) { server.stop() }
+
+        var lines: [String] = []
+        context.emit = { lines.append($0) }
+
+        let result = runCLI("stream")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("daemon closed the meter"), result.output)
+    }
+
     func testImportClear() throws {
         _ = runCLI("init")
         let file = dir.appendingPathComponent("xm4.txt")
