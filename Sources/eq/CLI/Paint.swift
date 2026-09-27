@@ -5,7 +5,10 @@ import Foundation
 /// so "green" or "red" carries the same reading in `status`, `devices`, and `doctor`
 /// without re-reading labels.
 enum Paint {
-    enum Ink: Int { case bold = 1, dim = 2, red = 31, green = 32, yellow = 33, magenta = 35, cyan = 36 }
+    enum Ink: Int {
+        case bold = 1, dim = 2, red = 31, green = 32, yellow = 33, magenta = 35, cyan = 36
+        case brightGreen = 92, brightYellow = 93, brightMagenta = 95
+    }
 
     static var forced: Bool?
 
@@ -22,6 +25,17 @@ enum Paint {
 
     static func gain(_ value: Double) -> Ink {
         value > 0 ? .green : (value < 0 ? .magenta : .dim)
+    }
+
+    /// The bright variant of the same meaning, for a signal running hot; still the terminal's palette.
+    static func level(_ ink: Ink, hot: Bool) -> Ink {
+        guard hot else { return ink }
+        switch ink {
+        case .green: return .brightGreen
+        case .magenta: return .brightMagenta
+        case .yellow: return .brightYellow
+        default: return ink
+        }
     }
 
     private static let glyphs = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]

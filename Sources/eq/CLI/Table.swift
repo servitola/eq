@@ -7,12 +7,25 @@ enum Table {
 
     static let width = 6
 
-    static func labelsRow() -> String {
-        Paint.ink(.dim, Config.bandLabels.map { $0.leftPadded(to: width) }.joined())
+    static let shortLabels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
+
+    static func labelsRow(width: Int = width, short: Bool = false, columns: Int = Config.bandLabels.count) -> String {
+        let labels = (short ? shortLabels : Config.bandLabels).prefix(max(columns, 0))
+        return Paint.ink(.dim, labels.map { $0.leftPadded(to: width) }.joined())
     }
 
-    static func gainsRow(_ bands: [Double]) -> String {
-        bands.map { Paint.ink(Paint.gain($0), gain($0).leftPadded(to: width)) }.joined()
+    /// Below six columns "+12.0" plus a gap no longer fits, so the cell shows whole decibels.
+    static func gainsRow(_ bands: [Double], width: Int = width) -> String {
+        bands.map { value -> String in
+            let text = width >= self.width ? gain(value) : wholeGain(value)
+            return Paint.ink(Paint.gain(value), text.leftPadded(to: width))
+        }.joined()
+    }
+
+    private static func wholeGain(_ value: Double) -> String {
+        guard value.isFinite else { return "0" }
+        let whole = Int(min(max(value, -99), 99).rounded())
+        return whole > 0 ? "+\(whole)" : "\(whole)"
     }
 
     static func profile(_ profile: Profile, header: String) -> String {

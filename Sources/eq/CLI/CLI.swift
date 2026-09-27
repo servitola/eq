@@ -396,11 +396,11 @@ enum CLI {
     private static func watch(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq watch") }
         let terminal = ctx.terminal()
-        try Watch.requireTerminal(isTTY: terminal.isTTY, cols: terminal.cols, rows: terminal.rows)
+        try Watch.requireTerminal(isTTY: terminal.isTTY)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
         LiveTerminal.enterRaw()
-        let exitCode = Watch.run(source: client, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
+        let exitCode = Watch.run(source: client, layout: .fit(cols: terminal.cols, rows: terminal.rows), emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
         LiveTerminal.leaveRaw()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])

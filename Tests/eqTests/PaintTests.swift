@@ -32,6 +32,28 @@ final class PaintTests: XCTestCase {
         XCTAssertFalse(plain.contains("\u{1B}"))
     }
 
+    func testHotLevelsUseBrightShades() {
+        Paint.forced = true
+        XCTAssertEqual(Paint.level(.green, hot: true), .brightGreen)
+        XCTAssertEqual(Paint.level(.magenta, hot: true), .brightMagenta)
+        XCTAssertEqual(Paint.level(.yellow, hot: true), .brightYellow)
+        XCTAssertEqual(Paint.level(.dim, hot: true), .dim)
+        XCTAssertEqual(Paint.level(.green, hot: false), .green)
+        XCTAssertEqual(Paint.ink(.brightGreen, "x"), "\u{1B}[92mx\u{1B}[0m")
+        XCTAssertEqual(Paint.ink(.brightMagenta, "x"), "\u{1B}[95mx\u{1B}[0m")
+        XCTAssertEqual(Paint.ink(.brightYellow, "x"), "\u{1B}[93mx\u{1B}[0m")
+    }
+
+    func testTableRowsTakeWidthAndShortLabels() {
+        Paint.forced = false
+        XCTAssertEqual(Table.labelsRow(width: 3, short: true), " 32 64125250500 1k 2k 4k 8k16k")
+        XCTAssertEqual(Table.labelsRow(width: 4, short: true, columns: 3), "  32  64 125")
+        XCTAssertEqual(Table.labelsRow(width: 8), Config.bandLabels.map { $0.leftPadded(to: 8) }.joined())
+        XCTAssertEqual(Table.gainsRow([4.8, -12, 0, .nan], width: 4), "  +5 -12   0   0")
+        XCTAssertEqual(Table.gainsRow([4.8], width: 7), "   +4.8")
+        XCTAssertEqual(Table.labelsRow(), Table.labelsRow(width: 6, short: false))
+    }
+
     func testStateInks() {
         XCTAssertEqual(Paint.state(.running), .green)
         XCTAssertEqual(Paint.state(.bypassed), .yellow)

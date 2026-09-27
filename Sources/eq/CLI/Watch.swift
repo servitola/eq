@@ -9,16 +9,33 @@ protocol MeterSource {
 
 extension MeterClient: MeterSource {}
 
+struct WatchLayout: Equatable {
+    var columns: Int
+    var cellWidth: Int
+    var meterRows: Int
+    var shortLabels: Bool
+    var width: Int
+
+    /// Two rows beyond the four fixed ones (header, live row, labels, gains) stay free, one of
+    /// them for the "widen" note, so the frame never scrolls the alternate screen.
+    static func fit(cols: Int, rows: Int) -> WatchLayout {
+        let cellWidth = min(max((cols - 2) / 10, 3), 8)
+        return WatchLayout(columns: min(Config.bandLabels.count, max(1, (cols - 2) / cellWidth)),
+                           cellWidth: cellWidth, meterRows: max(4, rows - 5),
+                           shortLabels: cellWidth < 6, width: cols)
+    }
+}
+
 enum Watch {
-    static let minColumns = 64, minRows = 16, meterRows = 12
     static let enter = "\u{1B}[?1049h\u{1B}[?25l"
     static let leave = "\u{1B}[?25h\u{1B}[?1049l"
     private static let bands = Config.bandLabels.count
+    private static let floorDB = -60.0
+    private static let hotDB = -6.0
+    private static let partials = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
-    static func requireTerminal(isTTY: Bool, cols: Int, rows: Int) throws {
-        guard isTTY, cols >= minColumns, rows >= minRows else {
-            throw CLIError.usage("eq watch needs a terminal of at least \(minColumns)×\(minRows)")
-        }
+    static func requireTerminal(isTTY: Bool) throws {
+        guard isTTY else { throw CLIError.usage("eq watch needs a terminal") }
     }
 
     /// Truncates or pads to `n` so a daemon/CLI version skew (a shorter array on the wire)
@@ -29,57 +46,116 @@ enum Watch {
         return clean.count >= n ? Array(clean.prefix(n)) : clean + Array(repeating: fill, count: n - clean.count)
     }
 
-    static func frame(_ f: MeterFrame, rows: Int = meterRows) -> [String] {
-        let gains = padded(f.gains, to: bands, with: 0)
-        let inLevels = padded(f.in, to: bands, with: -60)
-        let outLevels = padded(f.out, to: bands, with: -60)
-        var lines = [header(f)]
-        let markers = (0..<bands).map { i -> Int in
-            // A huge but finite gain (daemon/CLI skew, or corrupt state) would still overflow
-            // Int's range before `.rounded()`, trapping; clamp to the real gain range first.
-            let g = gains[i].isFinite ? min(max(gains[i], -12), 12) : 0
-            return min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
+    /// Header, `meterRows` of bars, the live level row, labels, gains, and — when not every band
+    /// fits — a note to widen the terminal.
+    static func frame(_ f: MeterFrame, layout: WatchLayout) -> [String] {
+        let columns = min(max(layout.columns, 1), bands)
+        let rows = max(layout.meterRows, 1)
+        let w = max(layout.cellWidth, 1)
+        let gains = padded(f.gains, to: bands, with: 0).prefix(columns).map { min(max($0, -12), 12) }
+        let inLevels = padded(f.in, to: bands, with: floorDB).prefix(columns).map(clampLevel)
+        let outLevels = padded(f.out, to: bands, with: floorDB).prefix(columns).map(clampLevel)
+        let pad = String(repeating: " ", count: w - 1)
+        let barInks = (0..<columns).map { i -> Paint.Ink? in
+            let hot = outLevels[i] >= hotDB
+            // A flat band has no colour of its own; a loud one still has to stand out from dim.
+            if gains[i] == 0 { return hot ? nil : .dim }
+            return Paint.level(Paint.gain(gains[i]), hot: hot)
         }
+        let markers = gains.map { g in
+            min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
+        }
+        let outTops = outLevels.map { height($0, rows: rows) }
+        let inTops = inLevels.map { height($0, rows: rows) }
+
+        var lines = [header(f, layout: layout, tableWidth: columns * w)]
         for r in 0..<rows {
-            let level = -60 + 60 * Double(rows - 1 - r) / Double(rows - 1)
-            lines.append((0..<bands).map { i -> String in
-                let pad = String(repeating: " ", count: Table.width - 1)
-                if r == markers[i] { return pad + Paint.ink(Paint.gain(gains[i]), "▬") }
-                if outLevels[i] >= level { return pad + Paint.ink(Paint.gain(gains[i]), "█") }
-                if inLevels[i] >= level { return pad + Paint.ink(.dim, "░") }
+            let b = rows - 1 - r
+            lines.append((0..<columns).map { i -> String in
+                if r == markers[i] {
+                    return pad + Paint.ink(Paint.level(Paint.gain(gains[i]), hot: abs(gains[i]) > 6), "▬")
+                }
+                let full = Int(outTops[i])
+                let fraction = outTops[i] - Double(full)
+                if b < full { return pad + paint(barInks[i], "█") }
+                if b == full, fraction > 0 {
+                    return pad + paint(barInks[i], partials[min(Int(fraction * 8), partials.count - 1)])
+                }
+                if Double(b) < inTops[i] { return pad + Paint.ink(.dim, "░") }
                 return pad + " "
             }.joined())
         }
-        lines += [Table.labelsRow(), Table.gainsRow(gains)]
+        lines.append((0..<columns).map { i -> String in
+            let text = outLevels[i] <= floorDB + 0.5 ? "·" : String(Int(outLevels[i].rounded()))
+            return paint(barInks[i], text.leftPadded(to: w))
+        }.joined())
+        lines += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns),
+                  Table.gainsRow(gains, width: w)]
+        if columns < bands {
+            lines.append(Paint.ink(.dim, String("… widen for all bands".prefix(max(layout.width, 1)))))
+        }
         return lines
     }
 
-    private static func header(_ f: MeterFrame) -> String {
+    private static func clampLevel(_ db: Double) -> Double {
+        min(max(db, floorDB), 99)
+    }
+
+    /// How many meter rows a level fills, fractional, capped at the meter's height.
+    private static func height(_ db: Double, rows: Int) -> Double {
+        min(max((db - floorDB) / -floorDB * Double(rows), 0), Double(rows))
+    }
+
+    private static func paint(_ ink: Paint.Ink?, _ text: String) -> String {
+        ink.map { Paint.ink($0, text) } ?? text
+    }
+
+    /// Segments drop from the right until the line fits; the BYPASS/LIMIT flags outlive them
+    /// because they are the ones that explain a surprising sound.
+    private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int) -> String {
+        let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
-        let rate = String(format: "%.1f", f.rate / 1000)
-        let preamp = Table.gain(f.preamp)
-        var plain = "\(device) · \(rate) kHz · preamp \(preamp) dB"
-        var painted = "\(Paint.ink(.bold, device)) · \(rate) kHz · preamp \(Paint.ink(Paint.gain(f.preamp), preamp)) dB"
-        if !f.enabled {
-            plain += " BYPASS"
-            painted += " " + Paint.ink(.yellow, "BYPASS")
+        let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
+        let preamp = f.preamp.isFinite ? Table.gain(f.preamp) : "?"
+        let peak = f.peak.isFinite ? Table.gain(f.peak) : "?"
+        var segments: [(plain: String, painted: String)] = [
+            (device, Paint.ink(.bold, device)),
+            ("\(rate) kHz", "\(rate) kHz"),
+            ("preamp \(preamp) dB", "preamp \(Paint.ink(Paint.gain(f.preamp), preamp)) dB"),
+            ("peak \(peak) dB", "peak \(peak) dB"),
+        ]
+        var flags: [(plain: String, painted: String)] = []
+        if !f.enabled { flags.append(("BYPASS", Paint.ink(.yellow, "BYPASS"))) }
+        if f.limiting { flags.append(("LIMIT", Paint.ink(.yellow, "LIMIT"))) }
+
+        func compose() -> (plain: Int, painted: String) {
+            var plain = segments.map(\.plain).joined(separator: " · ")
+            var painted = segments.map(\.painted).joined(separator: " · ")
+            for flag in flags {
+                // LIMIT sits at the right edge of the bars, where the eye already is.
+                let gap = flag.plain == "LIMIT" ? max(1, tableWidth - flag.plain.count - plain.count) : 1
+                plain += String(repeating: " ", count: gap) + flag.plain
+                painted += String(repeating: " ", count: gap) + flag.painted
+            }
+            return (plain.count, painted)
         }
-        if f.limiting {
-            // Right edge of the band table (10 columns × 6), so LIMIT still fits a 64-column terminal.
-            let limit = "LIMIT"
-            let pad = max(1, Table.width * bands - limit.count - plain.count)
-            painted += String(repeating: " ", count: pad) + Paint.ink(.yellow, limit)
+        while compose().plain > cols, segments.count > 1 { segments.removeLast() }
+        while compose().plain > cols, !flags.isEmpty { flags.removeLast() }
+        if compose().plain > cols {
+            let cut = String(device.prefix(cols))
+            return Paint.ink(.bold, cut)
         }
-        return painted
+        return compose().painted
     }
 
     /// Redraws on every frame the source delivers; the key is checked between frames, which at
     /// 30 frames a second is quicker than a person notices.
-    static func run(source: MeterSource, emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
+    static func run(source: MeterSource, layout: WatchLayout = .fit(cols: 80, rows: 24),
+                    emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
         emit(enter)
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
-                emit("\u{1B}[H" + frame(f).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
+                emit("\u{1B}[H" + frame(f, layout: layout).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
             }
             switch readKey() {
             case UInt8(ascii: "q"), UInt8(ascii: "Q"), 3: return false
