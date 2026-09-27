@@ -178,7 +178,7 @@ enum CLI {
         profile.name = target.name
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        let text = "copied \(current.name) → \(target.name)\n" + Table.profile(profile, header: target.name)
+        let text = Paint.ink(.green, "copied \(current.name) → \(target.name)") + "\n" + Table.profile(profile, header: target.name)
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
@@ -258,8 +258,8 @@ enum CLI {
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
 
-        var lines = ["imported \(origin) (\(result.format))"]
-        lines.append(contentsOf: warnings.map { "warning: \($0)" })
+        var lines = [Paint.ink(.green, "imported \(origin) (\(result.format))")]
+        lines.append(contentsOf: warnings.map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         lines.append(Table.profile(profile, header: target.name))
         let report = ImportReport(
             device: DeviceRef(uid: target.uid, name: target.name),
@@ -315,15 +315,18 @@ enum CLI {
         var lines: [String] = []
         var rows: [DeviceRow] = []
         for device in connected {
-            let marker = device.uid == currentUID ? "* " : "  "
+            let isCurrent = device.uid == currentUID
+            let marker = isCurrent ? Paint.ink(.green, "*") + " " : "  "
+            let name = isCurrent ? Paint.ink(.bold, device.name) : device.name
             let hasOwn = config.devices[device.uid] != nil
-            let profileLabel = hasOwn ? "own profile" : "default profile"
-            lines.append("\(marker)\(device.name)  [\(device.transport)]  \(profileLabel)")
+            let profileLabel = hasOwn ? Paint.ink(.green, "own profile") : Paint.ink(.yellow, "default profile")
+            let transport = Paint.ink(.dim, "[\(device.transport)]")
+            lines.append("\(marker)\(name)  \(transport)  \(profileLabel)")
             rows.append(DeviceRow(uid: device.uid, name: device.name, transport: device.transport, connected: true, profile: hasOwn ? "own" : "default"))
         }
         for (uid, profile) in config.devices.sorted(by: { ($0.value.name ?? $0.key) < ($1.value.name ?? $1.key) })
             where !connected.contains(where: { $0.uid == uid }) {
-            lines.append("  \(profile.name ?? uid)  [disconnected]  own profile")
+            lines.append("  \(profile.name ?? uid)  \(Paint.ink(.dim, "[disconnected]"))  \(Paint.ink(.green, "own profile"))")
             rows.append(DeviceRow(uid: uid, name: profile.name ?? uid, transport: nil, connected: false, profile: "own"))
         }
         return Output(lines.joined(separator: "\n"), DevicesReport(current: currentUID, devices: rows))
@@ -339,13 +342,17 @@ enum CLI {
 
     private static func status(_ ctx: CLIContext) throws -> Output {
         guard let status = Status.read(from: ctx.statusURL), status.isAlive() else { throw CLIError.daemonNotRunning }
-        var lines = ["state: \(status.state.rawValue)"]
+        var lines = ["state: \(Paint.ink(Paint.state(status.state), status.state.rawValue))"]
         if let device = status.device {
-            lines.append("device: \(device.name) [\(device.transport)] \(Int(status.sampleRate)) Hz, \(status.profile?.rawValue ?? "-") profile")
+            let hz = Paint.ink(.yellow, "\(Int(status.sampleRate)) Hz")
+            lines.append("device: \(Paint.ink(.bold, device.name)) [\(device.transport)] \(hz), \(status.profile?.rawValue ?? "-") profile")
         }
-        lines.append("callbacks: \(status.callbacks)  frames: \(status.framesProcessed)  enabled: \(status.enabled)  pid: \(status.pid)")
-        if let error = status.error { lines.append("error: \(error)") }
-        if status.state == .noPermission { lines.append(permissionHint) }
+        let callbacks = Paint.ink(.yellow, "\(status.callbacks)")
+        let frames = Paint.ink(.yellow, "\(status.framesProcessed)")
+        let pid = Paint.ink(.yellow, "\(status.pid)")
+        lines.append("callbacks: \(callbacks)  frames: \(frames)  enabled: \(status.enabled)  pid: \(pid)")
+        if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
+        if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
     }
 

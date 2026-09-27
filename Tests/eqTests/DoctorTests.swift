@@ -2,6 +2,9 @@ import XCTest
 @testable import eq
 
 final class DoctorTests: XCTestCase {
+    override func setUp() { Paint.forced = false }
+    override func tearDown() { Paint.forced = nil }
+
     private func probes(status: Status?, configThrows: Bool = false, agent: Bool = true, exe: String? = "/Applications/EQ.app/Contents/MacOS/eq",
                         callbacksLater: UInt64? = nil) -> DoctorProbes {
         var reads = 0

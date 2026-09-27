@@ -7,10 +7,13 @@ enum Table {
 
     static func profile(_ profile: Profile, header: String) -> String {
         let width = 6
-        let labels = Config.bandLabels.map { $0.leftPadded(to: width) }.joined()
-        let gains = profile.bands.map { gain($0).leftPadded(to: width) }.joined()
+        let labels = Paint.ink(.dim, Config.bandLabels.map { $0.leftPadded(to: width) }.joined())
+        let spark = profile.bands.map { Paint.ink(Paint.gain($0), Paint.glyph(for: $0).leftPadded(to: width)) }.joined()
+        let gains = profile.bands.map { Paint.ink(Paint.gain($0), gain($0).leftPadded(to: width)) }.joined()
+        let preamp = Paint.ink(Paint.gain(profile.preamp), gain(profile.preamp))
         var lines = """
-        \(header)   preamp: \(gain(profile.preamp)) dB
+        \(paintedHeader(header))   preamp: \(preamp) dB
+        \(spark)
         \(labels)
         \(gains)
         """
@@ -20,15 +23,29 @@ enum Table {
         return lines
     }
 
+    private static func paintedHeader(_ header: String) -> String {
+        let ownSuffix = " (own profile)"
+        let defaultSuffix = " (default profile)"
+        if header.hasSuffix(ownSuffix) {
+            return Paint.ink(.bold, String(header.dropLast(ownSuffix.count))) + Paint.ink(.dim, ownSuffix)
+        }
+        if header.hasSuffix(defaultSuffix) {
+            return Paint.ink(.bold, String(header.dropLast(defaultSuffix.count))) + Paint.ink(.yellow, defaultSuffix)
+        }
+        return Paint.ink(.bold, header)
+    }
+
     private static func filters(_ filters: [Filter], imported: String?) -> String {
         var lines = [
-            "  filters (imported: \(imported ?? "yes")):",
+            "  filters (\(Paint.ink(.cyan, "imported: \(imported ?? "yes")"))):",
             "   #  type       Fc        gain     Q",
         ]
         for (index, filter) in filters.enumerated() {
-            let type = filter.type.rawValue.padding(toLength: 9, withPad: " ", startingAt: 0)
-            let rest = String(format: "%6.0f Hz  %+5.1f dB  %.2f", filter.frequency, filter.gain, filter.q)
-            lines.append(String(format: "  %2d  ", index + 1) + type + "  " + rest)
+            let type = Paint.ink(.cyan, filter.type.rawValue.padding(toLength: 9, withPad: " ", startingAt: 0))
+            let fc = Paint.ink(.bold, String(format: "%6.0f Hz", filter.frequency))
+            let gainCell = Paint.ink(Paint.gain(filter.gain), String(format: "%+5.1f dB", filter.gain))
+            let q = Paint.ink(.dim, String(format: "%.2f", filter.q))
+            lines.append(String(format: "  %2d  ", index + 1) + type + "  " + fc + "  " + gainCell + "  " + q)
         }
         return lines.joined(separator: "\n")
     }

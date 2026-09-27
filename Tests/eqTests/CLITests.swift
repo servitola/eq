@@ -6,6 +6,7 @@ final class CLITests: XCTestCase {
     private var context: CLIContext!
 
     override func setUpWithError() throws {
+        Paint.forced = false
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-cli-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         context = CLIContext(
@@ -19,6 +20,7 @@ final class CLITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        Paint.forced = nil
         try? FileManager.default.removeItem(at: dir)
     }
 

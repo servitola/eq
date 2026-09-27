@@ -75,10 +75,10 @@ enum Doctor {
 
     static func text(_ report: DoctorReport) -> String {
         var lines = report.checks.map { check -> String in
-            let symbol = check.warning ? "!" : (check.ok ? "✓" : "✗")
+            let symbol = check.warning ? Paint.ink(.yellow, "!") : (check.ok ? Paint.ink(.green, "✓") : Paint.ink(.red, "✗"))
             return "\(symbol) \(check.name) — \(check.detail)"
         }
-        lines.append(report.ok ? "ok" : "problems found")
+        lines.append(report.ok ? Paint.ink(.green, "ok") : Paint.ink(.red, "problems found"))
         return lines.joined(separator: "\n")
     }
 
