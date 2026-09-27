@@ -60,7 +60,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
-| `eq watch` | the live equalizer in the terminal; `q` to quit |
+| `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
+| `eq zones` | which bands carry which instruments, under the current curve |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C |
 
 `--json` works on any command; the answer becomes one JSON document on stdout, exit codes
@@ -108,6 +109,39 @@ bars and short labels first, then the highest bands drop off with a note to wide
 window. Resizing the terminal redraws the whole frame for the new size. `eq stream` is the
 same numbers as JSON lines instead, for anyone who wants to draw their own. Both need a
 running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
+
+### Keys
+
+| Key | Action |
+| --- | --- |
+| `1` … `9`, `0` | raise band 32 Hz … 16 kHz by 0.5 dB (`0` is the tenth band, 16 kHz) |
+| Shift + the same key | lower it by 0.5 dB — `! @ # $ % ^ & * ( )` on a US layout, `! " № ; % : * ( )` on a Russian one |
+| `+` / `-` | preamp ±0.5 dB (`=` and `_` work too, no Shift needed) |
+| `z` | zones: off → compact → all → off |
+| `h`, `?` | show the hint again |
+| `x` | hide the hint for good |
+| `q`, Ctrl‑C | exit |
+
+A step edits the current device's profile — the same one `eq set` would: the daemon's device,
+else the default output — clamps to ±12 dB (preamp −30…+12), and saves at once; the daemon
+picks it up and the slider marker moves on the next frame, while the band's label flashes
+bold. When the edit cannot be saved (no config yet, say), the reason shows in a dim line at
+the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
+band 7 (2 kHz) can only be lowered from a US layout; `h`, `z`, `x` and `q` work from the
+same physical keys on either layout.
+
+On start a small box in the top-right corner lists the keys. It hides after 8 seconds or on
+any key; `h` brings it back. `x` hides it and writes the empty marker
+`~/.config/eq/watch-hint-off`, after which it no longer appears on start (delete the file to
+get it back). A terminal narrower than twice the box shows one dim line at the bottom instead.
+
+### Zones
+
+`z` (or `eq watch --zones`) adds rows under the gains that show which bands carry which
+instruments — sub, kick, bass, guitar, voice, cymbals, air in the compact set; `z` again adds
+mud, snare and sibilance. Each zone is a `━` span under its bands, dim except under its
+loudest band, which lends the span its bar's colour. `eq zones` prints the full set once,
+under the current curve, with a line on why each span matters.
 
 ## Colour
 

@@ -5,6 +5,16 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq watch` tunes from the keyboard: `1`…`0` raise a band by 0.5 dB, the same keys with
+  Shift lower it (US and Russian layouts), `+`/`-` move the preamp. Edits go to the current
+  device's profile, clamped, and save at once; the band's label flashes bold.
+- `eq watch` shows a key hint in the top-right corner for 8 seconds; `h` brings it back, `x`
+  hides it for good (marker `~/.config/eq/watch-hint-off`). Narrow terminals get one line.
+- Zones: `z` in `eq watch` (or `eq watch --zones`) shows which bands carry which instruments,
+  compact then all; `eq zones` prints them once with the reason for each.
+
 ### Changed
 
 - `eq watch` fits any terminal size instead of refusing below 64×16: bars and labels
