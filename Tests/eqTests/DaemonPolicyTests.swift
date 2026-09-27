@@ -38,4 +38,11 @@ final class DaemonPolicyTests: XCTestCase {
         XCTAssertEqual(r.unchangedTicks, 0); XCTAssertFalse(r.stalled)
         XCTAssertEqual(DaemonPolicy.stallTicks, 2)
     }
+
+    func testIOFramesEnv() {
+        XCTAssertEqual(DaemonPolicy.ioFrames(from: ["EQ_IO_FRAMES": "512"]), 512)
+        XCTAssertNil(DaemonPolicy.ioFrames(from: ["EQ_IO_FRAMES": "7"]))
+        XCTAssertNil(DaemonPolicy.ioFrames(from: ["EQ_IO_FRAMES": "abc"]))
+        XCTAssertNil(DaemonPolicy.ioFrames(from: [:]))
+    }
 }

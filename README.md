@@ -111,6 +111,12 @@ from [OnlyEQ](https://github.com/zollans/OnlyEQ) (Unlicense, commit 6569655) and
 what a headless daemon needs. That code is the part that took someone months of bug reports
 to get right; the rest of this project is small.
 
+The IO buffer stays at 256 frames (≈10–12 ms end-to-end latency at 44.1/48 kHz). Measured on
+this Mac with the same release build, 512 frames (≈21–23 ms) cut context switches from
+191/s to 105/s but raised CPU while playing from 0.3% to ~0.7–0.8%, so it doesn't clear the
+"halves both" bar for adopting it; `EQ_IO_FRAMES` (daemon only, 64–4096) is still there to
+re-measure if the numbers ever look different on other hardware.
+
 ## Limits
 
 - macOS 14.4 or newer, Apple Silicon. Tested on macOS 26.6.
@@ -123,7 +129,7 @@ to get right; the rest of this project is small.
 ## Development
 
 ```sh
-swift test               # 105 unit tests
+swift test               # 114 unit tests
 scripts/build-app.sh     # build/EQ.app, ad-hoc signed
 scripts/smoke.sh         # starts the daemon against a scratch config; play something first
 ```

@@ -30,6 +30,11 @@ enum DaemonPolicy {
         let ticks = unchangedTicks + 1
         return (ticks >= stallTicks, ticks)
     }
+
+    static func ioFrames(from env: [String: String]) -> Int? {
+        guard let raw = env["EQ_IO_FRAMES"], let frames = Int(raw), (64...4096).contains(frames) else { return nil }
+        return frames
+    }
 }
 
 final class Daemon {
@@ -72,6 +77,13 @@ final class Daemon {
         if let other = Status.read(from: statusURL), other.isAlive(), other.pid != getpid() {
             Log.write("another eq daemon is running (pid \(other.pid)) — exiting")
             exit(1)
+        }
+        let env = ProcessInfo.processInfo.environment
+        if let frames = DaemonPolicy.ioFrames(from: env) {
+            engine.requestedIOBufferFrames = frames
+            Log.write("IO buffer requested: \(frames) frames")
+        } else if let raw = env["EQ_IO_FRAMES"] {
+            Log.write("EQ_IO_FRAMES ignored: \(raw)")
         }
         writeStatus()
         AudioDeviceManager.destroyStaleAggregates()
