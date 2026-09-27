@@ -9,3 +9,4 @@ This is a list of all equalization profiles.
 - [Sony WH-1000XM3](./Innerfidelity/over-ear/Sony%20WH-1000XM3) by Innerfidelity
 - [AirPods Pro 2](./oratory1990/in-ear/AirPods%20Pro%202) by oratory1990
 - [AirPods Pro 2](./HypetheSonics/GRAS%20RA0045%20in-ear/AirPods%20Pro%202) by HypetheSonics on GRAS RA0045
+- [1MORE Aero (ANC Off)](./HypetheSonics/GRAS%20RA0045%20in-ear/1MORE%20Aero%20(ANC%20Off)) by HypetheSonics on GRAS RA0045

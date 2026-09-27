@@ -19,7 +19,7 @@ enum AutoEqIndex {
     }
 
     private static let lineRegex = try! NSRegularExpression(
-        pattern: #"^- \[([^\]]+)\]\(\./([^)]+)\) by (.+?)(?: on .*)?$"#
+        pattern: #"^- \[([^\]]+)\]\(\./(.+)\) by (.+?)(?: on .*)?$"#
     )
 
     static func parse(_ markdown: String) -> [AutoEqEntry] {

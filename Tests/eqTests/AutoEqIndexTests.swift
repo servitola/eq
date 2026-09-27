@@ -9,9 +9,10 @@ final class AutoEqIndexTests: XCTestCase {
 
     func testParseDecodesPathsAndSources() throws {
         let e = try entries()
-        XCTAssertEqual(e.count, 8)
+        XCTAssertEqual(e.count, 9)
         XCTAssertEqual(e[1], AutoEqEntry(name: "Sony WH-1000XM4", path: "oratory1990/over-ear/Sony WH-1000XM4", source: "oratory1990"))
         XCTAssertEqual(e[3].path, "Rtings/Bruel & Kjaer 5128 over-ear/Sony WH-1000XM4")
+        XCTAssertEqual(e[8], AutoEqEntry(name: "1MORE Aero (ANC Off)", path: "HypetheSonics/GRAS RA0045 in-ear/1MORE Aero (ANC Off)", source: "HypetheSonics"))
     }
 
     func testMatchPrefersOratoryThenCrinacleThenRtings() throws {
@@ -32,6 +33,8 @@ final class AutoEqIndexTests: XCTestCase {
         let e = try entries()
         XCTAssertEqual(AutoEqIndex.fileURL(for: e[3]).absoluteString,
             "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/Rtings/Bruel%20&%20Kjaer%205128%20over-ear/Sony%20WH-1000XM4/Sony%20WH-1000XM4%20ParametricEQ.txt")
+        XCTAssertEqual(AutoEqIndex.fileURL(for: e[8]).absoluteString,
+            "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/HypetheSonics/GRAS%20RA0045%20in-ear/1MORE%20Aero%20(ANC%20Off)/1MORE%20Aero%20(ANC%20Off)%20ParametricEQ.txt")
     }
 
     func testCacheFetchesOnceWithinSevenDays() throws {
