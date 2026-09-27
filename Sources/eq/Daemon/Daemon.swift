@@ -146,12 +146,14 @@ final class Daemon {
             if state == .noPermission {
                 fail(why, retryIn: DaemonPolicy.permissionRetry, as: .noPermission)
             } else if attempt < DaemonPolicy.rebuildAttempts {
-                Log.write("rebuild \(attempt)/\(DaemonPolicy.rebuildAttempts) failed: \(why)")
+                if attempt == 1 {
+                    Log.write("rebuild \(attempt)/\(DaemonPolicy.rebuildAttempts) failed: \(why)")
+                }
                 lastError = why
                 writeStatus()
                 scheduleRebuild(attempt: attempt + 1, after: DaemonPolicy.rebuildDelay)
             } else {
-                fail(why, retryIn: DaemonPolicy.failedRetry)
+                fail("rebuild failed \(DaemonPolicy.rebuildAttempts) times: \(why)", retryIn: DaemonPolicy.failedRetry)
             }
             return
         }
@@ -164,6 +166,8 @@ final class Daemon {
             if self.engine.state == .running, self.engine.callbacks > 0 || attempt >= DaemonPolicy.rebuildAttempts {
                 if self.engine.callbacks == 0 {
                     Log.write("declaring running without IO callbacks after \(attempt) attempts")
+                } else if attempt > 1 {
+                    Log.write("running after \(attempt) attempts")
                 }
                 self.rebuilding = false
                 self.setState(self.config.enabled ? .running : .bypassed, error: nil)
