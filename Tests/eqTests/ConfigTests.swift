@@ -71,4 +71,45 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(Config.bandLabels[5], "1kHz")
         XCTAssertEqual(Config.bandFrequencies[9], 16000)
     }
+
+    func testV1ProfileDecodesWithEmptyFilters() throws {
+        let json = #"{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0]}"#.data(using: .utf8)!
+        let profile = try JSONDecoder().decode(Profile.self, from: json)
+        XCTAssertEqual(profile.filters, [])
+        XCTAssertNil(profile.imported)
+    }
+
+    func testFiltersRoundTripAndValidate() throws {
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.devices["X"] = Profile(name: "X", preamp: -6.1, bands: Profile.flat.bands,
+                                      filters: [Filter(type: .lowShelf, frequency: 105, gain: -4.2, q: 0.7)],
+                                      imported: "AutoEq oratory1990 · X · 2026-09-27")
+        XCTAssertNoThrow(try config.validate())
+        let data = try JSONEncoder().encode(config)
+        XCTAssertEqual(try JSONDecoder().decode(Config.self, from: data), config)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"lowShelf\""))
+    }
+
+    func testFilterValidationRanges() {
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.devices["X"] = Profile(name: nil, preamp: 0, bands: Profile.flat.bands,
+                                      filters: [Filter(type: .peak, frequency: 5, gain: 0, q: 1)])
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "frequency 5.0 Hz")) }
+        config.devices["X"]?.filters = [Filter(type: .peak, frequency: 1000, gain: 31, q: 1)]
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "gain 31.0 dB")) }
+        config.devices["X"]?.filters = [Filter(type: .peak, frequency: 1000, gain: 0, q: 0.05)]
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "q 0.05")) }
+    }
+
+    func testEngineBandsCombineBandsAndFilters() {
+        var profile = Profile.flat
+        profile.bands[5] = 3
+        profile.filters = [Filter(type: .highShelf, frequency: 10000, gain: -1, q: 0.7)]
+        let bands = profile.engineBands
+        XCTAssertEqual(bands.count, 11)
+        XCTAssertEqual(bands[5].frequency, 1000)
+        XCTAssertEqual(bands[5].gain, 3)
+        XCTAssertEqual(bands[10].type, .highShelf)
+        XCTAssertEqual(bands[10].frequency, 10000)
+    }
 }

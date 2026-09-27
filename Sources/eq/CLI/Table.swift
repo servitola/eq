@@ -9,11 +9,28 @@ enum Table {
         let width = 6
         let labels = Config.bandLabels.map { $0.leftPadded(to: width) }.joined()
         let gains = profile.bands.map { gain($0).leftPadded(to: width) }.joined()
-        return """
+        var lines = """
         \(header)   preamp: \(gain(profile.preamp)) dB
         \(labels)
         \(gains)
         """
+        if !profile.filters.isEmpty {
+            lines += "\n" + filters(profile.filters, imported: profile.imported)
+        }
+        return lines
+    }
+
+    private static func filters(_ filters: [Filter], imported: String?) -> String {
+        var lines = [
+            "  filters (imported: \(imported ?? "yes")):",
+            "   #  type       Fc        gain     Q",
+        ]
+        for (index, filter) in filters.enumerated() {
+            let type = filter.type.rawValue.padding(toLength: 9, withPad: " ", startingAt: 0)
+            let rest = String(format: "%6.0f Hz  %+5.1f dB  %.2f", filter.frequency, filter.gain, filter.q)
+            lines.append(String(format: "  %2d  ", index + 1) + type + "  " + rest)
+        }
+        return lines.joined(separator: "\n")
     }
 }
 

@@ -107,6 +107,17 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(buffer[10], 0.5, accuracy: 1e-6)
     }
 
+    func testLowShelfFilterLowersBass() {
+        let coefficients = Profile(name: nil, preamp: 0, bands: Profile.flat.bands,
+                                   filters: [Filter(type: .lowShelf, frequency: 105, gain: -4.2, q: 0.7)])
+            .engineBands
+            .map { BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: 48000) }
+        let at50 = coefficients.reduce(0.0) { $0 + $1.magnitudeDB(at: 50, sampleRate: 48000) }
+        let at5k = coefficients.reduce(0.0) { $0 + $1.magnitudeDB(at: 5000, sampleRate: 48000) }
+        XCTAssertEqual(at50, -4.2, accuracy: 0.3)
+        XCTAssertEqual(at5k, 0, accuracy: 0.1)
+    }
+
     func testTransportNames() {
         XCTAssertEqual(AudioOutputDevice(id: 1, uid: "u", name: "n", transportType: kAudioDeviceTransportTypeBluetooth).transportName, "bluetooth")
         XCTAssertEqual(AudioOutputDevice(id: 1, uid: "u", name: "n", transportType: kAudioDeviceTransportTypeBuiltIn).transportName, "builtin")

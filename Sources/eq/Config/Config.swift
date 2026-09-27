@@ -1,11 +1,40 @@
 import Foundation
 
+struct Filter: Codable, Equatable {
+    var type: FilterType
+    var frequency: Double
+    var gain: Double
+    var q: Double
+}
+
 struct Profile: Codable, Equatable {
     var name: String?
     var preamp: Double
     var bands: [Double]
+    var filters: [Filter]
+    var imported: String?
+
+    init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil) {
+        self.name = name; self.preamp = preamp; self.bands = bands; self.filters = filters; self.imported = imported
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        preamp = try c.decode(Double.self, forKey: .preamp)
+        bands = try c.decode([Double].self, forKey: .bands)
+        filters = try c.decodeIfPresent([Filter].self, forKey: .filters) ?? []
+        imported = try c.decodeIfPresent(String.self, forKey: .imported)
+    }
 
     static let flat = Profile(name: nil, preamp: 0, bands: Array(repeating: 0, count: Config.bandFrequencies.count))
+
+    var engineBands: [EQBand] {
+        zip(Config.bandFrequencies, bands).map { EQBand(type: .peak, frequency: $0, gain: $1, q: 1.41) }
+            + filters.map { EQBand(type: $0.type, frequency: $0.frequency, gain: $0.gain, q: $0.q) }
+    }
 }
 
 enum ProfileSource: String, Codable {
@@ -18,6 +47,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
     case bandCount(String, Int)
     case gainOutOfRange(String, Double)
     case invalidJSON(String)
+    case filterOutOfRange(String, String)
 
     var description: String {
         switch self {
@@ -25,6 +55,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .bandCount(let key, let n): return "profile \"\(key)\" has \(n) bands, expected \(Config.bandFrequencies.count)"
         case .gainOutOfRange(let key, let g): return "profile \"\(key)\" has gain \(g) dB outside \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound)"
         case .invalidJSON(let why): return "config is not valid JSON: \(why)"
+        case .filterOutOfRange(let key, let what): return "profile \"\(key)\" has a filter with \(what) outside the allowed range"
         }
     }
 }
@@ -33,6 +64,9 @@ struct Config: Codable, Equatable {
     static let bandFrequencies: [Double] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     static let bandLabels = ["32Hz", "64Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]
     static let gainRange: ClosedRange<Double> = -12...12
+    static let filterFrequencyRange: ClosedRange<Double> = 10...24000
+    static let filterGainRange: ClosedRange<Double> = -30...30
+    static let filterQRange: ClosedRange<Double> = 0.1...30
     static let screenshotCurve: [Double] = [4.8, 4.0, 4.2, 2.3, 0.0, -3.1, 0.0, 0.0, 3.1, 2.4]
 
     var version: Int
@@ -63,6 +97,11 @@ struct Config: Codable, Equatable {
         }
         for gain in profile.bands + [profile.preamp] where !gainRange.contains(gain) {
             throw ConfigError.gainOutOfRange(key, gain)
+        }
+        for filter in profile.filters {
+            if !filterFrequencyRange.contains(filter.frequency) { throw ConfigError.filterOutOfRange(key, "frequency \(filter.frequency) Hz") }
+            if !filterGainRange.contains(filter.gain) { throw ConfigError.filterOutOfRange(key, "gain \(filter.gain) dB") }
+            if !filterQRange.contains(filter.q) { throw ConfigError.filterOutOfRange(key, "q \(filter.q)") }
         }
     }
 
