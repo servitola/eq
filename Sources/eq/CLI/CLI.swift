@@ -7,6 +7,9 @@ struct CLIContext {
     var statusURL: URL
     var connectedDevices: () -> [ConnectedDevice]
     var defaultOutput: () -> (uid: String, name: String)?
+    var fetch: (URL) throws -> Data
+    var cacheDirectory: URL
+    var today: () -> String
 
     static func live() -> CLIContext {
         CLIContext(
@@ -15,7 +18,28 @@ struct CLIContext {
             connectedDevices: { AudioDeviceManager.outputDevices().map { ($0.uid, $0.name, $0.transportName) } },
             defaultOutput: {
                 AudioDeviceManager.defaultOutputDeviceID().flatMap(AudioDeviceManager.device).map { ($0.uid, $0.name) }
+            },
+            fetch: liveFetch,
+            cacheDirectory: AutoEqCache.defaultDirectory,
+            today: {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                formatter.calendar = Calendar.current
+                return formatter.string(from: Date())
             })
+    }
+
+    private static func liveFetch(_ url: URL) throws -> Data {
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.httpMethod = "GET"
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Result<Data, Error> = .failure(URLError(.unknown))
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error { result = .failure(error) } else { result = .success(data ?? Data()) }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 21)
+        return try result.get()
     }
 }
 
@@ -28,6 +52,8 @@ enum CLI {
       eq preamp [--device Q] <gain>
       eq flat [--device Q]
       eq copy --to Q              copy the current profile onto device Q
+      eq import <file|url|name> [--device Q] [--source S] [--keep-bands] [--refresh]
+      eq import --clear [--device Q]
       eq devices                  known profiles and connected outputs
       eq on | eq off              enable / bypass
       eq status
@@ -80,6 +106,7 @@ enum CLI {
         case "preamp": return try preamp(rest, ctx)
         case "flat": return try flat(rest, ctx)
         case "copy": return try copy(rest, ctx)
+        case "import": return try importCommand(rest, ctx)
         case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
@@ -162,6 +189,124 @@ enum CLI {
         try ctx.store.save(config)
         let text = "copied \(current.name) → \(target.name)\n" + Table.profile(profile, header: target.name)
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
+    }
+
+    private static func importCommand(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let (explicit, afterDevice) = try splitDeviceOption(args, flag: "--device", ctx)
+        var sourceOption: String?
+        var keepBands = false
+        var refresh = false
+        var clear = false
+        var positional: [String] = []
+        var i = 0
+        while i < afterDevice.count {
+            switch afterDevice[i] {
+            case "--source":
+                guard i + 1 < afterDevice.count else { throw CLIError.usage("--source needs a value") }
+                sourceOption = afterDevice[i + 1]
+                i += 2
+            case "--keep-bands":
+                keepBands = true
+                i += 1
+            case "--refresh":
+                refresh = true
+                i += 1
+            case "--clear":
+                clear = true
+                i += 1
+            default:
+                positional.append(afterDevice[i])
+                i += 1
+            }
+        }
+
+        var config = try loadConfig(ctx)
+        let target: Target
+        if let explicit { target = explicit } else { target = try currentDevice(ctx) }
+        var profile = editableProfile(config, target)
+
+        if clear {
+            guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device Q]") }
+            profile.filters = []
+            profile.imported = nil
+            profile.preamp = 0
+            config.setProfile(profile, forDeviceUID: target.uid)
+            try ctx.store.save(config)
+            let table = Table.profile(profile, header: target.name)
+            return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
+        }
+
+        guard positional.count == 1 else {
+            throw CLIError.usage("eq import <file|url|name> [--device Q] [--source S] [--keep-bands] [--refresh]")
+        }
+        let query = positional[0]
+        let (text, origin, what) = try resolveImportSource(query, sourceOption: sourceOption, refresh: refresh, ctx)
+
+        let result: AutoEqParser.Result
+        do { result = try AutoEqParser.parse(text) }
+        catch { throw CLIError.importUnrecognized("\(what): \(error)") }
+
+        profile.filters = result.filters
+        var warnings = result.warnings
+        if let bands = result.bands {
+            profile.bands = bands
+            if keepBands { warnings.append("--keep-bands ignored: a GraphicEQ import replaces the bands.") }
+        } else {
+            profile.bands = keepBands ? profile.bands : Profile.flat.bands
+        }
+        profile.preamp = result.preamp
+        profile.imported = "\(origin) · \(ctx.today())"
+        config.setProfile(profile, forDeviceUID: target.uid)
+        try ctx.store.save(config)
+
+        var lines = ["imported \(origin) (\(result.format))"]
+        lines.append(contentsOf: warnings.map { "warning: \($0)" })
+        lines.append(Table.profile(profile, header: target.name))
+        let report = ImportReport(
+            device: DeviceRef(uid: target.uid, name: target.name),
+            source: "device",
+            profile: profile,
+            import: .init(format: result.format, origin: origin, warnings: warnings))
+        return Output(lines.joined(separator: "\n"), report)
+    }
+
+    private static func resolveImportSource(
+        _ query: String, sourceOption: String?, refresh: Bool, _ ctx: CLIContext
+    ) throws -> (text: String, origin: String, what: String) {
+        if FileManager.default.fileExists(atPath: query) {
+            let text: String
+            do { text = try String(contentsOfFile: query, encoding: .utf8) }
+            catch { throw CLIError.importUnrecognized("\(query): \(error)") }
+            let basename = URL(fileURLWithPath: query).deletingPathExtension().lastPathComponent
+            return (text, "file \(basename)", query)
+        }
+        if query.hasPrefix("http://") || query.hasPrefix("https://") {
+            guard let url = URL(string: query) else { throw CLIError.importUnrecognized("\(query): not a valid URL") }
+            let data: Data
+            do { data = try ctx.fetch(url) }
+            catch { throw networkError(error, ctx) }
+            return (String(decoding: data, as: UTF8.self), "url \(url.host ?? query)", query)
+        }
+
+        let entries: [AutoEqEntry]
+        do { entries = try AutoEqCache(directory: ctx.cacheDirectory).load(fetch: ctx.fetch, refresh: refresh) }
+        catch { throw networkError(error, ctx) }
+
+        switch AutoEqIndex.match(query, in: entries, source: sourceOption) {
+        case .none: throw CLIError.importNotFound(query)
+        case .ambiguous(let names): throw CLIError.importAmbiguous(names)
+        case .one(let entry):
+            let data: Data
+            do { data = try ctx.fetch(AutoEqIndex.fileURL(for: entry)) }
+            catch { throw networkError(error, ctx) }
+            let origin = "AutoEq \(entry.source) · \(entry.name)"
+            return (String(decoding: data, as: UTF8.self), origin, "\(entry.name) from \(entry.source)")
+        }
+    }
+
+    private static func networkError(_ error: Error, _ ctx: CLIContext) -> CLIError {
+        let cachePath = ctx.cacheDirectory.appendingPathComponent("INDEX.md").path
+        return .network("\(error) — the last index is kept in \(cachePath); pass --refresh to retry")
     }
 
     private static func devices(_ ctx: CLIContext) throws -> Output {

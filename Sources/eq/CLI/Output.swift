@@ -36,6 +36,13 @@ struct DevicesReport: Encodable {
         try container.encode(devices, forKey: .devices)
     }
 }
+struct ImportReport: Encodable {
+    struct Details: Encodable { var format: String; var origin: String; var warnings: [String] }
+    var device: DeviceRef
+    var source: String
+    var profile: Profile
+    var `import`: Details
+}
 struct ToggleReport: Encodable { var enabled: Bool }
 struct InitReport: Encodable { var path: String; var created: Bool }
 struct UsageReport: Encodable { var usage: String }
@@ -55,6 +62,10 @@ extension CLIError {
         case .ambiguousDevice: return "ambiguousDevice"
         case .noCurrentDevice: return "noCurrentDevice"
         case .daemonNotRunning: return "daemonNotRunning"
+        case .importUnrecognized: return "importUnrecognized"
+        case .importNotFound: return "importNotFound"
+        case .importAmbiguous: return "importAmbiguous"
+        case .network: return "network"
         }
     }
 }

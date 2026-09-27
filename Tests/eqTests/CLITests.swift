@@ -12,7 +12,10 @@ final class CLITests: XCTestCase {
             store: ConfigStore(url: dir.appendingPathComponent("eq.json")),
             statusURL: dir.appendingPathComponent("status.json"),
             connectedDevices: { [("BUILTIN", "MacBook Pro Speakers", "builtin"), ("BT-1", "JBL Big", "bluetooth")] },
-            defaultOutput: { ("BUILTIN", "MacBook Pro Speakers") })
+            defaultOutput: { ("BUILTIN", "MacBook Pro Speakers") },
+            fetch: { _ in throw URLError(.notConnectedToInternet) },
+            cacheDirectory: dir.appendingPathComponent("cache"),
+            today: { "2026-09-27" })
     }
 
     override func tearDownWithError() throws {
@@ -146,6 +149,10 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("eq set"))
     }
 
+    private func fixtureText(_ name: String) throws -> String {
+        try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: "txt", subdirectory: "Fixtures")))
+    }
+
     private func json(_ args: String...) throws -> [String: Any] {
         let result = CLI.run(args + ["--json"], context: context)
         let data = Data(result.output.utf8)
@@ -207,5 +214,94 @@ final class CLITests: XCTestCase {
         let devices = try XCTUnwrap(j["devices"] as? [[String: Any]])
         let disconnected = try XCTUnwrap(devices.first { $0["uid"] as? String == "BUILTIN" })
         XCTAssertTrue(disconnected["transport"] is NSNull)
+    }
+
+    func testImportFromFileSetsFiltersResetsBandsAndPreamp() throws {
+        _ = runCLI("init")
+        let file = dir.appendingPathComponent("xm4.txt")
+        try fixtureText("Sony WH-1000XM4 ParametricEQ").write(to: file, atomically: true, encoding: .utf8)
+        let result = runCLI("import", file.path, "--device", "jbl")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        let profile = try XCTUnwrap(try context.store.load().devices["BT-1"])
+        XCTAssertEqual(profile.filters.count, 10)
+        XCTAssertEqual(profile.preamp, -6.1)
+        XCTAssertEqual(profile.bands, Profile.flat.bands)
+        XCTAssertEqual(profile.name, "JBL Big")
+        XCTAssertEqual(profile.imported, "file xm4 · 2026-09-27")
+        XCTAssertTrue(result.output.contains("lowShelf"))
+    }
+
+    func testImportKeepBands() throws {
+        _ = runCLI("init")
+        _ = runCLI("set", "64hz", "+2")
+        let file = dir.appendingPathComponent("xm4.txt")
+        try fixtureText("Sony WH-1000XM4 ParametricEQ").write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(runCLI("import", file.path, "--keep-bands").exitCode, 0)
+        XCTAssertEqual(try context.store.load().devices["BUILTIN"]?.bands[1], 2)
+    }
+
+    func testImportByNameUsesIndexAndFetchesParametricFile() throws {
+        _ = runCLI("init")
+        let index = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "INDEX", withExtension: "md", subdirectory: "Fixtures")))
+        let parametric = try fixtureText("Sony WH-1000XM4 ParametricEQ")
+        var urls: [String] = []
+        context.fetch = { url in
+            urls.append(url.absoluteString)
+            if url == AutoEqIndex.indexURL { return Data(index.utf8) }
+            return Data(parametric.utf8)
+        }
+        let result = runCLI("import", "wh-1000xm4", "--source", "crinacle")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertTrue(urls[1].contains("crinacle/GRAS%2043AG-7%20over-ear/Sony%20WH-1000XM4/Sony%20WH-1000XM4%20ParametricEQ.txt"))
+        let profile = try XCTUnwrap(try context.store.load().devices["BUILTIN"])
+        XCTAssertEqual(profile.imported, "AutoEq crinacle · Sony WH-1000XM4 · 2026-09-27")
+        let j = try json("import", "wh-1000xm4", "--source", "crinacle")
+        XCTAssertEqual(((j["import"] as? [String: Any])?["origin"] as? String), "AutoEq crinacle · Sony WH-1000XM4")
+        XCTAssertEqual(((j["import"] as? [String: Any])?["format"] as? String), "AutoEq / Equalizer APO parametric")
+    }
+
+    func testImportAmbiguousAndNotFoundAndOffline() throws {
+        _ = runCLI("init")
+        let index = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "INDEX", withExtension: "md", subdirectory: "Fixtures")))
+        context.fetch = { url in
+            if url == AutoEqIndex.indexURL { return Data(index.utf8) }
+            throw URLError(.fileDoesNotExist)
+        }
+        var result = runCLI("import", "sony")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("Sony WH-1000XM5"))
+        result = runCLI("import", "bose")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("no ParametricEQ.txt"))
+        context.fetch = { _ in throw URLError(.notConnectedToInternet) }
+        result = runCLI("import", "airpods pro 2", "--refresh")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("network"))
+    }
+
+    func testImportGarbageFileWritesNothing() throws {
+        _ = runCLI("init")
+        let before = try context.store.load()
+        let file = dir.appendingPathComponent("junk.txt")
+        try "hello".write(to: file, atomically: true, encoding: .utf8)
+        let result = runCLI("import", file.path)
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("could not read"))
+        XCTAssertEqual(try context.store.load(), before)
+    }
+
+    func testImportClear() throws {
+        _ = runCLI("init")
+        let file = dir.appendingPathComponent("xm4.txt")
+        try fixtureText("Sony WH-1000XM4 ParametricEQ").write(to: file, atomically: true, encoding: .utf8)
+        _ = runCLI("import", file.path)
+        _ = runCLI("set", "64hz", "+1")
+        XCTAssertEqual(runCLI("import", "--clear").exitCode, 0)
+        let profile = try XCTUnwrap(try context.store.load().devices["BUILTIN"])
+        XCTAssertEqual(profile.filters, [])
+        XCTAssertNil(profile.imported)
+        XCTAssertEqual(profile.preamp, 0)
+        XCTAssertEqual(profile.bands[1], 1)
     }
 }
