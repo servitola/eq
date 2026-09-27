@@ -128,7 +128,7 @@ Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 
 | context switches | 189 /s | 191 /s |
 | status.json writes | 12 /min | ≤ 2 /min (30 s heartbeat + changes) |
 | log | unrotated | capped by the cleanup job |
-| `brew uninstall` | agent stays loaded | unloads the agent; `--zap` removes the plist link |
+| `brew uninstall` | agent stays loaded | agent stays loaded, so an upgrade never loses it; `--zap` unloads it and removes the plist link |
 
 512 IO frames halves context switches but more than doubles CPU, so 256 stays the default;
 `EQ_IO_FRAMES` is the escape hatch to re-measure on other hardware (see "How it works" above).

@@ -17,14 +17,16 @@ its entries under a dated version.
 - The daemon writes `status.json` on every state/device/profile/error change and otherwise
   every 30 s (was every 5 s), cutting writes from ~720/h to ≤ 120/h.
 - `SIGUSR1` asks the daemon for a fresh status instead of waiting for the heartbeat.
-  `eq doctor`'s audio check sends it and refuses to signal a daemon running a different
-  version than the `eq` binary, so an old daemon can no longer be killed by the check.
+  `eq doctor`'s audio check sends it only to a v3+ daemon (one whose status carries a
+  `version`) whose pid still runs an `eq` binary, so an old daemon can no longer be killed by
+  the check; a daemon on a different version than the `eq` binary is reported as a warning.
 - `eq status` shows `version`.
 - Measured the IO buffer: 512 frames roughly halves context switches (191/s → 105/s) but more
   than doubles CPU (0.30 % → ~0.8 %), so the default stays 256 frames.
 - The daemon logs one line per rebuild sequence instead of one per attempt.
 - The LaunchAgent sets `LowPriorityIO` — the process's disk IO is status/log only.
-- `brew uninstall` unloads the LaunchAgent; `--zap` also removes the plist symlink.
+- `brew uninstall` leaves the LaunchAgent loaded, so an upgrade never loses it;
+  `brew uninstall --zap` unloads it and removes the plist symlink.
 
 ## 2026.09.27.1 — 2026-09-27
 
