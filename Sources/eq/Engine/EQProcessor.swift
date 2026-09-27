@@ -50,20 +50,21 @@ final class EQProcessor {
     /// Called from the daemon's main queue whenever parameters change.
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
                 limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) {
-        var snap = Snapshot()
-        snap.coefficients = bands.filter(\.isEnabled).map {
-            BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: sampleRate)
-        }
-        snap.states = Array(repeating: BiquadState(), count: 2 * snap.coefficients.count)
-        snap.preampLinear = Float(pow(10, preampDB / 20))
-        snap.outputGainLinear = Float(pow(10, outputGainDB / 20))
-        snap.limiterEnabled = limiterEnabled
-        snap.limiterCeilingLinear = Float(pow(10, limiterCeilingDB / 20))
-        snap.bypassed = bypassed
-
-        // `snap` must not survive the swap: a second live reference to its `states` buffer
-        // would force the audio thread into a COW copy if it swaps this snapshot in mid-window.
-        var incoming: Snapshot? = snap
+        // Built inside a closure so no local keeps a second reference to the `states` buffer:
+        // one would force the audio thread into a COW copy if it swaps this snapshot in mid-window.
+        var incoming: Snapshot? = {
+            var snap = Snapshot()
+            snap.coefficients = bands.filter(\.isEnabled).map {
+                BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: sampleRate)
+            }
+            snap.states = Array(repeating: BiquadState(), count: 2 * snap.coefficients.count)
+            snap.preampLinear = Float(pow(10, preampDB / 20))
+            snap.outputGainLinear = Float(pow(10, outputGainDB / 20))
+            snap.limiterEnabled = limiterEnabled
+            snap.limiterCeilingLinear = Float(pow(10, limiterCeilingDB / 20))
+            snap.bypassed = bypassed
+            return snap
+        }()
         os_unfair_lock_lock(&lock)
         swap(&pendingSnapshot, &incoming)
         let retired = retiredSnapshot
