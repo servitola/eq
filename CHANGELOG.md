@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.4 — 2026-09-27
+
 ### Added
 
 - `eq watch` tunes from the keyboard: `1`…`0` raise a band by 0.5 dB, the same keys with
