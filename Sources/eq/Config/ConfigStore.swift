@@ -58,7 +58,19 @@ struct ConfigStore {
         return config
     }
 
-    func save(_ config: Config, backup: Bool = true) throws {
+    /// What a save is for decides what it does to undo state.
+    enum SaveKind {
+        /// A user's change: the previous file becomes `.1` and a redo branch in progress ends.
+        case edit
+        /// A later save of one `eq watch` session, which folds into the session's one backup —
+        /// unless an `eq undo` elsewhere moved the file meanwhile; then it is an `edit`, or the
+        /// next redo would overwrite it with the stashed latest.
+        case sessionEdit
+        /// The daemon's own upkeep (a device rename, seeding presets): the undo position stays.
+        case bookkeeping
+    }
+
+    func save(_ config: Config, as kind: SaveKind = .edit) throws {
         try config.validate()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -66,9 +78,14 @@ struct ConfigStore {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let previous = try? Data(contentsOf: url)
         // A no-op save must not touch undo state: `eq on` while already on would otherwise drop redo.
-        guard previous != data else { return }
+        // Decoded, not bytes: a backup written by an older version or by hand is formatted differently.
+        if let previous, (try? JSONDecoder().decode(Config.self, from: previous)) == config { return }
         let position = historyPosition()
-        if backup {
+        switch position > 0 && kind == .sessionEdit ? .edit : kind {
+        case .edit:
+            // `.pos` goes first: a crash while the chain rotates then leaves a `.redo` at position 0,
+            // which `reconcileHistory` pushes into the chain instead of trusting a shifted position.
+            try? FileManager.default.removeItem(at: positionURL)
             if previous != nil {
                 // The abandoned latest version goes into the chain first, so `eq history` still shows it
                 // and the version being edited lands on top as `.1` — what the next `eq undo` returns to.
@@ -77,20 +94,25 @@ struct ConfigStore {
                 // copyItem also keeps the version's own modification time, which `eq history` shows.
                 try pushBackup(url, move: false)
             }
-            try? FileManager.default.removeItem(at: positionURL)
-        } else if position > 0, liveMatchesPosition() {
-            // Daemon bookkeeping (a device rename) mid-undo keeps the undo chain; recording the new
-            // content keeps it from reading as a hand edit. A hand edit already on disk stays detectable.
-            try setHistoryPosition(position, content: data)
+        case .sessionEdit:
+            break
+        case .bookkeeping:
+            // Recording the new content keeps it from reading as a hand edit; a hand edit already on
+            // disk stays detectable.
+            if position > 0, liveMatchesPosition() { try setHistoryPosition(position, content: data) }
         }
         try data.write(to: url, options: .atomic)
     }
+
+    /// Runs after each file the chain rotation moves; tests throw from it to simulate a crash.
+    var afterRotationStep: () throws -> Void = {}
 
     private func rotateBackups() throws {
         let files = FileManager.default
         try? files.removeItem(at: backupURL(Self.backupCount))
         for index in stride(from: Self.backupCount - 1, through: 1, by: -1) where files.fileExists(atPath: backupURL(index).path) {
             try files.moveItem(at: backupURL(index), to: backupURL(index + 1))
+            try afterRotationStep()
         }
     }
 

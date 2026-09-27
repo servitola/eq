@@ -128,9 +128,9 @@ final class Daemon {
             // so seeding always acts on what is actually on disk.
             if let onDisk = try? store.load() { config = onDisk }
             if config.seedPresetsIfNeeded() {
-                // backup: true — this is the one-time pre-v5 migration, so the file as it was
+                // .edit — this is the one-time pre-v5 migration, so the file as it was
                 // before presets existed stays recoverable as eq.json.1.
-                do { try store.save(config, backup: true) } catch { Log.write("cannot seed presets: \(error)") }
+                do { try store.save(config, as: .edit) } catch { Log.write("cannot seed presets: \(error)") }
             }
         } catch {
             Log.write("config unreadable (\(error)); starting with the built-in curve")
@@ -376,7 +376,7 @@ final class Daemon {
         if var fresh = try? store.load(), var known = fresh.devices[device.uid], known.name != device.name {
             known.name = device.name
             fresh.devices[device.uid] = known
-            try? store.save(fresh, backup: false)
+            try? store.save(fresh, as: .bookkeeping)
         }
     }
 

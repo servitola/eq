@@ -50,7 +50,9 @@ its entries under a dated version.
 - `eq undo` steps back one saved version at a time — repeat it to keep walking further back —
   instead of toggling between the last two versions. No version is lost: a real edit after
   undoing (`eq set`, `eq watch`, …) ends the redo side but puts the abandoned latest version
-  into `eq history`; a save that changes nothing and the daemon's device-name refresh keep it;
+  into `eq history` — also for an `eq watch` session still open while `eq undo` ran in another
+  terminal; a save that changes nothing (even over a differently formatted version) and the
+  daemon's device-name refresh keep it;
   a hand edit of `eq.json` while stepped back becomes the latest version instead of being
   overwritten by the next `eq undo` or `eq redo`.
 - **Breaking:** `eq undo --json` now prints `{position, date, device, source, profile}` (plus

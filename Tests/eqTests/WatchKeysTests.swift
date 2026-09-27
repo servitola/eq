@@ -248,6 +248,22 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertNil(try ctx.store.stepBack(), "nothing further back than the pre-session config")
     }
 
+    func testAWatchEditAfterAnUndoElsewhereSurvivesRedo() throws {
+        let ctx = try context()
+        let session = CLI.WatchSession(ctx)
+        try session.apply(.preamp(-3))
+        XCTAssertEqual(try ctx.store.stepBack()?.index, 1, "eq undo in another terminal")
+        try session.apply(.preamp(-4))
+        XCTAssertEqual(try profile(ctx).preamp, -4)
+        XCTAssertNil(try ctx.store.stepForward(), "the watch edit ended the redo branch")
+        XCTAssertEqual(try profile(ctx).preamp, -4, "redo never overwrites the watch edit")
+        let history = ctx.store.backups().map { try? ctx.store.load(backup: $0.index).profile(forDeviceUID: "SPK").profile.preamp }
+        XCTAssertEqual(history, [0, -3, 0], "the version it edited, the abandoned -3, the pre-session file")
+        XCTAssertEqual(try ctx.store.stepBack()?.index, 1)
+        XCTAssertEqual(try ctx.store.stepForward()?.index, 0)
+        XCTAssertEqual(try profile(ctx).preamp, -4, "-4 is the latest version redo returns to")
+    }
+
     func testSaveAsStoresThePresetAndMarksTheDevice() throws {
         let ctx = try context()
         let session = CLI.WatchSession(ctx)

@@ -147,7 +147,7 @@ enum CLI {
         let builtIn = ctx.connectedDevices().first { $0.transport == "builtin" }
         let existed = ctx.store.exists()
         var config = try ctx.store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
-        if config.seedPresetsIfNeeded() { try ctx.store.save(config, backup: false) }
+        if config.seedPresetsIfNeeded() { try ctx.store.save(config, as: .bookkeeping) }
         let path = Paint.ink(.dim, ctx.store.url.path)
         let text = existed ? "config already exists: \(path)" : Paint.ink(.green, "wrote") + " \(path)"
         return Output(text, InitReport(path: ctx.store.url.path, created: !existed))
@@ -546,7 +546,7 @@ enum CLI {
         }
 
         private func save(_ config: Config) throws {
-            try ctx.store.save(config, backup: !backedUp)
+            try ctx.store.save(config, as: backedUp ? .sessionEdit : .edit)
             backedUp = true
         }
     }

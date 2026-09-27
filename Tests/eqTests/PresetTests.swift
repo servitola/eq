@@ -147,7 +147,7 @@ final class BackupTests: XCTestCase {
 
     func testSaveWithoutBackupAndIdenticalSaveDoNotRotate() throws {
         try store.save(config(preamp: 0))
-        try store.save(config(preamp: -1), backup: false)
+        try store.save(config(preamp: -1), as: .sessionEdit)
         XCTAssertTrue(store.backups().isEmpty)
         try store.save(config(preamp: -1))
         XCTAssertTrue(store.backups().isEmpty, "an unchanged file is not a version worth undoing to")
@@ -239,11 +239,51 @@ final class BackupTests: XCTestCase {
         _ = try store.stepBack()
         var renamed = try store.load()
         renamed.default.name = "renamed by the daemon"
-        try store.save(renamed, backup: false)
+        try store.save(renamed, as: .bookkeeping)
         XCTAssertEqual(store.historyPosition(), 1)
         XCTAssertEqual(try store.stepForward()?.index, 0)
         XCTAssertEqual(try store.load().default.preamp, -1)
         XCTAssertEqual(store.backups().count, 1, "nothing was pushed into the chain")
+    }
+
+    func testASessionEditAtPosition0KeepsTheSessionsOneBackupButMidUndoActsAsAnEdit() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        try store.save(config(preamp: -2), as: .sessionEdit)
+        XCTAssertEqual(store.backups().count, 1)
+        _ = try store.stepBack()
+        try store.save(config(preamp: -3), as: .sessionEdit)
+        XCTAssertEqual(store.historyPosition(), 0)
+        XCTAssertNil(try store.stepForward())
+        XCTAssertEqual(store.backups().map { try? store.load(backup: $0.index).default.preamp }, [0, -2, 0])
+    }
+
+    func testACrashWhileAnEditRotatesTheChainMidUndoLosesNoVersion() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        try store.save(config(preamp: -2))
+        _ = try store.stepBack()
+        var crashing = try XCTUnwrap(store)
+        crashing.afterRotationStep = { throw CocoaError(.fileWriteUnknown) }
+        XCTAssertThrowsError(try crashing.save(config(preamp: -9)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.positionURL.path), ".pos went before the rotation")
+        XCTAssertNil(try store.reconcileHistory())
+        XCTAssertEqual(store.historyPosition(), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.redoURL.path))
+        XCTAssertEqual(try store.load().default.preamp, -1)
+        XCTAssertEqual(store.backups().compactMap { try? store.load(backup: $0.index).default.preamp }, [-2, -1, 0])
+    }
+
+    func testAnUnchangedSaveOverADifferentlyFormattedBackupKeepsRedo() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        try store.save(config(preamp: -2))
+        try JSONEncoder().encode(config(preamp: -1)).write(to: store.backupURL(1))
+        XCTAssertEqual(try store.stepBack()?.index, 1)
+        try store.save(config(preamp: -1))
+        XCTAssertEqual(store.historyPosition(), 1, "same config in another layout is not an edit")
+        XCTAssertEqual(try store.stepForward()?.index, 0)
+        XCTAssertEqual(try store.load().default.preamp, -2)
     }
 
     func testAHandEditMidUndoBecomesTheLatestVersion() throws {
@@ -353,7 +393,7 @@ final class PresetCLITests: XCTestCase {
     func testInitSeedsAnExistingConfigWithoutPresets() throws {
         var old = try config
         old.presets = nil
-        try context.store.save(old, backup: false)
+        try context.store.save(old, as: .bookkeeping)
         run("init")
         XCTAssertEqual(try config.presets?.keys.sorted(), ["favourite", "flat"])
     }
@@ -450,7 +490,7 @@ final class PresetCLITests: XCTestCase {
     func testPresetCommandsSeedAConfigThatHasNone() throws {
         var old = try config
         old.presets = nil
-        try context.store.save(old, backup: false)
+        try context.store.save(old, as: .bookkeeping)
         XCTAssertTrue(run("preset").output.contains("favourite"))
         XCTAssertEqual(run("preset", "use", "flat").exitCode, 0)
         XCTAssertEqual(try config.presets?.keys.sorted(), ["favourite", "flat"])
