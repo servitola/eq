@@ -19,8 +19,7 @@ MacBook Pro Speakers (own profile)   preamp: +0.0 dB
 
 I had one curve in eqMac and wanted nothing else from it — no menu-bar icon, no update
 prompts, no UI loaded from a server, no kernel-adjacent driver asking for a password. And I
-wanted a different curve for each output, which eqMac promised and, on macOS 26, did not
-deliver. Every open-source equalizer I found is a menu-bar app. This is the opposite: a
+wanted a different curve for each output. Every open-source equalizer I found is a menu-bar app. This is the opposite: a
 process that follows the output device and a file with ten numbers per device.
 
 ## Install
@@ -76,7 +75,7 @@ picks it up within a tenth of a second.
 
 ```
 BE-RCA · 44.1 kHz · preamp +0.0 dB
-     █     █     █                                   █      
+     █     █     █                                   █
      █     █     █     █                             █     █
      █     █     █     █     █     ░     █     █     █     █
      ▬     █     █     █     █     █     █     █     █     █
