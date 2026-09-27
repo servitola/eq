@@ -173,6 +173,7 @@ final class CLITests: XCTestCase {
                 readStatus: { nil },
                 launchAgentLoaded: { true },
                 executablePath: { _ in nil },
+                signalStatus: { _ in true },
                 sleep: { _ in },
                 smoke: false)
         }

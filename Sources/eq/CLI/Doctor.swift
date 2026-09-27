@@ -7,6 +7,7 @@ struct DoctorProbes {
     var readStatus: () -> Status?
     var launchAgentLoaded: () -> Bool
     var executablePath: (pid_t) -> String?
+    var signalStatus: (pid_t) -> Bool
     var sleep: (TimeInterval) -> Void
     var smoke: Bool
 
@@ -38,6 +39,7 @@ struct DoctorProbes {
                 guard length > 0 else { return nil }
                 return String(cString: buffer)
             },
+            signalStatus: { kill($0, SIGUSR1) == 0 },
             sleep: { Thread.sleep(forTimeInterval: $0) },
             smoke: ProcessInfo.processInfo.environment["EQ_SMOKE"] == "1")
     }
@@ -144,29 +146,42 @@ enum Doctor {
         guard live.state == .running else {
             return DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false)
         }
-        // The daemon rewrites status every 5 s, so two reads a second apart usually see the same
-        // sample; only a sample with a newer timestamp says anything about the IO path.
-        var fresh: Status?
-        for _ in 0..<12 {
-            probes.sleep(0.5)
-            guard let next = probes.readStatus() else {
-                return DoctorCheck(name: "audio", ok: false, detail: "daemon exited during the check", warning: true)
-            }
-            if next.updatedAt != live.updatedAt { fresh = next; break }
+        let s0 = live
+        guard probes.signalStatus(s0.pid) else {
+            return DoctorCheck(name: "audio", ok: false, detail: "could not signal the daemon", warning: true)
         }
-        guard let fresh else {
-            return DoctorCheck(name: "audio", ok: false, detail: "status not refreshed in 6 s", warning: true)
+        guard let s1 = freshStatus(probes, after: s0.updatedAt) else {
+            return DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true)
         }
-        let before = live.callbacks, after = fresh.callbacks
+        probes.sleep(1)
+        _ = probes.signalStatus(s1.pid)
+        guard let s2 = freshStatus(probes, after: s1.updatedAt) else {
+            return DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true)
+        }
+        let before = s1.callbacks, after = s2.callbacks
         if before == 0 && after == 0 {
             return DoctorCheck(name: "audio", ok: false,
                                detail: "no IO callbacks — if the daemon predates v2, restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
                                warning: true)
         }
         guard after > before else {
-            return DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks since the last sample — is the device asleep?", warning: true)
+            return DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks in 1 s — is the device asleep?", warning: true)
         }
         return DoctorCheck(name: "audio", ok: true, detail: "callbacks \(before) → \(after)", warning: false)
+    }
+
+    private static let staleAfterSignalDetail =
+        "status not refreshed after SIGUSR1 — daemon predates v3? restart it: launchctl kickstart -k gui/$UID/com.servitola.eq"
+
+    // SIGUSR1 makes the daemon rewrite immediately, so a 2 s / 0.1 s poll is enough —
+    // no more waiting out the heartbeat.
+    private static func freshStatus(_ probes: DoctorProbes, after: Date) -> Status? {
+        for _ in 0..<20 {
+            probes.sleep(0.1)
+            guard let next = probes.readStatus() else { return nil }
+            if next.updatedAt > after { return next }
+        }
+        return nil
     }
 
     private static func engineCheck(_ live: Status?) -> DoctorCheck {

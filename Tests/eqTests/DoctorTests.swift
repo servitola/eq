@@ -14,12 +14,13 @@ final class DoctorTests: XCTestCase {
             readStatus: {
                 reads += 1
                 guard var s = status else { return nil }
-                if reads > 1, refreshes { s.updatedAt = s.updatedAt.addingTimeInterval(5) }
-                if reads > 1, let later = callbacksLater { s.callbacks = later }
+                if reads > 1, refreshes { s.updatedAt = s.updatedAt.addingTimeInterval(Double(reads - 1) * 5) }
+                if reads >= 3, let later = callbacksLater { s.callbacks = later }
                 return s
             },
             launchAgentLoaded: { agent },
             executablePath: { _ in exe },
+            signalStatus: { _ in true },
             sleep: { _ in },
             smoke: false)
     }
@@ -71,7 +72,26 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(report.ok)
         let audio = report.checks.first { $0.name == "audio" }!
         XCTAssertTrue(audio.warning)
-        XCTAssertEqual(audio.detail, "status not refreshed in 6 s")
+        XCTAssertEqual(audio.detail, "status not refreshed after SIGUSR1 — daemon predates v3? restart it: launchctl kickstart -k gui/$UID/com.servitola.eq")
+    }
+
+    func testAudioCheckSendsSignal() {
+        var signalCount = 0
+        var p = probes(status: running(), callbacksLater: 20)
+        p.signalStatus = { _ in signalCount += 1; return true }
+        let report = Doctor.run(p)
+        XCTAssertEqual(signalCount, 2)
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.ok, audio.detail)
+    }
+
+    func testAudioCheckWhenSignalFails() {
+        var p = probes(status: running(), callbacksLater: 20)
+        p.signalStatus = { _ in false }
+        let report = Doctor.run(p)
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.warning)
+        XCTAssertEqual(audio.detail, "could not signal the daemon")
     }
 
     func testZeroCallbacksPointAtRestart() {
