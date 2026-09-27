@@ -11,6 +11,9 @@ struct CLIContext {
     var cacheDirectory: URL
     var today: () -> String
     var doctorProbes: (() -> DoctorProbes)? = nil
+    var meterSocketURL: URL = Status.defaultURL.deletingLastPathComponent().appendingPathComponent("meter.sock")
+    var streamLimit: Int? = nil
+    var emit: (String) -> Void = { line in print(line); fflush(stdout) }
 
     static func live() -> CLIContext {
         CLIContext(
@@ -48,6 +51,7 @@ enum CLI {
       eq status
       eq daemon                   run the audio engine (used by the LaunchAgent)
       eq doctor                   diagnose config, daemon, permission and audio
+      eq stream                   meter frames as JSON lines, 30 per second, until Ctrl-C
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
     --json on any command: the answer as JSON
     """
@@ -56,28 +60,31 @@ enum CLI {
 
     /// `isError` marks a thrown error, the only output that belongs on stderr; a report that merely
     /// exits non-zero (a failing `doctor`) is still the answer and goes to stdout.
-    static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String, isError: Bool) {
+    static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String, isError: Bool, streamed: Bool) {
         let wantsJSON = args.contains("--json")
         let args = args.filter { $0 != "--json" }
         do {
             let output = try dispatch(args, context)
-            return (output.exitCode, wantsJSON ? encode(output.json) : output.text, false)
+            // A streamed command already printed its own lines; the empty final Output carries
+            // no text in either form, JSON included, so nothing prints twice.
+            let text = (output.streamed && output.text.isEmpty) ? "" : (wantsJSON ? encode(output.json) : output.text)
+            return (output.exitCode, text, false, output.streamed)
         } catch let error as CLIError {
             let code: Int32
             switch error {
             case .usage, .unknownBand, .badGain, .gainOutOfRange: code = 2
             default: code = 1
             }
-            if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)"))), true) }
+            if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)"))), true, false) }
             switch error {
-            case .usage, .unknownBand, .badGain, .gainOutOfRange: return (code, "error: \(error)\n\(usage)", true)
-            case .daemonNotRunning: return (code, "\(error)", true)
-            default: return (code, "error: \(error)", true)
+            case .usage, .unknownBand, .badGain, .gainOutOfRange: return (code, "error: \(error)\n\(usage)", true, false)
+            case .daemonNotRunning: return (code, "\(error)", true, false)
+            default: return (code, "error: \(error)", true, false)
             }
         } catch {
             let code = error is ConfigError ? "config" : "internal"
-            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: code, message: "\(error)"))), true) }
-            return (1, "error: \(error)", true)
+            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: code, message: "\(error)"))), true, false) }
+            return (1, "error: \(error)", true, false)
         }
     }
 
@@ -105,6 +112,7 @@ enum CLI {
         case "off": return try toggle(false, ctx)
         case "status": return try status(ctx)
         case "doctor": return doctor(ctx)
+        case "stream": return try stream(rest, ctx)
         case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
@@ -366,6 +374,18 @@ enum CLI {
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
+    }
+
+    private static func stream(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq stream") }
+        let client = MeterClient(socketURL: ctx.meterSocketURL)
+        do { try client.connect() } catch { throw CLIError.noMeter }
+        signal(SIGINT) { _ in exit(0) }
+        client.lines(maxLines: ctx.streamLimit) { line in ctx.emit(line); return true }
+        client.close()
+        var output = Output("", ["ok": true])
+        output.streamed = true
+        return output
     }
 
     private static func doctor(_ ctx: CLIContext) -> Output {

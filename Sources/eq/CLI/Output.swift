@@ -10,6 +10,9 @@ struct Output {
     var text: String
     var json: AnyEncodable
     var exitCode: Int32 = 0
+    // stream prints each line itself as it arrives; this marks the final empty Output so
+    // run()/main.swift don't also print a trailing blank line or JSON blob after it.
+    var streamed = false
     init(_ text: String, _ json: Encodable) { self.text = text; self.json = AnyEncodable(json) }
 }
 
@@ -62,6 +65,7 @@ extension CLIError {
         case .ambiguousDevice: return "ambiguousDevice"
         case .noCurrentDevice: return "noCurrentDevice"
         case .daemonNotRunning: return "daemonNotRunning"
+        case .noMeter: return "noMeter"
         case .importUnrecognized: return "importUnrecognized"
         case .importNotFound: return "importNotFound"
         case .importAmbiguous: return "importAmbiguous"

@@ -19,7 +19,7 @@ if arguments.first == "daemon" {
 let result = CLI.run(arguments, context: .live())
 if result.isError && !arguments.contains("--json") {
     FileHandle.standardError.write(Data((paintStderrError(result.output) + "\n").utf8))
-} else {
+} else if !(result.streamed && result.output.isEmpty) {
     print(result.output)
 }
 exit(result.exitCode)

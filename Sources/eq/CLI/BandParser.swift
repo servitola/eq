@@ -9,6 +9,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case ambiguousDevice(String, [String])
     case noCurrentDevice
     case daemonNotRunning
+    case noMeter
     case importUnrecognized(String)
     case importNotFound(String)
     case importAmbiguous([String])
@@ -24,6 +25,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .ambiguousDevice(let q, let names): return "\"\(q)\" matches several devices: \(names.joined(separator: ", "))"
         case .noCurrentDevice: return "cannot determine the current output device"
         case .daemonNotRunning: return "eq daemon is not running — launchctl kickstart gui/$UID/com.servitola.eq"
+        case .noMeter: return "eq daemon is not serving a meter — is it running and at least v4? launchctl kickstart -k gui/$UID/com.servitola.eq"
         case .importUnrecognized(let what): return "could not read an EQ profile from \(what)"
         case .importNotFound(let what): return "AutoEq has no ParametricEQ.txt for \(what)"
         case .importAmbiguous(let names): return "several models match — narrow the name:\n  \(names.joined(separator: "\n  "))"

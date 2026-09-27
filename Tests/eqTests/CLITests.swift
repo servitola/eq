@@ -24,7 +24,7 @@ final class CLITests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func runCLI(_ args: String...) -> (exitCode: Int32, output: String, isError: Bool) {
+    private func runCLI(_ args: String...) -> (exitCode: Int32, output: String, isError: Bool, streamed: Bool) {
         CLI.run(args, context: context)
     }
 
@@ -389,6 +389,34 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 1)
         XCTAssertTrue(result.output.contains("could not read"))
         XCTAssertEqual(try context.store.load(), before)
+    }
+
+    func testStreamWithoutDaemon() {
+        context.meterSocketURL = dir.appendingPathComponent("meter.sock")
+        let result = runCLI("stream")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("not serving"), result.output)
+    }
+
+    func testStreamPrintsLines() throws {
+        let socketURL = dir.appendingPathComponent("meter.sock")
+        context.meterSocketURL = socketURL
+        let queue = DispatchQueue(label: "stream-test")
+        let server = MeterServer(socketURL: socketURL, queue: queue, tick: 0.01,
+                                  source: { MeterFrameTests.sample }, onClientsChanged: { _ in })
+        try server.start()
+        defer { queue.sync { server.stop() } }
+
+        var lines: [String] = []
+        context.emit = { lines.append($0) }
+        context.streamLimit = 5
+
+        let result = runCLI("stream")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(lines.count, 5)
+        for line in lines {
+            XCTAssertEqual(try JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)), MeterFrameTests.sample)
+        }
     }
 
     func testImportClear() throws {
