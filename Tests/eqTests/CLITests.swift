@@ -295,6 +295,13 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("unknown option"), result.output)
     }
 
+    func testImportClearRejectsOtherFlags() {
+        _ = runCLI("init")
+        let result = runCLI("import", "--clear", "--refresh")
+        XCTAssertEqual(result.exitCode, 2)
+        XCTAssertTrue(result.output.contains("--clear takes only --device"), result.output)
+    }
+
     func testImportGarbageFileWritesNothing() throws {
         _ = runCLI("init")
         let before = try context.store.load()

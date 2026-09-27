@@ -23,4 +23,17 @@ final class FetchTests: XCTestCase {
             XCTAssertEqual(($0 as? URLError)?.code, .badServerResponse)
         }
     }
+
+    func testNilDataIsZeroByteResource() {
+        XCTAssertThrowsError(try HTTPFetch.checkedData(nil, response(200), nil)) {
+            XCTAssertEqual(($0 as? URLError)?.code, .zeroByteResource)
+        }
+    }
+
+    func testErrorIsRethrown() {
+        let inputError = URLError(.notConnectedToInternet)
+        XCTAssertThrowsError(try HTTPFetch.checkedData(nil, response(200), inputError)) {
+            XCTAssertEqual(($0 as? URLError)?.code, .notConnectedToInternet)
+        }
+    }
 }
