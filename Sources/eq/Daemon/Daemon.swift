@@ -79,6 +79,8 @@ final class Daemon {
             Log.write("another eq daemon is running (pid \(other.pid)) — exiting")
             exit(1)
         }
+        // A status file carrying `version` tells doctor SIGUSR1 is safe; the handler must exist before that file does.
+        installSignalHandlers()
         let env = ProcessInfo.processInfo.environment
         if let frames = DaemonPolicy.ioFrames(from: env) {
             engine.requestedIOBufferFrames = frames
@@ -95,7 +97,6 @@ final class Daemon {
         installListeners()
         startWatcher()
         startStatusTimer()
-        installSignalHandlers()
         rebuild(attempt: 1)
         RunLoop.main.run()
         exit(0)
