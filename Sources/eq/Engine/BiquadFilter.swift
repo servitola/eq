@@ -75,6 +75,9 @@ struct BiquadCoefficients: Equatable {
                                   a1: Float(a1 / a0), a2: Float(a2 / a0))
     }
 
+    /// Jury's triangle for a normalised second-order denominator: both poles strictly inside the unit circle.
+    var isStable: Bool { abs(a2) < 1 && abs(a1) < 1 + a2 }
+
     /// Magnitude response in dB at `frequency` for a given sample rate.
     func magnitudeDB(at frequency: Double, sampleRate: Double) -> Double {
         let b0 = Double(b0), b1 = Double(b1), b2 = Double(b2)
@@ -100,5 +103,13 @@ struct BiquadState {
         z1 = c.b1 * x - c.a1 * y + z2
         z2 = c.b2 * x - c.a2 * y
         return y
+    }
+
+    // A decaying tail parks the state in subnormals: flush-to-zero is off on these threads (the
+    // tail test sees them), and subnormal arithmetic can cost far more than normal arithmetic.
+    @inline(__always)
+    mutating func flushDenormals() {
+        if abs(z1) < Float.leastNormalMagnitude { z1 = 0 }
+        if abs(z2) < Float.leastNormalMagnitude { z2 = 0 }
     }
 }

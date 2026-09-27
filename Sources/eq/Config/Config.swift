@@ -59,6 +59,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
     case invalidJSON(String)
     case filterOutOfRange(String, String)
     case badPresetName(String)
+    case filterUnstable(String, Int)
 
     var description: String {
         switch self {
@@ -68,6 +69,8 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .preampOutOfRange(let key, let g): return "profile \"\(key)\" has preamp \(g) dB outside \(Config.preampRange.lowerBound)…\(Config.preampRange.upperBound)"
         case .invalidJSON(let why): return "config is not valid JSON: \(why)"
         case .filterOutOfRange(let key, let what): return "profile \"\(key)\" has a filter with \(what) outside the allowed range"
+        case .filterUnstable(let key, let number):
+            return "profile \"\(key)\": filter \(number) would be unstable at \(Int(Config.stabilityCheckRate / 1000)) kHz (its output would ring or grow without end); change its frequency or Q"
         case .badPresetName(let name): return "preset name \"\(name)\" is not 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ . (or repeats another name)"
         }
     }
@@ -86,6 +89,9 @@ struct Config: Codable, Equatable {
     static let filterFrequencyRange: ClosedRange<Double> = 10...24000
     static let filterGainRange: ClosedRange<Double> = -30...30
     static let filterQRange: ClosedRange<Double> = 0.1...30
+    // The rate most outputs run at. Higher rates push low filters closer to z = 1, where Float32
+    // coefficients can round onto the unit circle, but a config must stay valid on any device.
+    static let stabilityCheckRate = 48000.0
     static let screenshotCurve: [Double] = [4.8, 4.0, 4.2, 2.3, 0.0, -3.1, 0.0, 0.0, 3.1, 2.4]
 
     var version: Int
@@ -162,6 +168,16 @@ struct Config: Codable, Equatable {
             if !filterGainRange.contains(filter.gain) { throw ConfigError.filterOutOfRange(key, "gain \(filter.gain) dB") }
             if !filterQRange.contains(filter.q) { throw ConfigError.filterOutOfRange(key, "q \(filter.q)") }
         }
+        if let number = firstUnstableFilter(profile.filters, sampleRate: stabilityCheckRate) {
+            throw ConfigError.filterUnstable(key, number)
+        }
+    }
+
+    /// 1-based, matching the "Filter N" numbering of an imported AutoEq file.
+    static func firstUnstableFilter(_ filters: [Filter], sampleRate: Double) -> Int? {
+        filters.firstIndex {
+            !BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: sampleRate).isStable
+        }.map { $0 + 1 }
     }
 
     func profile(forDeviceUID uid: String) -> (profile: Profile, source: ProfileSource) {

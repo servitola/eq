@@ -66,6 +66,11 @@ final class BandMeter {
         peakLevel = BandMeter.floorDB
     }
 
+    /// Races the audio thread; call only while nothing is rendering.
+    func stateForTesting() -> [Float] {
+        (0..<(2 * bandCount)).flatMap { [states[$0].z1, states[$0].z2, envelopes[$0]] } + [peakEnvelope]
+    }
+
     /// Audio thread. `input`/`output` are the deinterleaved channels; mono = 0.5*(L+R).
     func feed(input: [UnsafeMutablePointer<Float>], output: [UnsafeMutablePointer<Float>], frameCount: Int) {
         run(channels: input, offset: 0, frameCount: frameCount, trackPeak: false)
@@ -79,6 +84,11 @@ final class BandMeter {
             levels[index] = Self.floorDB
         }
         if !peakEnvelope.isFinite { peakEnvelope = 0; peakLevel = Self.floorDB }
+        for index in 0..<(2 * bandCount) {
+            states[index].flushDenormals()
+            if envelopes[index] < Float.leastNormalMagnitude { envelopes[index] = 0 }
+        }
+        if peakEnvelope < Float.leastNormalMagnitude { peakEnvelope = 0 }
     }
 
     private func run(channels: [UnsafeMutablePointer<Float>], offset: Int, frameCount: Int, trackPeak: Bool) {
