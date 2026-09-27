@@ -42,6 +42,20 @@ final class FilterTests: XCTestCase {
         XCTAssertEqual(run("import", file.path).exitCode, 0)
     }
 
+    func testImportKeepsOnlyAsManyFiltersAsTheHandOnesLeaveRoomFor() throws {
+        for _ in 0..<(Config.maxFilters - 2) { XCTAssertEqual(run("filter", "add", "peak", "1k", "1").exitCode, 0) }
+        let file = dir.appendingPathComponent("xm4.txt")
+        let text = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "Sony WH-1000XM4 ParametricEQ",
+                                                                            withExtension: "txt", subdirectory: "Fixtures")))
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        let result = run("import", file.path)
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertTrue(result.output.contains("kept the first 2 of 10 imported filters"), result.output)
+        let list = try filters()
+        XCTAssertEqual(list.count, Config.maxFilters)
+        XCTAssertEqual(list.prefix(2).map(\.origin), [.import, .import])
+    }
+
     func testAddStoresAHandFilterWithTheGivenQ() throws {
         let result = run("filter", "add", "peak", "3k", "-2", "2")
         XCTAssertEqual(result.exitCode, 0, result.output)

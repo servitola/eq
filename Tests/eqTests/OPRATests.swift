@@ -81,6 +81,31 @@ final class OPRATests: XCTestCase {
         XCTAssertEqual(result.warnings, ["OPRA preset has 40 filters; kept the first 32."])
     }
 
+    func testMalformedBandsAreSkippedWithAWarningInsteadOfTrapping() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "opra-malformed", withExtension: "jsonl", subdirectory: "Fixtures"))
+        let entry = try XCTUnwrap(OPRA.parse(try Data(contentsOf: url)).first)
+        let result = OPRA.result(entry)
+        XCTAssertEqual(result.filters, [
+            Filter(type: .peak, frequency: 1000, gain: -3, q: 1.4),
+            Filter(type: .lowPass, frequency: 16000, gain: 0, q: 0.707),
+        ])
+        let preset = "OPRA preset \u{201C}acme:broken::garbage\u{201D}"
+        XCTAssertEqual(result.warnings, [
+            "Skipped a peak_dip band in \(preset): frequency 1e+300 Hz is outside 10–24000 Hz.",
+            "Skipped a peak_dip band in \(preset): gain 1e+300 dB is outside ±30 dB.",
+            "Skipped a peak_dip band in \(preset): Q 0 is outside 0.1–30.",
+            "Skipped a low_pass band in \(preset): slope 1e+300 dB/oct is not a whole number from 1 to 96.",
+            "Skipped a high_pass band in \(preset): slope 2.5 dB/oct is not a whole number from 1 to 96.",
+            "Skipped a high_shelf band in \(preset): frequency 5 Hz is outside 10–24000 Hz.",
+            "low_pass at 16000 Hz has a 24 dB/oct slope; applied as 12 dB/oct.",
+        ])
+        XCTAssertNoThrow(try result.filters.forEach { filter in
+            var config = Config.initial(builtInUID: nil, builtInName: nil)
+            config.default.filters = [filter]
+            try config.validate()
+        })
+    }
+
     func testAttributionCreditsThePresetBeforeOPRA() throws {
         let e = try entries()
         XCTAssertEqual(OPRA.attribution(e[1]),

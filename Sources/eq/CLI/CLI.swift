@@ -284,9 +284,14 @@ enum CLI {
         var config = try loadConfig(ctx)
         var profile = editableProfile(config, target)
         // Hand-added filters survive a new import, after the correction they were tuned against.
-        profile.filters = result.filters.map { var filter = $0; filter.origin = .import; return filter }
-            + profile.filters.filter { $0.origin != .import }
+        let handFilters = profile.filters.filter { $0.origin != .import }
+        let room = max(Config.maxFilters - handFilters.count, 0)
         var warnings = result.warnings
+        if result.filters.count > room {
+            warnings.append("kept the first \(room) of \(result.filters.count) imported filters: "
+                + "\(handFilters.count) added by hand leave room for \(room) of \(Config.maxFilters).")
+        }
+        profile.filters = result.filters.prefix(room).map { var filter = $0; filter.origin = .import; return filter } + handFilters
         if let bands = result.bands {
             profile.bands = bands
             if keepBands { warnings.append("--keep-bands ignored: a GraphicEQ import replaces the bands.") }

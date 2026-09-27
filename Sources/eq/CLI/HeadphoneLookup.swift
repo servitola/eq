@@ -31,8 +31,16 @@ enum HeadphoneLookup {
         autoEq: () throws -> [AutoEqEntry], opra: () throws -> [OPRAEntry]
     ) throws -> CatalogueEntry {
         var missed: CLIError?
+        var autoEqFailure: Error?
         if !isOPRA(source) {
-            switch AutoEqIndex.match(query, in: try autoEq(), source: source, variant: variant) {
+            let index: [AutoEqEntry]
+            do { index = try autoEq() } catch {
+                // No index and nothing cached: OPRA may still know the headphone.
+                if source != nil { throw error }
+                autoEqFailure = error
+                index = []
+            }
+            switch AutoEqIndex.match(query, in: index, source: source, variant: variant) {
             case .one(let entry): return .autoEq(entry)
             case .variants(let model, let keys): throw CLIError.importVariant(model, keys, asked: variant)
             case .ambiguous(let names): throw ambiguous(names)
@@ -46,7 +54,7 @@ enum HeadphoneLookup {
 
         let entries: [OPRAEntry]
         do { entries = try opra() }
-        catch { throw missed ?? error }
+        catch { throw autoEqFailure ?? missed ?? error }
         switch HeadphoneMatch.match(query, in: entries, source: nil, variant: variant, rank: OPRA.rank) {
         case .one(let entry): return .opra(entry)
         case .variants(let model, let keys): throw CLIError.importVariant(model, keys, asked: variant)
@@ -54,7 +62,7 @@ enum HeadphoneLookup {
         case .didYouMean(let names):
             if let missed, case .importSuggest = missed { throw missed }
             throw CLIError.importSuggest(query, names)
-        case .none: throw missed ?? CLIError.importNotFound("\(query) in OPRA")
+        case .none: throw autoEqFailure ?? missed ?? CLIError.importNotFound("\(query) in OPRA")
         }
     }
 

@@ -25,7 +25,9 @@ its entries under a dated version.
 - OPRA as a second headphone database: `eq import <name>` falls back to it when AutoEq has no
   match, `--source opra` uses it only, and `eq import --search` lists both, AutoEq first. OPRA
   imports print the preset's author and OPRA's CC BY-SA 4.0 credit, also in `--json` as
-  `import.attribution`. Its database is cached at `~/.cache/eq/opra` for 7 days.
+  `import.attribution`. Its database is cached at `~/.cache/eq/opra` for 7 days. OPRA bands
+  outside the filter ranges are skipped with a warning naming the preset, and a name is looked
+  up in OPRA even when AutoEq's index cannot be downloaded and none is cached.
 - `eq import <name> --variant <tag>` picks a device state such as `anc-on`, `anc-off`,
   `transparency-mode` or `sample-2`. Without it, the untagged entry wins, then ANC on; a
   model with only other variants lists them and asks.
@@ -36,7 +38,8 @@ its entries under a dated version.
 ### Changed
 
 - `eq import --clear` drops only the imported filters and keeps the ones added by hand; a new
-  import replaces the imported filters and keeps the hand ones after them.
+  import replaces the imported filters and keeps the hand ones after them. When the hand ones
+  leave fewer than 32 slots, the import keeps only its first filters and says so.
 - A filter out of range names the allowed range in the error.
 - Headphone names match loosely: case, spaces and hyphens are ignored (`wh1000xm4`,
   `airpods pro2`), the brand can be omitted, and `xm4`, `app2` and a few other nicknames

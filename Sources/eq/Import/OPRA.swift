@@ -102,11 +102,36 @@ enum OPRA {
         return 2 + (AutoEqIndex.preferredSources.firstIndex { $0.lowercased() == reviewer } ?? AutoEqIndex.preferredSources.count)
     }
 
+    static let slopeRange = 1...96
+
+    /// Why a band from the remote database cannot become a filter, or `nil` if it can. Checked
+    /// before any arithmetic: `Int(1e300)` traps, and the config would reject it anyway.
+    static func invalidReason(_ band: OPRAEntry.Band) -> String? {
+        func text(_ value: Double) -> String { String(format: "%g", value) }
+        guard band.frequency.isFinite, Config.filterFrequencyRange.contains(band.frequency) else {
+            return "frequency \(text(band.frequency)) Hz is outside 10–24000 Hz"
+        }
+        if let gain = band.gainDb, !(gain.isFinite && Config.filterGainRange.contains(gain)) {
+            return "gain \(text(gain)) dB is outside ±30 dB"
+        }
+        if let q = band.q, !(q.isFinite && Config.filterQRange.contains(q)) {
+            return "Q \(text(q)) is outside 0.1–30"
+        }
+        if ["low_pass", "high_pass"].contains(band.type), let slope = band.slope,
+           !(slope.isFinite && slope.rounded() == slope && Double(slopeRange.lowerBound)...Double(slopeRange.upperBound) ~= slope) {
+            return "slope \(text(slope)) dB/oct is not a whole number from \(slopeRange.lowerBound) to \(slopeRange.upperBound)"
+        }
+        return nil
+    }
+
     static func result(_ entry: OPRAEntry) -> AutoEqParser.Result {
         var warnings: [String] = []
         var filters: [Filter] = []
         for band in entry.bands {
-            guard band.frequency > 0 else { continue }
+            if let reason = invalidReason(band) {
+                warnings.append("Skipped a \(band.type) band in OPRA preset \u{201C}\(entry.id)\u{201D}: \(reason).")
+                continue
+            }
             let q = band.q ?? 0.707
             let gain = band.gainDb ?? 0
             switch band.type {
@@ -118,7 +143,7 @@ enum OPRA {
             case "low_pass", "high_pass":
                 let slope = band.slope ?? 12
                 if slope != 12 {
-                    warnings.append("\(band.type) at \(Int(band.frequency)) Hz has a \(Int(slope)) dB/oct slope; applied as 12 dB/oct.")
+                    warnings.append(String(format: "%@ at %g Hz has a %g dB/oct slope; applied as 12 dB/oct.", band.type, band.frequency, slope))
                 }
                 filters.append(Filter(type: band.type == "low_pass" ? .lowPass : .highPass, frequency: band.frequency, gain: 0, q: 0.707))
             default:

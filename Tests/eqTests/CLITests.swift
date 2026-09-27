@@ -464,6 +464,23 @@ final class CLITests: XCTestCase {
         XCTAssertFalse(fetches.urls.contains(OPRA.databaseURL.absoluteString), "\(fetches.urls)")
     }
 
+    func testImportTriesOPRAWhenTheAutoEqIndexCannotLoad() throws {
+        _ = runCLI("init")
+        let opra = try Data(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "opra", withExtension: "jsonl", subdirectory: "Fixtures")))
+        context.fetch = { url in
+            guard url == OPRA.databaseURL else { throw URLError(.notConnectedToInternet) }
+            return opra
+        }
+        let result = runCLI("import", "sennheiser hd 600")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(try context.store.load().devices["BUILTIN"]?.imported, "OPRA oratory1990 · Sennheiser HD 600 · 2026-09-27")
+
+        let missing = runCLI("import", "nothing like it")
+        XCTAssertEqual(missing.exitCode, 1)
+        XCTAssertTrue(missing.output.contains("the last index is kept in"), "a miss in OPRA reports why AutoEq was not asked: \(missing.output)")
+        XCTAssertEqual(runCLI("import", "sennheiser hd 600", "--source", "crinacle").exitCode, 1)
+    }
+
     func testImportSearchKeepsAutoEqWhenOPRAIsDown() throws {
         let index = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "INDEX", withExtension: "md", subdirectory: "Fixtures")))
         context.fetch = { url in
