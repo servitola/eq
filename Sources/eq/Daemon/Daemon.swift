@@ -52,6 +52,7 @@ final class Daemon {
     private var state: Status.State = .starting
     private var statusTimer: DispatchSourceTimer?
     private var lastStatusWrite = Date.distantPast
+    private var statusWrites: UInt64 = 0
     private var lastCallbacks: UInt64 = 0
     private var unchangedTicks = 0
     private var retryWork: DispatchWorkItem?
@@ -317,6 +318,7 @@ final class Daemon {
     }
 
     private func writeStatus() {
+        statusWrites += 1
         let status = Status(
             state: state,
             device: device.map { Status.Device(uid: $0.uid, name: $0.name, transport: $0.transportName) },
@@ -324,6 +326,7 @@ final class Daemon {
             profile: profileSource,
             framesProcessed: engine.framesProcessed,
             callbacks: engine.callbacks,
+            writes: statusWrites,
             enabled: config.enabled,
             error: lastError ?? configError,
             pid: getpid(),

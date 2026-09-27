@@ -18,6 +18,8 @@ struct Status: Codable, Equatable {
     var profile: ProfileSource?
     var framesProcessed: UInt64
     var callbacks: UInt64
+    // Status dates are ISO-8601 to the second, so two rewrites within a second look identical without a counter.
+    var writes: UInt64
     var enabled: Bool
     var error: String?
     var pid: Int32
@@ -65,7 +67,7 @@ struct Status: Codable, Equatable {
 
 extension Status {
     private enum CodingKeys: String, CodingKey {
-        case state, device, sampleRate, profile, framesProcessed, callbacks, enabled, error, pid, version, updatedAt
+        case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -78,6 +80,7 @@ extension Status {
         profile = try c.decodeIfPresent(ProfileSource.self, forKey: .profile)
         framesProcessed = try c.decode(UInt64.self, forKey: .framesProcessed)
         callbacks = try c.decodeIfPresent(UInt64.self, forKey: .callbacks) ?? 0
+        writes = try c.decodeIfPresent(UInt64.self, forKey: .writes) ?? 0
         enabled = try c.decode(Bool.self, forKey: .enabled)
         error = try c.decodeIfPresent(String.self, forKey: .error)
         pid = try c.decode(Int32.self, forKey: .pid)

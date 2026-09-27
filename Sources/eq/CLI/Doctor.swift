@@ -160,12 +160,12 @@ enum Doctor {
         guard probes.signalStatus(s0.pid) else {
             return DoctorCheck(name: "audio", ok: false, detail: "could not signal the daemon", warning: true)
         }
-        guard let s1 = freshStatus(probes, after: s0.updatedAt) else {
+        guard let s1 = freshStatus(probes, after: s0.writes) else {
             return DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true)
         }
         probes.sleep(1)
         _ = probes.signalStatus(s1.pid)
-        guard let s2 = freshStatus(probes, after: s1.updatedAt) else {
+        guard let s2 = freshStatus(probes, after: s1.writes) else {
             return DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true)
         }
         let before = s1.callbacks, after = s2.callbacks
@@ -192,11 +192,11 @@ enum Doctor {
 
     // SIGUSR1 makes the daemon rewrite immediately, so a 2 s / 0.1 s poll is enough —
     // no more waiting out the heartbeat.
-    private static func freshStatus(_ probes: DoctorProbes, after: Date) -> Status? {
+    private static func freshStatus(_ probes: DoctorProbes, after: UInt64) -> Status? {
         for _ in 0..<20 {
             probes.sleep(0.1)
             guard let next = probes.readStatus() else { return nil }
-            if next.updatedAt > after { return next }
+            if next.writes > after { return next }
         }
         return nil
     }

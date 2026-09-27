@@ -14,7 +14,7 @@ final class DoctorTests: XCTestCase {
             readStatus: {
                 reads += 1
                 guard var s = status else { return nil }
-                if reads > 1, refreshes { s.updatedAt = s.updatedAt.addingTimeInterval(Double(reads - 1) * 5) }
+                if refreshes { s.writes += UInt64(reads) }
                 if reads >= 3, let later = callbacksLater { s.callbacks = later }
                 return s
             },
@@ -27,7 +27,7 @@ final class DoctorTests: XCTestCase {
 
     private func running(callbacks: UInt64 = 10) -> Status {
         Status(state: .running, device: .init(uid: "u", name: "Speakers", transport: "builtin"), sampleRate: 48000, profile: .device,
-               framesProcessed: 5, callbacks: callbacks, enabled: true, error: nil, pid: getpid(),
+               framesProcessed: 5, callbacks: callbacks, writes: 1, enabled: true, error: nil, pid: getpid(),
                version: Build.version, updatedAt: Date())
     }
 
