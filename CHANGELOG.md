@@ -5,6 +5,21 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq filter` edits parametric filters by hand: `eq filter` lists them, `eq filter add <type>
+  <freq> <gain> [q]` adds one (peak, lowshelf, highshelf, lowpass, highpass, notch, bandpass;
+  Q defaults to 1.41 for peak/notch/bandpass, 0.707 otherwise), `eq filter set <n>
+  freq=… gain=… q=… type=…` changes one, `eq filter rm <n>|all` removes. All take `--device`
+  and `--json`. `eq` shows a `source` column, `import` or `hand`; the config stores it as
+  `"origin"` on each filter.
+
+### Changed
+
+- `eq import --clear` drops only the imported filters and keeps the ones added by hand; a new
+  import replaces the imported filters and keeps the hand ones after them.
+- A filter out of range names the allowed range in the error.
+
 ## 2026.09.27.8 — 2026-09-27
 
 ### Added

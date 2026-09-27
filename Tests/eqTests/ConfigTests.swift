@@ -84,7 +84,7 @@ final class ConfigTests: XCTestCase {
     func testFiltersRoundTripAndValidate() throws {
         var config = Config.initial(builtInUID: nil, builtInName: nil)
         config.devices["X"] = Profile(name: "X", preamp: -6.1, bands: Profile.flat.bands,
-                                      filters: [Filter(type: .lowShelf, frequency: 105, gain: -4.2, q: 0.7)],
+                                      filters: [Filter(type: .lowShelf, frequency: 105, gain: -4.2, q: 0.7, origin: .import)],
                                       imported: "AutoEq oratory1990 · X · 2026-09-27")
         XCTAssertNoThrow(try config.validate())
         let data = try JSONEncoder().encode(config)
@@ -96,11 +96,11 @@ final class ConfigTests: XCTestCase {
         var config = Config.initial(builtInUID: nil, builtInName: nil)
         config.devices["X"] = Profile(name: nil, preamp: 0, bands: Profile.flat.bands,
                                       filters: [Filter(type: .peak, frequency: 5, gain: 0, q: 1)])
-        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "frequency 5.0 Hz")) }
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "frequency 5.0 Hz (10…24000 Hz)")) }
         config.devices["X"]?.filters = [Filter(type: .peak, frequency: 1000, gain: 31, q: 1)]
-        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "gain 31.0 dB")) }
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "gain 31.0 dB (-30…30 dB)")) }
         config.devices["X"]?.filters = [Filter(type: .peak, frequency: 1000, gain: 0, q: 0.05)]
-        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "q 0.05")) }
+        XCTAssertThrowsError(try config.validate()) { XCTAssertEqual($0 as? ConfigError, .filterOutOfRange("X", "q 0.05 (0.1…30)")) }
     }
 
     func testValidateCapsFilterCount() {

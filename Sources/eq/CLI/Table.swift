@@ -60,7 +60,7 @@ enum Table {
         return lines
     }
 
-    private static func paintedHeader(_ header: String) -> String {
+    static func paintedHeader(_ header: String) -> String {
         let ownSuffix = " (own profile)"
         let defaultSuffix = " (default profile)"
         if header.hasSuffix(ownSuffix) {
@@ -89,17 +89,20 @@ enum Table {
         bands.map { Paint.ink(Paint.gain($0), gain($0)) }.joined(separator: " ")
     }
 
-    private static func filters(_ filters: [Filter], imported: String?) -> String {
+    static func filters(_ filters: [Filter], imported: String?) -> String {
+        let label = filters.contains { $0.origin == .import }
+            ? " (" + Paint.ink(.cyan, "imported: \(imported ?? "yes")") + ")" : ""
         var lines = [
-            "  filters (\(Paint.ink(.cyan, "imported: \(imported ?? "yes")"))):",
-            "   #  type       Fc        gain     Q",
+            "  filters\(label):",
+            "   #  type       Fc        gain           Q  source",
         ]
         for (index, filter) in filters.enumerated() {
             let type = Paint.ink(.cyan, filter.type.rawValue.padding(toLength: 9, withPad: " ", startingAt: 0))
             let fc = Paint.ink(.bold, String(format: "%6.0f Hz", filter.frequency))
             let gainCell = Paint.ink(Paint.gain(filter.gain), String(format: "%+5.1f dB", filter.gain))
-            let q = Paint.ink(.dim, String(format: "%.2f", filter.q))
-            lines.append(String(format: "  %2d  ", index + 1) + type + "  " + fc + "  " + gainCell + "  " + q)
+            let q = Paint.ink(.dim, String(format: "%5.2f", filter.q))
+            let source = filter.origin == .import ? Paint.ink(.cyan, "import") : Paint.ink(.green, "hand")
+            lines.append(String(format: "  %2d  ", index + 1) + type + "  " + fc + "  " + gainCell + "  " + q + "  " + source)
         }
         return lines.joined(separator: "\n")
     }

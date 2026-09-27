@@ -104,6 +104,7 @@ enum CLI {
         case "flat": return try flat(rest, ctx)
         case "copy": return try copy(rest, ctx)
         case "import": return try importCommand(rest, ctx)
+        case "filter": return try filter(rest, ctx)
         case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
@@ -250,7 +251,7 @@ enum CLI {
         if clear {
             var config = try loadConfig(ctx)
             var profile = editableProfile(config, target)
-            profile.filters = []
+            profile.filters.removeAll { $0.origin == .import }
             profile.imported = nil
             profile.preamp = 0
             config.setProfile(profile, forDeviceUID: target.uid)
@@ -268,7 +269,9 @@ enum CLI {
 
         var config = try loadConfig(ctx)
         var profile = editableProfile(config, target)
-        profile.filters = result.filters
+        // Hand-added filters survive a new import, after the correction they were tuned against.
+        profile.filters = result.filters.map { var filter = $0; filter.origin = .import; return filter }
+            + profile.filters.filter { $0.origin != .import }
         var warnings = result.warnings
         if let bands = result.bands {
             profile.bands = bands
@@ -696,12 +699,12 @@ enum CLI {
 
     typealias Target = (uid: String, name: String)
 
-    private static func loadConfig(_ ctx: CLIContext) throws -> Config {
+    static func loadConfig(_ ctx: CLIContext) throws -> Config {
         guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
         return try ctx.store.load()
     }
 
-    private static func currentDevice(_ ctx: CLIContext) throws -> Target {
+    static func currentDevice(_ ctx: CLIContext) throws -> Target {
         if let status = Status.read(from: ctx.statusURL), status.isAlive(), let device = status.device {
             return (device.uid, device.name)
         }
@@ -709,18 +712,18 @@ enum CLI {
         return device
     }
 
-    private static func presetMark(_ profile: Profile, _ config: Config) -> Table.PresetMark? {
+    static func presetMark(_ profile: Profile, _ config: Config) -> Table.PresetMark? {
         guard let name = profile.preset, let preset = config.preset(named: name) else { return nil }
         return (preset.name, !profile.sameCurve(as: preset.profile))
     }
 
-    private static func editableProfile(_ config: Config, _ target: Target) -> Profile {
+    static func editableProfile(_ config: Config, _ target: Target) -> Profile {
         var profile = config.profile(forDeviceUID: target.uid).profile
         profile.name = target.name
         return profile
     }
 
-    private static func splitDeviceOption(_ args: [String], flag: String, _ ctx: CLIContext) throws -> (Target?, [String]) {
+    static func splitDeviceOption(_ args: [String], flag: String, _ ctx: CLIContext) throws -> (Target?, [String]) {
         guard let at = args.firstIndex(of: flag) else { return (nil, args) }
         guard at + 1 < args.count else { throw CLIError.usage("\(flag) needs a device name") }
         var rest = args

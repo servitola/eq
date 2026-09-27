@@ -58,7 +58,10 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq init` | write the default config if there is none |
 | `eq import "WH-1000XM4"` | fetch and apply an AutoEq correction by headphone name |
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
-| `eq import --clear` | drop the imported correction, keep hand-tuned bands |
+| `eq import --clear` | drop the imported correction, keep hand-tuned bands and filters |
+| `eq filter` | the parametric filters, numbered, with where each came from |
+| `eq filter add peak 3k -2 2` | add a filter by hand: type, frequency, gain, optional Q |
+| `eq filter set 2 gain=-3 q=4`, `eq filter rm 2\|all` | change or remove filters by number |
 | `eq preset` | list presets; the current device's one marked `*` |
 | `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
 | `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
@@ -91,6 +94,23 @@ profile · favourite)`. Tune the curve afterwards and the name gets a yellow `*`
 `favourite*` — meaning the device started from that preset and has moved away from it; the
 preset itself is unchanged until you save over it. `eq preset rm` and `rename` update the
 devices that point at the preset, and leave their curves alone.
+
+## Filters
+
+Besides the ten bands a curve holds up to 32 parametric filters. `eq filter add <type> <freq>
+<gain> [q]` adds one at the end: the type is `peak`, `lowshelf`, `highshelf`, `lowpass`,
+`highpass`, `notch` or `bandpass`; the frequency is `3k`, `250hz` or `1000`; the gain is in dB
+(`-30`…`+30`, ignored by the pass, notch and bandpass types); Q is `0.1`…`30` and defaults to
+1.41 for peak, notch and bandpass, 0.707 for shelves and passes. `eq filter set <n>
+freq=… gain=… q=… type=…` changes any of them, `eq filter rm <n>` or `rm all` removes. Every
+command takes `--device DEVICE`. Numbers are the ones `eq` and `eq filter` show; a filter that
+would ring at 48 kHz is refused, like one in a hand-edited config.
+
+`eq` lists a `source` for each filter: `import` for the ones an import brought in, `hand` for
+yours. They live in one list and a hand edit of an imported filter keeps it `import`. A new
+import replaces only the imported filters and puts yours after them; `eq import --clear` drops
+only the imported ones. A config from before this marks its filters `import` when the profile
+names an import, else `hand`.
 
 ## Undo
 
@@ -309,9 +329,8 @@ connected.
 ## Limits
 
 - macOS 14.4 or newer, Apple Silicon. Tested on macOS 26.6.
-- Ten graphic bands you edit by hand, plus the parametric filters an import brings in (up to
-  32). There is no command for hand-editing a filter's type, frequency, gain or Q — if you
-  want a parametric EQ you tune yourself, this is not it.
+- Ten graphic bands plus up to 32 parametric filters, imported or added by hand. Filters are
+  edited by number from the command line; `eq watch` tunes only the bands and the preamp.
 - One curve per device, applied to everything on that device. No per-app EQ.
 - A DAW that needs zero latency: `eq off` while you work.
 

@@ -1,10 +1,20 @@
 import Foundation
 
+enum FilterOrigin: String, Codable {
+    case `import`, hand
+}
+
 struct Filter: Codable, Equatable {
     var type: FilterType
     var frequency: Double
     var gain: Double
     var q: Double
+    /// nil only in a config written before hand-edited filters existed; `Profile` resolves it on decode.
+    var origin: FilterOrigin? = nil
+
+    func sounds(like other: Filter) -> Bool {
+        type == other.type && frequency == other.frequency && gain == other.gain && q == other.q
+    }
 }
 
 struct Profile: Codable, Equatable {
@@ -27,15 +37,23 @@ struct Profile: Codable, Equatable {
         name = try c.decodeIfPresent(String.self, forKey: .name)
         preamp = try c.decode(Double.self, forKey: .preamp)
         bands = try c.decode([Double].self, forKey: .bands)
-        filters = try c.decodeIfPresent([Filter].self, forKey: .filters) ?? []
         imported = try c.decodeIfPresent(String.self, forKey: .imported)
+        // Before hand-added filters, every filter came from an import; an unmarked filter in a
+        // profile that names no import can only have been typed into the file by hand.
+        let legacyOrigin: FilterOrigin = imported == nil ? .hand : .import
+        filters = (try c.decodeIfPresent([Filter].self, forKey: .filters) ?? []).map {
+            var filter = $0
+            if filter.origin == nil { filter.origin = legacyOrigin }
+            return filter
+        }
         preset = try c.decodeIfPresent(String.self, forKey: .preset)
     }
 
     /// `==` stays exact so the daemon still sees a renamed device or a new preset label as a change;
     /// "modified" is about what you hear.
     func sameCurve(as other: Profile) -> Bool {
-        bands == other.bands && preamp == other.preamp && filters == other.filters
+        bands == other.bands && preamp == other.preamp
+            && filters.count == other.filters.count && zip(filters, other.filters).allSatisfy { $0.sounds(like: $1) }
     }
 
     static let flat = Profile(name: nil, preamp: 0, bands: Array(repeating: 0, count: Config.bandFrequencies.count))
@@ -45,7 +63,7 @@ struct Profile: Codable, Equatable {
             + filters.map { EQBand(type: $0.type, frequency: $0.frequency, gain: $0.gain, q: $0.q) }
     }
 
-    /// Names an `engineBands` index the way the user numbers it: a graphic band or an imported "Filter N".
+    /// Names an `engineBands` index the way the user numbers it: a graphic band or "filter N" as `eq filter` lists it.
     func engineBandLabel(_ index: Int) -> String {
         let graphic = min(Config.bandFrequencies.count, bands.count)
         return index < graphic ? "band \(index + 1)" : "filter \(index - graphic + 1)"
@@ -170,13 +188,19 @@ struct Config: Codable, Equatable {
             throw ConfigError.filterOutOfRange(key, "count \(profile.filters.count) (max \(maxFilters))")
         }
         for filter in profile.filters {
-            if !filterFrequencyRange.contains(filter.frequency) { throw ConfigError.filterOutOfRange(key, "frequency \(filter.frequency) Hz") }
-            if !filterGainRange.contains(filter.gain) { throw ConfigError.filterOutOfRange(key, "gain \(filter.gain) dB") }
-            if !filterQRange.contains(filter.q) { throw ConfigError.filterOutOfRange(key, "q \(filter.q)") }
+            if !filterFrequencyRange.contains(filter.frequency) {
+                throw ConfigError.filterOutOfRange(key, "frequency \(filter.frequency) Hz (\(span(filterFrequencyRange)) Hz)")
+            }
+            if !filterGainRange.contains(filter.gain) { throw ConfigError.filterOutOfRange(key, "gain \(filter.gain) dB (\(span(filterGainRange)) dB)") }
+            if !filterQRange.contains(filter.q) { throw ConfigError.filterOutOfRange(key, "q \(filter.q) (\(span(filterQRange)))") }
         }
         if let number = firstUnstableFilter(profile.filters, sampleRate: stabilityCheckRate) {
             throw ConfigError.filterUnstable(key, number)
         }
+    }
+
+    private static func span(_ range: ClosedRange<Double>) -> String {
+        String(format: "%g…%g", range.lowerBound, range.upperBound)
     }
 
     /// 1-based, matching the "Filter N" numbering of an imported AutoEq file.

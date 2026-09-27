@@ -20,6 +20,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case presetExists(String)
     case noBackup
     case unreadableBackup(Int)
+    case noSuchFilter(String, Int)
 
     var description: String {
         switch self {
@@ -42,18 +43,25 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .presetExists(let name): return "preset \"\(name)\" already exists"
         case .noBackup: return "nothing to undo — no backup of the config yet"
         case .unreadableBackup(let index): return "backup eq.json.\(index) is unreadable — see eq undo --list"
+        case .noSuchFilter(let token, let count):
+            return count == 0 ? "no filter \"\(token)\" — this curve has no filters" : "no filter \"\(token)\" — pick 1…\(count), see `eq filter`"
         }
     }
 }
 
 enum BandParser {
     static func bandIndex(_ token: String) -> Int? {
-        var t = token.lowercased()
+        frequency(token).flatMap { Config.bandFrequencies.firstIndex(of: $0) }
+    }
+
+    /// `1k`, `1khz`, `1000hz`, `1000`, `2.5k`; a comma works as the decimal point.
+    static func frequency(_ token: String) -> Double? {
+        var t = token.lowercased().replacingOccurrences(of: ",", with: ".")
         if t.hasSuffix("hz") { t.removeLast(2) }
         var multiplier = 1.0
         if t.hasSuffix("k") { t.removeLast(); multiplier = 1000 }
-        guard let value = Double(t) else { return nil }
-        return Config.bandFrequencies.firstIndex(of: value * multiplier)
+        guard let value = Double(t), value.isFinite else { return nil }
+        return value * multiplier
     }
 
     static func gain(_ token: String) throws -> Double {
