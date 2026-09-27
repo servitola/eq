@@ -11,7 +11,7 @@ enum Watch {
     static let minColumns = 64, minRows = 16, meterRows = 12
     static let enter = "\u{1B}[?1049h\u{1B}[?25l"
     static let leave = "\u{1B}[?25h\u{1B}[?1049l"
-    private static let bands = 10
+    private static let bands = Config.bandLabels.count
 
     static func requireTerminal(isTTY: Bool, cols: Int, rows: Int) throws {
         guard isTTY, cols >= minColumns, rows >= minRows else {
@@ -19,22 +19,31 @@ enum Watch {
         }
     }
 
+    /// Truncates or pads to `n` so a daemon/CLI version skew (a shorter array on the wire)
+    /// can't index out of bounds and trap — a trap bypasses every terminal-restore path.
+    static func padded(_ a: [Double], to n: Int, with fill: Double) -> [Double] {
+        a.count >= n ? Array(a.prefix(n)) : a + Array(repeating: fill, count: n - a.count)
+    }
+
     static func frame(_ f: MeterFrame, rows: Int = meterRows) -> [String] {
+        let gains = padded(f.gains, to: bands, with: 0)
+        let inLevels = padded(f.in, to: bands, with: -60)
+        let outLevels = padded(f.out, to: bands, with: -60)
         var lines = [header(f)]
         let markers = (0..<bands).map { i in
-            min(max(Int(((12 - f.gains[i]) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
+            min(max(Int(((12 - gains[i]) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
         }
         for r in 0..<rows {
             let level = -60 + 60 * Double(rows - 1 - r) / Double(rows - 1)
             lines.append((0..<bands).map { i -> String in
                 let pad = String(repeating: " ", count: Table.width - 1)
-                if r == markers[i] { return pad + Paint.ink(Paint.gain(f.gains[i]), "▬") }
-                if f.out[i] >= level { return pad + Paint.ink(Paint.gain(f.gains[i]), "█") }
-                if f.in[i] >= level { return pad + Paint.ink(.dim, "░") }
+                if r == markers[i] { return pad + Paint.ink(Paint.gain(gains[i]), "▬") }
+                if outLevels[i] >= level { return pad + Paint.ink(Paint.gain(gains[i]), "█") }
+                if inLevels[i] >= level { return pad + Paint.ink(.dim, "░") }
                 return pad + " "
             }.joined())
         }
-        lines += [Table.labelsRow(), Table.gainsRow(f.gains)]
+        lines += [Table.labelsRow(), Table.gainsRow(gains)]
         return lines
     }
 

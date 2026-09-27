@@ -89,6 +89,15 @@ final class WatchTests: XCTestCase {
         XCTAssertTrue(result.output.contains("eq watch has no JSON form; use eq stream"), result.output)
     }
 
+    func testFrameToleratesShortArrays() {
+        let short = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [-20], out: [],
+                                peak: -6, limiting: false, gains: [3], preamp: -1.5, enabled: true)
+        let lines = Watch.frame(short)
+        XCTAssertEqual(lines.count, 1 + Watch.meterRows + 2)
+        let expectedGains = [3.0] + Array(repeating: 0.0, count: 9)
+        XCTAssertEqual(lines.last!, Table.gainsRow(expectedGains))
+    }
+
     func testRunLoopExitsOnQ() throws {
         struct Source: MeterSource {
             let lines: [String]
