@@ -1,10 +1,11 @@
 #!/bin/zsh
 # Launch the daemon against a scratch config, wait for a live tap, edit a band through the
 # CLI, confirm the daemon picked it up and frames keep flowing, run doctor and an import,
-# then stop playback itself to prove the watchdog stays quiet through 12 s of silence.
-# The caller must not restart the tone loop until this script exits — the silence window
-# needs the real gap.
-# Usage: scripts/smoke.sh [path/to/eq]   (default: build/EQ.app/Contents/MacOS/eq)
+# then hold 12 s of silence to prove the watchdog stays quiet.
+# EQ_SMOKE_TONE=1: the script plays its own tone and stops it for the silence window.
+# Without it the caller supplies the audio and must stop playback when the script prints
+# "silence window"; the script never touches an afplay it did not start.
+# Usage: [EQ_SMOKE_TONE=1] scripts/smoke.sh [path/to/eq]   (default: build/EQ.app/Contents/MacOS/eq)
 set -euo pipefail
 cd "${0:a:h}/.."
 eq=${1:-build/EQ.app/Contents/MacOS/eq}
@@ -14,11 +15,24 @@ pgrep -f 'MacOS/eq daemon' >/dev/null && { echo "an eq daemon is already running
 
 scratch=$(mktemp -d /tmp/eq-smoke.XXXXXX)
 export EQ_CONFIG=$scratch/eq.json EQ_STATUS=$scratch/status.json
-trap 'kill ${pid:-} 2>/dev/null || true; rm -rf "$scratch"' EXIT
+stop_tone() {
+  [[ -n ${tone_pid:-} ]] || return 0
+  # Freeze the loop before killing its afplay, or it starts the next one; killing the loop
+  # first instead would orphan the playing afplay out of reach of pkill -P.
+  kill -STOP $tone_pid 2>/dev/null || true
+  pkill -P $tone_pid afplay 2>/dev/null || true
+  kill -KILL $tone_pid 2>/dev/null || true
+  tone_pid=
+}
+trap 'stop_tone; kill ${pid:-} 2>/dev/null || true; rm -rf "$scratch"' EXIT
 
 "$eq" init >/dev/null
 "$eq" daemon >"$scratch/daemon.log" 2>&1 &
 pid=$!
+if [[ ${EQ_SMOKE_TONE:-} == 1 ]]; then
+  (while true; do afplay -v 0.2 /System/Library/Sounds/Submarine.aiff; done) &
+  tone_pid=$!
+fi
 
 state=
 for _ in {1..30}; do
@@ -46,8 +60,12 @@ EQ_SMOKE=1 "$eq" doctor --json | /usr/bin/python3 -c 'import json,sys; d=json.lo
 "$eq" import "$PWD/Tests/eqTests/Fixtures/Sony WH-1000XM4 ParametricEQ.txt" >/dev/null && sleep 1 && "$eq" | grep -q lowShelf \
   || { echo "import did not land"; exit 1 }
 
-echo "silence window: stopping playback for 12 s — do not restart the tone until this script exits"
-pkill afplay 2>/dev/null || true
+if [[ -n ${tone_pid:-} ]]; then
+  stop_tone
+  echo "silence window: tone stopped for 12 s"
+else
+  echo "silence window: stop playback now and keep it stopped until this script exits"
+fi
 sleep 12
 grep -q "IO stalled" "$scratch/daemon.log" && { echo "watchdog fired on silence"; cat "$scratch/daemon.log"; exit 1 }
 
