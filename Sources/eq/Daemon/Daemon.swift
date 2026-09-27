@@ -9,6 +9,11 @@ enum DaemonPolicy {
     static let statusInterval: TimeInterval = 5
     static let stallTicks = 2
     static let heartbeat: TimeInterval = 30
+    // FineTune #86/#324: device events arrive in bursts and a rate can read 0 mid-negotiation; 150 ms lets both settle.
+    static let settleDelay: TimeInterval = 0.15
+    static let wakeDelay: TimeInterval = 1
+    // Wideband SCO runs at 24 kHz, so a classic-HFP threshold of 16 kHz misses it; every music rate is at least 44.1 kHz.
+    static let callModeBelow: Double = 44100
 
     static func shouldWriteStatus(changed: Bool, sinceLastWrite: TimeInterval) -> Bool {
         changed || sinceLastWrite >= heartbeat
@@ -23,6 +28,30 @@ enum DaemonPolicy {
     static func shouldRebuild(current: AudioObjectID, newDefault: AudioObjectID?) -> Bool {
         guard let newDefault else { return false }
         return newDefault != current
+    }
+
+    static func shouldRebuildForRate(old: Double, new: Double) -> Bool {
+        new > 0 && new != old
+    }
+
+    static func isCallMode(_ rate: Double) -> Bool {
+        rate > 0 && rate < callModeBelow
+    }
+
+    enum Reconciliation: Equatable {
+        case keep
+        case device(AudioObjectID)
+        case rate(Double)
+        case rateUnsettled
+    }
+
+    /// `deviceRate` is nil when no engine is running, so there is no rate to follow.
+    static func reconcile(target: AudioObjectID, newDefault: AudioObjectID?,
+                          engineRate: Double, deviceRate: Double?) -> Reconciliation {
+        if shouldRebuild(current: target, newDefault: newDefault), let newDefault { return .device(newDefault) }
+        guard let deviceRate else { return .keep }
+        if deviceRate <= 0 { return .rateUnsettled }
+        return shouldRebuildForRate(old: engineRate, new: deviceRate) ? .rate(deviceRate) : .keep
     }
 
     static func stalled(previous: UInt64, current: UInt64, unchangedTicks: Int) -> (stalled: Bool, unchangedTicks: Int) {
@@ -61,6 +90,11 @@ final class Daemon {
     private var signalSources: [DispatchSourceSignal] = []
     private var meterServer: MeterServer?
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+    private lazy var settle = Debouncer(delay: DaemonPolicy.settleDelay, queue: queue) { [weak self] in self?.reconcile() }
+    private var power: SystemPower?
+    private var asleep = false
+    private var inCallMode = false
+    private var rateUnsettled = false
 
     init(store: ConfigStore, statusURL: URL) {
         self.store = store
@@ -100,11 +134,9 @@ final class Daemon {
         }
         writeStatus()
         AudioDeviceManager.destroyStaleAggregates()
-        engine.onSampleRateChange = { [weak self] in
-            Log.write("sample rate changed — restarting engine on the same device")
-            self?.queue.async { [weak self] in self?.rebuild(attempt: 1) }
-        }
+        engine.onSampleRateChange = { [weak self] in self?.settle.trigger() }
         installListeners()
+        installPowerHandler()
         startWatcher()
         startStatusTimer()
         rebuild(attempt: 1)
@@ -172,6 +204,7 @@ final class Daemon {
     // MARK: - Engine
 
     private func rebuild(attempt: Int) {
+        guard !asleep else { return }
         retryWork?.cancel()
         rebuilding = true
         if state == .running || state == .bypassed { setState(.starting, error: nil) }
@@ -204,6 +237,7 @@ final class Daemon {
             }
             return
         }
+        noteCallMode(engine.processor.sampleRate)
         applyProfile()
         writeStatus()
         // Bluetooth devices become default a moment before they deliver frames; verify the
@@ -270,7 +304,7 @@ final class Daemon {
         for selector in [kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices] {
             var addr = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                                   mElement: kAudioObjectPropertyElementMain)
-            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.devicesChanged() }
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.settle.trigger() }
             if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, queue, block) == noErr {
                 listeners.append((addr, block))
             } else {
@@ -279,19 +313,64 @@ final class Daemon {
         }
     }
 
-    private func devicesChanged() {
-        let newDefault = AudioDeviceManager.defaultOutputDeviceID()
-        if rebuilding {
-            if let newDefault, newDefault != device?.id {
-                Log.write("default output changed during rebuild → \(AudioDeviceManager.device(newDefault)?.name ?? "?")")
-                rebuild(attempt: 1)
-            }
-            return
-        }
-        if DaemonPolicy.shouldRebuild(current: engine.targetDeviceID, newDefault: newDefault) {
-            Log.write("default output changed → \(newDefault.flatMap(AudioDeviceManager.device)?.name ?? "?")")
+    // OnlyEQ #23: the device list can change before the default does, so every event only arms one reconcile that reads the settled truth.
+    private func reconcile() {
+        guard !asleep else { return }
+        // Mid-rebuild the engine may be torn down; the device being built is what a new default must differ from.
+        let target = rebuilding ? device?.id ?? 0 : engine.targetDeviceID
+        let deviceRate = engine.state == .running ? AudioDeviceManager.nominalSampleRate(engine.targetDeviceID) : nil
+        let decision = DaemonPolicy.reconcile(target: target, newDefault: AudioDeviceManager.defaultOutputDeviceID(),
+                                              engineRate: engine.processor.sampleRate, deviceRate: deviceRate)
+        if decision != .rateUnsettled { rateUnsettled = false }
+        switch decision {
+        case .keep:
+            break
+        case .device(let id):
+            Log.write("default output changed\(rebuilding ? " during rebuild" : "") → \(AudioDeviceManager.device(id)?.name ?? "?")")
             rebuild(attempt: 1)
+        case .rate(let rate):
+            Log.write("sample rate \(Int(engine.processor.sampleRate)) → \(Int(rate)) Hz — restarting engine on the same device")
+            rebuild(attempt: 1)
+        case .rateUnsettled:
+            if !rateUnsettled { Log.write("sample rate reads 0 mid-negotiation — waiting for it to settle") }
+            rateUnsettled = true
+            settle.trigger()
         }
+    }
+
+    private func noteCallMode(_ rate: Double) {
+        let callMode = DaemonPolicy.isCallMode(rate)
+        if callMode, !inCallMode { Log.write("device in call mode at \(Int(rate)) Hz") }
+        inCallMode = callMode
+    }
+
+    // MARK: - Power
+
+    private func installPowerHandler() {
+        let power = SystemPower(queue: queue) { [weak self] event in
+            switch event {
+            case .willSleep: self?.willSleep()
+            case .hasPoweredOn: self?.hasPoweredOn()
+            }
+        }
+        if power.start() { self.power = power } else { Log.write("cannot listen for sleep and wake") }
+    }
+
+    private func willSleep() {
+        Log.write("system going to sleep — stopping the engine")
+        settle.cancel()
+        retryWork?.cancel()
+        // A device event between wake and the delayed rebuild must be judged as mid-rebuild, like after any other teardown.
+        rebuilding = true
+        engine.stop()
+        asleep = true
+        setState(.starting, error: nil)
+    }
+
+    private func hasPoweredOn() {
+        Log.write("system woke — rebuilding in \(Int(DaemonPolicy.wakeDelay)) s")
+        asleep = false
+        scheduleRebuild(attempt: 1, after: DaemonPolicy.wakeDelay)
     }
 
     // MARK: - Config
