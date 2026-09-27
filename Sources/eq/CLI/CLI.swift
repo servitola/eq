@@ -384,7 +384,8 @@ enum CLI {
             case .default?: profile = Paint.ink(.yellow, "default profile")
             case nil: profile = "- profile"
             }
-            lines.append("\(label("device")) \(Paint.ink(.bold, device.name)) \(transport) \(hz), \(profile)")
+            let latency = status.latencyMs.map { ", latency " + Paint.ink(.yellow, String(format: "%.1f ms", $0)) } ?? ""
+            lines.append("\(label("device")) \(Paint.ink(.bold, device.name)) \(transport) \(hz)\(latency), \(profile)")
         }
         let callbacks = Paint.ink(.yellow, "\(status.callbacks)")
         let frames = Paint.ink(.yellow, "\(status.framesProcessed)")

@@ -57,6 +57,22 @@ struct TapInputSelection: Equatable {
 
 /// System-wide EQ engine built on Core Audio process taps (macOS 14.4+).
 ///
+/// One pass through the tap path, in frames at the device's nominal rate.
+struct PathLatency: Equatable {
+    /// Output device latency plus its safety offset.
+    var outputDevice: UInt32
+    var outputStream: UInt32
+    var buffer: UInt32
+    /// The aggregate's input side (the tap): device latency plus safety offset.
+    var tapInput: UInt32
+
+    func milliseconds(sampleRate: Double) -> Double? {
+        guard sampleRate > 0 else { return nil }
+        let frames = Double(outputDevice) + Double(outputStream) + Double(buffer) + Double(tapInput)
+        return frames / sampleRate * 1000
+    }
+}
+
 /// Signal path: muted global tap (silences original output) → aggregate device
 /// wrapping the real output + tap → IOProc reads tapped audio, runs the EQ
 /// chain, and re-renders to the real output. No drivers, no BlackHole.
@@ -78,6 +94,9 @@ final class ProcessTapEngine {
     /// Written on the audio thread, read racily by the status writer; a torn read is harmless.
     private(set) var framesProcessed: UInt64 = 0
     private(set) var callbacks: UInt64 = 0
+    /// Callbacks whose tap input carried a non-zero sample; stops advancing when nothing reaches the tap.
+    private(set) var signalCallbacks: UInt64 = 0
+    private(set) var latencyMs: Double?
 
     private var tapID: AudioObjectID = 0
     private var aggregateID: AudioObjectID = 0
@@ -228,6 +247,12 @@ final class ProcessTapEngine {
             return
         }
 
+        latencyMs = PathLatency(
+            outputDevice: AudioDeviceManager.latencyFrames(device: deviceID, scope: kAudioDevicePropertyScopeOutput),
+            outputStream: AudioDeviceManager.firstOutputStreamLatencyFrames(deviceID),
+            buffer: UInt32(ioBufferFrames),
+            tapInput: AudioDeviceManager.latencyFrames(device: aggregateID, scope: kAudioDevicePropertyScopeInput)
+        ).milliseconds(sampleRate: sampleRate)
         installSampleRateListener(on: deviceID)
         transition(to: .running)
     }
@@ -238,6 +263,8 @@ final class ProcessTapEngine {
         targetDeviceID = 0
         framesProcessed = 0
         callbacks = 0
+        signalCallbacks = 0
+        latencyMs = nil
         if state != .stopped { transition(to: .stopped) }
     }
 
@@ -364,6 +391,7 @@ final class ProcessTapEngine {
             }
         }
         if inputHasSignal {
+            signalCallbacks &+= 1
             silentFrames = 0
             isSilenceGated = false
         } else {

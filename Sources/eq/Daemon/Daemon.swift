@@ -95,6 +95,7 @@ final class Daemon {
     private var asleep = false
     private var inCallMode = false
     private var rateUnsettled = false
+    private var tapSilence = TapSilence()
 
     init(store: ConfigStore, statusURL: URL) {
         self.store = store
@@ -433,6 +434,8 @@ final class Daemon {
                 self.unchangedTicks = 0
             }
             self.lastCallbacks = self.engine.callbacks
+            // Observed every tick, not only on writes, so the silence start is known to within one interval.
+            _ = self.observeTap()
             // Nothing changed on this tick: only the 30 s heartbeat justifies a write, to keep disk wear low.
             if DaemonPolicy.shouldWriteStatus(changed: false, sinceLastWrite: Date().timeIntervalSince(self.lastStatusWrite)) {
                 self.writeStatus()
@@ -440,6 +443,11 @@ final class Daemon {
         }
         timer.resume()
         statusTimer = timer
+    }
+
+    private func observeTap() -> Double? {
+        let seconds = tapSilence.observe(callbacks: engine.callbacks, signalCallbacks: engine.signalCallbacks, now: Date())
+        return state == .running || state == .bypassed ? seconds : nil
     }
 
     private func writeStatus() {
@@ -456,7 +464,9 @@ final class Daemon {
             error: lastError ?? configError,
             pid: getpid(),
             version: Build.version,
-            updatedAt: Date())
+            updatedAt: Date(),
+            latencyMs: engine.state == .running ? engine.latencyMs : nil,
+            tapSilentSeconds: observeTap())
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

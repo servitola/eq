@@ -25,6 +25,9 @@ struct Status: Codable, Equatable {
     var pid: Int32
     var version: String?
     var updatedAt: Date
+    var latencyMs: Double? = nil
+    /// Seconds the IO proc kept running while nothing but exact zeros arrived from the tap.
+    var tapSilentSeconds: Double? = nil
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -67,7 +70,7 @@ struct Status: Codable, Equatable {
 
 extension Status {
     private enum CodingKeys: String, CodingKey {
-        case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt
+        case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -86,5 +89,7 @@ extension Status {
         pid = try c.decode(Int32.self, forKey: .pid)
         version = try c.decodeIfPresent(String.self, forKey: .version)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        latencyMs = try c.decodeIfPresent(Double.self, forKey: .latencyMs)
+        tapSilentSeconds = try c.decodeIfPresent(Double.self, forKey: .tapSilentSeconds)
     }
 }

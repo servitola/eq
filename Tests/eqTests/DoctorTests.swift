@@ -6,7 +6,8 @@ final class DoctorTests: XCTestCase {
     override func tearDown() { Paint.forced = nil }
 
     private func probes(status: Status?, configThrows: Bool = false, agent: Bool = true, exe: String? = "/Applications/EQ.app/Contents/MacOS/eq",
-                        callbacksLater: UInt64? = nil, refreshes: Bool = true) -> DoctorProbes {
+                        callbacksLater: UInt64? = nil, refreshes: Bool = true,
+                        output: DefaultOutput? = DefaultOutput(name: "Speakers", streams: 1, channels: 2)) -> DoctorProbes {
         var reads = 0
         return DoctorProbes(
             osVersion: { OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 2) },
@@ -18,6 +19,7 @@ final class DoctorTests: XCTestCase {
                 if reads >= 3, let later = callbacksLater { s.callbacks = later }
                 return s
             },
+            defaultOutput: { output },
             launchAgentLoaded: { agent },
             executablePath: { _ in exe },
             signalStatus: { _ in true },
@@ -34,7 +36,7 @@ final class DoctorTests: XCTestCase {
     func testAllGreen() {
         let report = Doctor.run(probes(status: running(), callbacksLater: 20))
         XCTAssertTrue(report.ok, Doctor.text(report))
-        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "daemon", "permission", "launch agent", "binary", "audio", "engine"])
+        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap"])
         XCTAssertTrue(report.checks.allSatisfy(\.ok))
     }
 
@@ -149,6 +151,53 @@ final class DoctorTests: XCTestCase {
         let audio = report.checks.first { $0.name == "audio" }!
         XCTAssertTrue(audio.warning)
         XCTAssertTrue(audio.detail.contains("not an eq daemon"), audio.detail)
+    }
+
+    func testZeroStreamOutputFails() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20, output: DefaultOutput(name: "Multi-Output Device", streams: 0, channels: 0)))
+        XCTAssertFalse(report.ok)
+        let output = report.checks.first { $0.name == "output" }!
+        XCTAssertFalse(output.ok); XCTAssertFalse(output.warning)
+        XCTAssertTrue(output.detail.contains("\"Multi-Output Device\" has no output streams"), output.detail)
+        XCTAssertTrue(output.detail.contains("Sound"), output.detail)
+    }
+
+    func testZeroChannelOutputFails() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20, output: DefaultOutput(name: "Odd", streams: 1, channels: 0)))
+        XCTAssertFalse(report.checks.first { $0.name == "output" }!.ok)
+    }
+
+    func testMissingDefaultOutputFails() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20, output: nil))
+        XCTAssertFalse(report.ok)
+        XCTAssertEqual(report.checks.first { $0.name == "output" }!.detail, "no default output device")
+    }
+
+    func testHealthyOutputShowsChannels() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20))
+        XCTAssertEqual(report.checks.first { $0.name == "output" }!.detail, "Speakers, 2 ch")
+    }
+
+    func testSilentTapWarnsButDoesNotFail() {
+        var s = running(); s.tapSilentSeconds = 45.7
+        let report = Doctor.run(probes(status: s, callbacksLater: 20))
+        XCTAssertTrue(report.ok, Doctor.text(report))
+        let tap = report.checks.first { $0.name == "tap" }!
+        XCTAssertTrue(tap.warning); XCTAssertFalse(tap.ok)
+        XCTAssertEqual(tap.detail, "no audio reached the tap for 45 s — if something is playing, check System Audio Recording permission")
+    }
+
+    func testTapWithinLimitOrUnreportedIsOK() {
+        for (seconds, detail) in [(30.0, "silent for 30 s"), (0.2, "audio arriving")] {
+            var s = running(); s.tapSilentSeconds = seconds
+            let tap = Doctor.run(probes(status: s, callbacksLater: 20)).checks.first { $0.name == "tap" }!
+            XCTAssertTrue(tap.ok); XCTAssertFalse(tap.warning); XCTAssertEqual(tap.detail, detail)
+        }
+        let unreported = Doctor.run(probes(status: running(), callbacksLater: 20)).checks.first { $0.name == "tap" }!
+        XCTAssertTrue(unreported.ok); XCTAssertTrue(unreported.detail.hasPrefix("skipped"))
+        var failed = running(); failed.state = .failed; failed.tapSilentSeconds = 99
+        let skipped = Doctor.run(probes(status: failed)).checks.first { $0.name == "tap" }!
+        XCTAssertTrue(skipped.ok); XCTAssertFalse(skipped.warning)
     }
 
     func testSmokeSkipsLaunchAgentRow() {

@@ -1,10 +1,17 @@
 import Darwin
 import Foundation
 
+struct DefaultOutput: Equatable {
+    var name: String
+    var streams: Int
+    var channels: Int
+}
+
 struct DoctorProbes {
     var osVersion: () -> OperatingSystemVersion
     var loadConfig: () throws -> Config
     var readStatus: () -> Status?
+    var defaultOutput: () -> DefaultOutput?
     var launchAgentLoaded: () -> Bool
     var executablePath: (pid_t) -> String?
     var signalStatus: (pid_t) -> Bool
@@ -19,6 +26,12 @@ struct DoctorProbes {
                 return try store.load()
             },
             readStatus: { Status.read(from: statusURL) },
+            defaultOutput: {
+                guard let id = AudioDeviceManager.defaultOutputDeviceID() else { return nil }
+                return DefaultOutput(name: AudioDeviceManager.device(id)?.name ?? "device \(id)",
+                                     streams: AudioDeviceManager.outputStreamCount(id) ?? 0,
+                                     channels: AudioDeviceManager.outputChannelCount(id))
+            },
             launchAgentLoaded: {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -64,12 +77,14 @@ enum Doctor {
         let checks = [
             macOSCheck(probes),
             configCheck(probes),
+            outputCheck(probes),
             daemonCheck(live),
             permissionCheck(live),
             launchAgentCheck(probes),
             binaryCheck(probes, live),
             audioCheck(probes, live),
             engineCheck(live),
+            tapCheck(live),
         ]
         let ok = checks.allSatisfy { $0.warning || $0.ok }
         return DoctorReport(ok: ok, checks: checks)
@@ -98,6 +113,36 @@ enum Doctor {
         } catch {
             return DoctorCheck(name: "config", ok: false, detail: "\(error)", warning: false)
         }
+    }
+
+    private static func outputCheck(_ probes: DoctorProbes) -> DoctorCheck {
+        guard let output = probes.defaultOutput() else {
+            return DoctorCheck(name: "output", ok: false, detail: "no default output device", warning: false)
+        }
+        guard output.streams > 0, output.channels > 0 else {
+            return DoctorCheck(name: "output", ok: false,
+                               detail: "\"\(output.name)\" has no output streams — a Multi-Output Device with no members?"
+                                   + " Pick a real output in System Settings → Sound",
+                               warning: false)
+        }
+        return DoctorCheck(name: "output", ok: true, detail: "\(output.name), \(output.channels) ch", warning: false)
+    }
+
+    static let tapSilenceLimit: TimeInterval = 30
+
+    private static func tapCheck(_ live: Status?) -> DoctorCheck {
+        guard let live, live.state == .running || live.state == .bypassed else {
+            return DoctorCheck(name: "tap", ok: true, detail: "skipped (engine not running)", warning: false)
+        }
+        guard let silent = live.tapSilentSeconds else {
+            return DoctorCheck(name: "tap", ok: true, detail: "skipped (daemon does not report it)", warning: false)
+        }
+        guard silent > tapSilenceLimit else {
+            return DoctorCheck(name: "tap", ok: true, detail: silent < 1 ? "audio arriving" : "silent for \(Int(silent)) s", warning: false)
+        }
+        return DoctorCheck(name: "tap", ok: false,
+                           detail: "no audio reached the tap for \(Int(silent)) s — if something is playing, check System Audio Recording permission",
+                           warning: true)
     }
 
     private static func daemonCheck(_ live: Status?) -> DoctorCheck {

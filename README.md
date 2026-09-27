@@ -224,8 +224,8 @@ of resetting them to flat.
 
 The daemon opens a Core Audio process tap on the system mix (macOS 14.4+), which mutes the
 original output and hands the audio to the daemon. Ten peaking biquads plus the imported
-filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. About 10 ms of
-latency; volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
+filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. Latency is
+shown in `eq status`; Bluetooth adds the headset's own buffering. Volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
 
 It listens for the default output changing and rebuilds on the new device with that device's
 curve. Bluetooth devices arrive in two steps, so it waits for the IO callback to fire before

@@ -65,6 +65,27 @@ final class StatusTests: XCTestCase {
         XCTAssertNil(Status.read(from: url)?.version)
     }
 
+    func testStatusWithoutLatencyOrSilenceDecodesNil() throws {
+        let json = """
+        {"enabled":true,"framesProcessed":1,"callbacks":3,"writes":2,"pid":1,"sampleRate":48000,"state":"running","version":"1","updatedAt":"2026-01-01T00:00:00Z"}
+        """.data(using: .utf8)!
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-v3-\(UUID().uuidString).json")
+        try json.write(to: url); defer { try? FileManager.default.removeItem(at: url) }
+        let status = try XCTUnwrap(Status.read(from: url))
+        XCTAssertNil(status.latencyMs)
+        XCTAssertNil(status.tapSilentSeconds)
+    }
+
+    func testLatencyAndSilenceRoundTrip() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-status-\(UUID().uuidString)/status.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var status = sample(at: Date(timeIntervalSince1970: 1_700_000_000))
+        status.latencyMs = 11.6
+        status.tapSilentSeconds = 42
+        try status.write(to: url)
+        XCTAssertEqual(Status.read(from: url), status)
+    }
+
     func testV2StatusWithoutWritesDecodesZero() throws {
         let json = """
         {"enabled":true,"framesProcessed":1,"callbacks":3,"pid":1,"sampleRate":48000,"state":"running","updatedAt":"2026-01-01T00:00:00Z"}

@@ -139,7 +139,26 @@ enum AudioDeviceManager {
     }
 
     private static func inputStreams(_ id: AudioObjectID) -> [AudioObjectID]? {
-        var streamAddress = address(kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeInput)
+        streams(id, scope: kAudioDevicePropertyScopeInput)
+    }
+
+    static func outputStreamCount(_ id: AudioObjectID) -> Int? {
+        streams(id, scope: kAudioDevicePropertyScopeOutput)?.count
+    }
+
+    /// Frames, not seconds: every latency property Core Audio reports is in frames at the nominal rate.
+    static func latencyFrames(device id: AudioObjectID, scope: AudioObjectPropertyScope) -> UInt32 {
+        (uint32Property(id, kAudioDevicePropertyLatency, scope: scope) ?? 0)
+            &+ (uint32Property(id, kAudioDevicePropertySafetyOffset, scope: scope) ?? 0)
+    }
+
+    static func firstOutputStreamLatencyFrames(_ id: AudioObjectID) -> UInt32 {
+        guard let stream = streams(id, scope: kAudioDevicePropertyScopeOutput)?.first else { return 0 }
+        return uint32Property(stream, kAudioStreamPropertyLatency) ?? 0
+    }
+
+    private static func streams(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> [AudioObjectID]? {
+        var streamAddress = address(kAudioDevicePropertyStreams, scope: scope)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(id, &streamAddress, 0, nil, &size) == noErr else { return nil }
         var streams = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
@@ -147,8 +166,9 @@ enum AudioDeviceManager {
         return streams
     }
 
-    private static func uint32Property(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> UInt32? {
-        var addr = address(selector)
+    private static func uint32Property(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector,
+                                       scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> UInt32? {
+        var addr = address(selector, scope: scope)
         guard AudioObjectHasProperty(id, &addr) else { return nil }
         var value: UInt32 = 0
         var size = UInt32(MemoryLayout<UInt32>.size)
