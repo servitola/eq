@@ -142,6 +142,23 @@ final class DaemonPolicyTests: XCTestCase {
         XCTAssertEqual(DaemonPolicy.wakeDelay, 1)
         XCTAssertEqual(DaemonPolicy.callModeBelow, 44100)
     }
+
+    func testUsableRateRejectsZeroAndNonFinite() {
+        XCTAssertFalse(DaemonPolicy.usableRate(0))
+        XCTAssertFalse(DaemonPolicy.usableRate(-1))
+        XCTAssertFalse(DaemonPolicy.usableRate(.nan))
+        XCTAssertFalse(DaemonPolicy.usableRate(.infinity))
+        XCTAssertTrue(DaemonPolicy.usableRate(44100))
+        XCTAssertTrue(DaemonPolicy.usableRate(48000))
+    }
+
+    func testWakeFallbackFiresOnlyPastTheTimeout() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        XCTAssertFalse(DaemonPolicy.wakeFallbackDue(asleepSince: since, now: since + 119))
+        XCTAssertFalse(DaemonPolicy.wakeFallbackDue(asleepSince: since, now: since + 120))
+        XCTAssertTrue(DaemonPolicy.wakeFallbackDue(asleepSince: since, now: since + 121))
+        XCTAssertEqual(DaemonPolicy.wakeFallbackTimeout, 120)
+    }
 }
 
 private final class ManualScheduler {

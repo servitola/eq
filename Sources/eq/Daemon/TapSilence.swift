@@ -5,12 +5,16 @@ import Foundation
 struct TapSilence {
     private var signalCallbacks: UInt64 = 0
     private var callbacksAtSignal: UInt64 = 0
+    private var lastCallbacks: UInt64 = 0
     private var since: Date?
 
     /// Returns nil while the IO proc is not advancing, so a stopped or restarting engine never reads as silence.
     mutating func observe(callbacks: UInt64, signalCallbacks: UInt64, now: Date) -> Double? {
-        // Counters drop back to zero on every engine restart.
-        if since == nil || signalCallbacks != self.signalCallbacks || callbacks < callbacksAtSignal {
+        defer { lastCallbacks = callbacks }
+        // Compared against the last observed reading, not just the last signal snapshot, so a
+        // restart between two silent signal-less ticks is still caught even when the fresh
+        // callback count has already climbed back past the old signal's high-water mark.
+        if since == nil || signalCallbacks != self.signalCallbacks || callbacks < lastCallbacks {
             since = now
             self.signalCallbacks = signalCallbacks
             callbacksAtSignal = callbacks
@@ -18,5 +22,11 @@ struct TapSilence {
         }
         guard callbacks > callbacksAtSignal, let since else { return nil }
         return now.timeIntervalSince(since)
+    }
+
+    /// Called when the engine is about to stop for sleep: the next `observe` after wake must
+    /// start a fresh clock instead of measuring across the time the Mac was asleep.
+    mutating func reset() {
+        self = TapSilence()
     }
 }

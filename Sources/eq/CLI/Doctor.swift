@@ -3,7 +3,9 @@ import Foundation
 
 struct DefaultOutput: Equatable {
     var name: String
-    var streams: Int
+    /// nil means the stream-count property itself could not be read — distinct from a device
+    /// that legitimately reports zero streams (e.g. a Multi-Output Device with no members).
+    var streams: Int?
     var channels: Int
 }
 
@@ -29,7 +31,7 @@ struct DoctorProbes {
             defaultOutput: {
                 guard let id = AudioDeviceManager.defaultOutputDeviceID() else { return nil }
                 return DefaultOutput(name: AudioDeviceManager.device(id)?.name ?? "device \(id)",
-                                     streams: AudioDeviceManager.outputStreamCount(id) ?? 0,
+                                     streams: AudioDeviceManager.outputStreamCount(id),
                                      channels: AudioDeviceManager.outputChannelCount(id))
             },
             launchAgentLoaded: {
@@ -74,6 +76,7 @@ enum Doctor {
     static func run(_ probes: DoctorProbes) -> DoctorReport {
         let status = probes.readStatus()
         let live = status.flatMap { $0.isAlive() ? $0 : nil }
+        let (audio, refreshed) = audioCheck(probes, live)
         let checks = [
             macOSCheck(probes),
             configCheck(probes),
@@ -82,9 +85,9 @@ enum Doctor {
             permissionCheck(live),
             launchAgentCheck(probes),
             binaryCheck(probes, live),
-            audioCheck(probes, live),
+            audio,
             engineCheck(live),
-            tapCheck(live),
+            tapCheck(refreshed),
             filtersCheck(live),
         ]
         let ok = checks.allSatisfy { $0.warning || $0.ok }
@@ -120,7 +123,10 @@ enum Doctor {
         guard let output = probes.defaultOutput() else {
             return DoctorCheck(name: "output", ok: false, detail: "no default output device", warning: false)
         }
-        guard output.streams > 0, output.channels > 0 else {
+        guard let streams = output.streams else {
+            return DoctorCheck(name: "output", ok: false, detail: "could not read the output's streams", warning: true)
+        }
+        guard streams > 0, output.channels > 0 else {
             return DoctorCheck(name: "output", ok: false,
                                detail: "\"\(output.name)\" has no output streams — a Multi-Output Device with no members?"
                                    + " Pick a real output in System Settings → Sound",
@@ -149,6 +155,9 @@ enum Doctor {
     private static func filtersCheck(_ live: Status?) -> DoctorCheck {
         guard let live else {
             return DoctorCheck(name: "filters", ok: true, detail: "skipped (daemon not running)", warning: false)
+        }
+        guard live.state == .running || live.state == .bypassed else {
+            return DoctorCheck(name: "filters", ok: true, detail: "skipped (engine not running)", warning: false)
         }
         guard let warnings = live.warnings else {
             return DoctorCheck(name: "filters", ok: true, detail: "skipped (daemon does not report it)", warning: false)
@@ -200,52 +209,55 @@ enum Doctor {
         return DoctorCheck(name: "binary", ok: true, detail: path, warning: false)
     }
 
-    private static func audioCheck(_ probes: DoctorProbes, _ live: Status?) -> DoctorCheck {
+    /// Returns the audio row plus the freshest status this check managed to read — used by
+    /// `tapCheck` so a silence clock reading right after the SIGUSR1 refresh isn't stale by a
+    /// full heartbeat interval. Falls back to `live` at whichever step stops making progress.
+    private static func audioCheck(_ probes: DoctorProbes, _ live: Status?) -> (DoctorCheck, Status?) {
         guard let live else {
-            return DoctorCheck(name: "audio", ok: true, detail: "skipped (daemon not running)", warning: false)
+            return (DoctorCheck(name: "audio", ok: true, detail: "skipped (daemon not running)", warning: false), live)
         }
         guard live.state == .running else {
-            return DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false)
+            return (DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false), live)
         }
         let s0 = live
         // Only v3 daemons write `version`, and only v3 has the SIGUSR1 handler — the default action would kill an older one.
         guard let daemonVersion = s0.version else {
-            return DoctorCheck(name: "audio", ok: false,
+            return (DoctorCheck(name: "audio", ok: false,
                                detail: "daemon runs a pre-v3 build, this eq is \(Build.version)"
                                    + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
-                               warning: true)
+                               warning: true), live)
         }
         guard probes.executablePath(s0.pid)?.hasSuffix("/eq") == true else {
-            return DoctorCheck(name: "audio", ok: false, detail: "pid \(s0.pid) is not an eq daemon — status file is stale", warning: true)
+            return (DoctorCheck(name: "audio", ok: false, detail: "pid \(s0.pid) is not an eq daemon — status file is stale", warning: true), live)
         }
         guard probes.signalStatus(s0.pid) else {
-            return DoctorCheck(name: "audio", ok: false, detail: "could not signal the daemon", warning: true)
+            return (DoctorCheck(name: "audio", ok: false, detail: "could not signal the daemon", warning: true), live)
         }
         guard let s1 = freshStatus(probes, after: s0.writes) else {
-            return DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true)
+            return (DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true), live)
         }
         probes.sleep(1)
         _ = probes.signalStatus(s1.pid)
         guard let s2 = freshStatus(probes, after: s1.writes) else {
-            return DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true)
+            return (DoctorCheck(name: "audio", ok: false, detail: staleAfterSignalDetail, warning: true), s1)
         }
         let before = s1.callbacks, after = s2.callbacks
         if before == 0 && after == 0 {
-            return DoctorCheck(name: "audio", ok: false,
+            return (DoctorCheck(name: "audio", ok: false,
                                detail: "no IO callbacks — if the daemon predates v2, restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
-                               warning: true)
+                               warning: true), s2)
         }
         guard after > before else {
-            return DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks in 1 s — is the device asleep?", warning: true)
+            return (DoctorCheck(name: "audio", ok: false, detail: "no IO callbacks in 1 s — is the device asleep?", warning: true), s2)
         }
         let detail = "callbacks \(before) → \(after)"
         guard daemonVersion == Build.version else {
-            return DoctorCheck(name: "audio", ok: false,
+            return (DoctorCheck(name: "audio", ok: false,
                                detail: detail + " (daemon v\(daemonVersion), this eq v\(Build.version)"
                                    + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq)",
-                               warning: true)
+                               warning: true), s2)
         }
-        return DoctorCheck(name: "audio", ok: true, detail: detail, warning: false)
+        return (DoctorCheck(name: "audio", ok: true, detail: detail, warning: false), s2)
     }
 
     private static let staleAfterSignalDetail =

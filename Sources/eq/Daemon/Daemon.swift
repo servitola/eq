@@ -14,6 +14,9 @@ enum DaemonPolicy {
     static let wakeDelay: TimeInterval = 1
     // Wideband SCO runs at 24 kHz, so a classic-HFP threshold of 16 kHz misses it; every music rate is at least 44.1 kHz.
     static let callModeBelow: Double = 44100
+    // A missed wake notification would otherwise leave the daemon silently stopped forever;
+    // the watchdog timer itself ticking is proof the process is alive to fall back on.
+    static let wakeFallbackTimeout: TimeInterval = 120
 
     static func shouldWriteStatus(changed: Bool, sinceLastWrite: TimeInterval) -> Bool {
         changed || sinceLastWrite >= heartbeat
@@ -36,6 +39,16 @@ enum DaemonPolicy {
 
     static func isCallMode(_ rate: Double) -> Bool {
         rate > 0 && rate < callModeBelow
+    }
+
+    /// A rate of 0 (or non-finite) right after `engine.start` means the device has not settled
+    /// yet; the EQ must never run configured at 0 Hz, so the caller retries instead of using it.
+    static func usableRate(_ rate: Double) -> Bool {
+        rate.isFinite && rate > 0
+    }
+
+    static func wakeFallbackDue(asleepSince: Date, now: Date) -> Bool {
+        now.timeIntervalSince(asleepSince) > wakeFallbackTimeout
     }
 
     enum Reconciliation: Equatable {
@@ -93,6 +106,8 @@ final class Daemon {
     private lazy var settle = Debouncer(delay: DaemonPolicy.settleDelay, queue: queue) { [weak self] in self?.reconcile() }
     private var power: SystemPower?
     private var asleep = false
+    private var asleepSince: Date?
+    private var loggedZeroRateAtStart = false
     private var inCallMode = false
     private var rateUnsettled = false
     private var tapSilence = TapSilence()
@@ -240,6 +255,18 @@ final class Daemon {
             }
             return
         }
+        guard DaemonPolicy.usableRate(engine.processor.sampleRate) else {
+            engine.stop()
+            if !loggedZeroRateAtStart {
+                Log.write("device reports 0 Hz — waiting for it to settle")
+                loggedZeroRateAtStart = true
+            }
+            // Not counted as a failed attempt: `attempt` is unchanged, so this can retry
+            // indefinitely without ever tripping the 5-attempt give-up path.
+            scheduleRebuild(attempt: attempt, after: DaemonPolicy.settleDelay)
+            return
+        }
+        loggedZeroRateAtStart = false
         noteCallMode(engine.processor.sampleRate)
         applyProfile()
         writeStatus()
@@ -277,6 +304,9 @@ final class Daemon {
     private func fail(_ why: String, retryIn delay: TimeInterval, as state: Status.State = .failed) {
         rebuilding = true
         engine.stop()
+        // A stale warning about a filter/rate combination that no longer applies must not
+        // survive into whatever state comes next.
+        filterWarnings = []
         setState(state, error: why)
         scheduleRebuild(attempt: 1, after: delay)
     }
@@ -373,12 +403,16 @@ final class Daemon {
         rebuilding = true
         engine.stop()
         asleep = true
+        asleepSince = Date()
+        filterWarnings = []
+        tapSilence.reset()
         setState(.starting, error: nil)
     }
 
     private func hasPoweredOn() {
         Log.write("system woke — rebuilding in \(Int(DaemonPolicy.wakeDelay)) s")
         asleep = false
+        asleepSince = nil
         scheduleRebuild(attempt: 1, after: DaemonPolicy.wakeDelay)
     }
 
@@ -429,6 +463,13 @@ final class Daemon {
         // Callbacks, not frames: the silence gate stops frames on a quiet Mac, but a live IO proc keeps calling back.
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            if let asleepSince = self.asleepSince, DaemonPolicy.wakeFallbackDue(asleepSince: asleepSince, now: Date()) {
+                Log.write("asleep for over \(Int(DaemonPolicy.wakeFallbackTimeout)) s with the watchdog still ticking — assuming a lost wake message")
+                self.asleep = false
+                self.asleepSince = nil
+                self.rebuild(attempt: 1)
+                return
+            }
             if self.state == .running || self.state == .bypassed {
                 let r = DaemonPolicy.stalled(previous: self.lastCallbacks, current: self.engine.callbacks, unchangedTicks: self.unchangedTicks)
                 self.unchangedTicks = r.unchangedTicks

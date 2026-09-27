@@ -167,6 +167,14 @@ final class DoctorTests: XCTestCase {
         XCTAssertFalse(report.checks.first { $0.name == "output" }!.ok)
     }
 
+    func testUnreadableStreamCountWarnsInsteadOfFailing() {
+        let report = Doctor.run(probes(status: running(), callbacksLater: 20, output: DefaultOutput(name: "Speakers", streams: nil, channels: 2)))
+        XCTAssertTrue(report.ok, Doctor.text(report))
+        let output = report.checks.first { $0.name == "output" }!
+        XCTAssertTrue(output.warning); XCTAssertFalse(output.ok)
+        XCTAssertEqual(output.detail, "could not read the output's streams")
+    }
+
     func testMissingDefaultOutputFails() {
         let report = Doctor.run(probes(status: running(), callbacksLater: 20, output: nil))
         XCTAssertFalse(report.ok)
@@ -185,6 +193,39 @@ final class DoctorTests: XCTestCase {
         let tap = report.checks.first { $0.name == "tap" }!
         XCTAssertTrue(tap.warning); XCTAssertFalse(tap.ok)
         XCTAssertEqual(tap.detail, "no audio reached the tap for 45 s — if something is playing, check System Audio Recording permission")
+    }
+
+    func testFiltersCheckSkipsWhenEngineNotRunning() {
+        var s = running(); s.state = .failed; s.warnings = ["filter 2 unstable at 192000 Hz — bypassed"]
+        let filters = Doctor.run(probes(status: s)).checks.first { $0.name == "filters" }!
+        XCTAssertTrue(filters.ok); XCTAssertFalse(filters.warning)
+        XCTAssertEqual(filters.detail, "skipped (engine not running)")
+    }
+
+    func testTapRowUsesTheStatusRefreshedBySIGUSR1() {
+        var reads = 0
+        let probes = DoctorProbes(
+            osVersion: { OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 2) },
+            loadConfig: { Config.initial(builtInUID: nil, builtInName: nil) },
+            readStatus: { [self] in
+                reads += 1
+                var s = running(callbacks: reads == 3 ? 20 : 10)
+                s.writes = UInt64(reads)
+                // The first read (Doctor.run's `live`) looks silent; only the SIGUSR1-refreshed
+                // reads that follow report audio has resumed.
+                s.tapSilentSeconds = reads == 1 ? 40 : 0
+                return s
+            },
+            defaultOutput: { DefaultOutput(name: "Speakers", streams: 1, channels: 2) },
+            launchAgentLoaded: { true },
+            executablePath: { _ in "/Applications/EQ.app/Contents/MacOS/eq" },
+            signalStatus: { _ in true },
+            sleep: { _ in },
+            smoke: false)
+        let report = Doctor.run(probes)
+        let tap = report.checks.first { $0.name == "tap" }!
+        XCTAssertTrue(tap.ok, Doctor.text(report)); XCTAssertFalse(tap.warning)
+        XCTAssertEqual(tap.detail, "audio arriving")
     }
 
     func testBypassedFilterWarnsButDoesNotFail() {

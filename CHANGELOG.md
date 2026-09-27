@@ -18,18 +18,21 @@ its entries under a dated version.
   config validation, with the filter's number in the message.
 - At 96 and 192 kHz some in-range filters below ~14 Hz / ~28 Hz still round to unstable
   coefficients. The daemon now passes such a filter through unchanged, logs
-  `filter N unstable at R Hz — bypassed` once, and reports it in `eq status` and in a new
-  `filters` row of `eq doctor`.
+  `profile "X": band N|filter N unstable at R Hz — bypassed` once, and reports it in
+  `eq status` and in a new `filters` row of `eq doctor`.
 
 ### Added
 
 - `eq status` shows the path latency: the output device's own latency and safety offset, the
-  tap's input side, and the IO buffer twice (once in, once out).
+  first output stream's latency, the tap's input side, and the IO buffer twice (once in, once
+  out).
 - `eq doctor` checks the default output (a Multi-Output Device with no members has no streams)
   and warns when no audio has reached the tap for over 30 s.
 
 After upgrading, restart the daemon (`launchctl kickstart -k gui/$UID/com.servitola.eq`) —
-latency, the tap check and bypassed filters are reported only by the new daemon.
+latency, the tap check and bypassed filters are reported only by the new daemon. Filters are
+now also checked for stability at 48 kHz on load, so a config with an unstable hand-edited
+filter is rejected — the daemon falls back to the built-in curve and says so in `eq status`.
 
 ## 2026.09.27.6 — 2026-09-27
 
