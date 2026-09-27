@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.6 — 2026-09-27
+
 ### Changed
 
 - `eq --help` fits the terminal: grouped into look, tune and setup, in colour, descriptions
