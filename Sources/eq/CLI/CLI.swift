@@ -19,7 +19,7 @@ struct CLIContext {
             defaultOutput: {
                 AudioDeviceManager.defaultOutputDeviceID().flatMap(AudioDeviceManager.device).map { ($0.uid, $0.name) }
             },
-            fetch: liveFetch,
+            fetch: HTTPFetch.live,
             cacheDirectory: AutoEqCache.defaultDirectory,
             today: {
                 let formatter = DateFormatter()
@@ -29,18 +29,6 @@ struct CLIContext {
             })
     }
 
-    private static func liveFetch(_ url: URL) throws -> Data {
-        var request = URLRequest(url: url, timeoutInterval: 20)
-        request.httpMethod = "GET"
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<Data, Error> = .failure(URLError(.unknown))
-        URLSession.shared.dataTask(with: request) { data, _, error in
-            if let error { result = .failure(error) } else { result = .success(data ?? Data()) }
-            semaphore.signal()
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + 21)
-        return try result.get()
-    }
 }
 
 enum CLI {
@@ -214,19 +202,28 @@ enum CLI {
             case "--clear":
                 clear = true
                 i += 1
+            case let token where token.hasPrefix("-"):
+                throw CLIError.usage("unknown option \"\(token)\" for eq import")
             default:
                 positional.append(afterDevice[i])
                 i += 1
             }
         }
+        if clear {
+            guard sourceOption == nil, !keepBands, !refresh else { throw CLIError.usage("--clear takes only --device") }
+            guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device Q]") }
+        } else {
+            guard positional.count == 1 else {
+                throw CLIError.usage("eq import <file|url|name> [--device Q] [--source S] [--keep-bands] [--refresh]")
+            }
+        }
 
-        var config = try loadConfig(ctx)
         let target: Target
         if let explicit { target = explicit } else { target = try currentDevice(ctx) }
-        var profile = editableProfile(config, target)
 
         if clear {
-            guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device Q]") }
+            var config = try loadConfig(ctx)
+            var profile = editableProfile(config, target)
             profile.filters = []
             profile.imported = nil
             profile.preamp = 0
@@ -236,9 +233,6 @@ enum CLI {
             return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
         }
 
-        guard positional.count == 1 else {
-            throw CLIError.usage("eq import <file|url|name> [--device Q] [--source S] [--keep-bands] [--refresh]")
-        }
         let query = positional[0]
         let (text, origin, what) = try resolveImportSource(query, sourceOption: sourceOption, refresh: refresh, ctx)
 
@@ -246,6 +240,8 @@ enum CLI {
         do { result = try AutoEqParser.parse(text) }
         catch { throw CLIError.importUnrecognized("\(what): \(error)") }
 
+        var config = try loadConfig(ctx)
+        var profile = editableProfile(config, target)
         profile.filters = result.filters
         var warnings = result.warnings
         if let bands = result.bands {
@@ -284,29 +280,29 @@ enum CLI {
             guard let url = URL(string: query) else { throw CLIError.importUnrecognized("\(query): not a valid URL") }
             let data: Data
             do { data = try ctx.fetch(url) }
-            catch { throw networkError(error, ctx) }
+            catch { throw CLIError.network("\(error)") }
             return (String(decoding: data, as: UTF8.self), "url \(url.host ?? query)", query)
         }
 
         let entries: [AutoEqEntry]
         do { entries = try AutoEqCache(directory: ctx.cacheDirectory).load(fetch: ctx.fetch, refresh: refresh) }
-        catch { throw networkError(error, ctx) }
+        catch {
+            let cachePath = ctx.cacheDirectory.appendingPathComponent("INDEX.md").path
+            throw CLIError.network("\(error) — the last index is kept in \(cachePath); pass --refresh to retry")
+        }
 
         switch AutoEqIndex.match(query, in: entries, source: sourceOption) {
-        case .none: throw CLIError.importNotFound(query)
+        case .none: throw CLIError.importNotFound(sourceOption.map { "\(query) from \($0)" } ?? query)
         case .ambiguous(let names): throw CLIError.importAmbiguous(names)
         case .one(let entry):
+            let what = "\(entry.name) from \(entry.source)"
             let data: Data
             do { data = try ctx.fetch(AutoEqIndex.fileURL(for: entry)) }
-            catch { throw networkError(error, ctx) }
+            catch let error as URLError where error.code == .fileDoesNotExist { throw CLIError.importNotFound(what) }
+            catch { throw CLIError.network("\(error)") }
             let origin = "AutoEq \(entry.source) · \(entry.name)"
-            return (String(decoding: data, as: UTF8.self), origin, "\(entry.name) from \(entry.source)")
+            return (String(decoding: data, as: UTF8.self), origin, what)
         }
-    }
-
-    private static func networkError(_ error: Error, _ ctx: CLIContext) -> CLIError {
-        let cachePath = ctx.cacheDirectory.appendingPathComponent("INDEX.md").path
-        return .network("\(error) — the last index is kept in \(cachePath); pass --refresh to retry")
     }
 
     private static func devices(_ ctx: CLIContext) throws -> Output {

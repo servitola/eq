@@ -278,6 +278,21 @@ final class CLITests: XCTestCase {
         result = runCLI("import", "airpods pro 2", "--refresh")
         XCTAssertEqual(result.exitCode, 1)
         XCTAssertTrue(result.output.contains("network"))
+        context.fetch = { url in
+            if url == AutoEqIndex.indexURL { return Data(index.utf8) }
+            throw URLError(.fileDoesNotExist)
+        }
+        result = runCLI("import", "airpods pro 2")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("no ParametricEQ.txt"), result.output)
+        XCTAssertTrue(result.output.contains("AirPods Pro 2"), result.output)
+    }
+
+    func testImportRejectsUnknownOption() {
+        _ = runCLI("init")
+        let result = runCLI("import", "sony", "--sorce", "crinacle")
+        XCTAssertEqual(result.exitCode, 2)
+        XCTAssertTrue(result.output.contains("unknown option"), result.output)
     }
 
     func testImportGarbageFileWritesNothing() throws {
