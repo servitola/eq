@@ -13,7 +13,8 @@ let package = Package(
         .testTarget(
             name: "eqTests",
             dependencies: ["eq"],
-            path: "Tests/eqTests"
+            path: "Tests/eqTests",
+            resources: [.copy("Fixtures")]
         ),
     ],
     swiftLanguageVersions: [.v5]
