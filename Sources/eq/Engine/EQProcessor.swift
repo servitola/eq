@@ -70,6 +70,11 @@ final class EQProcessor {
         meter.reset()
     }
 
+    /// Races the audio thread; call only while nothing is rendering.
+    func renderStateForTesting() -> [Float] {
+        snapshot.states.flatMap { [$0.z1, $0.z2] } + [limiterEnvelope]
+    }
+
     /// Called from the daemon's main queue whenever parameters change.
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
                 limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) {
@@ -176,7 +181,9 @@ final class EQProcessor {
                         }
                     }
                 }
+                for index in stateBuffer.indices { stateBuffer[index].flushDenormals() }
             }
         }
+        if limiterEnvelope < Float.leastNormalMagnitude { limiterEnvelope = 0 }
     }
 }
