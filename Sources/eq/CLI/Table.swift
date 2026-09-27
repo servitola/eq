@@ -5,17 +5,24 @@ enum Table {
         String(format: "%+.1f", value)
     }
 
+    static let width = 6
+
+    static func labelsRow() -> String {
+        Paint.ink(.dim, Config.bandLabels.map { $0.leftPadded(to: width) }.joined())
+    }
+
+    static func gainsRow(_ bands: [Double]) -> String {
+        bands.map { Paint.ink(Paint.gain($0), gain($0).leftPadded(to: width)) }.joined()
+    }
+
     static func profile(_ profile: Profile, header: String) -> String {
-        let width = 6
-        let labels = Paint.ink(.dim, Config.bandLabels.map { $0.leftPadded(to: width) }.joined())
-        let gains = profile.bands.map { Paint.ink(Paint.gain($0), gain($0).leftPadded(to: width)) }.joined()
         let preamp = Paint.ink(Paint.gain(profile.preamp), gain(profile.preamp))
         var rows = ["\(paintedHeader(header))   preamp: \(preamp) dB"]
         // Piped output keeps the v1 three-line shape that scripts already parse.
         if Paint.enabled {
             rows.append(profile.bands.map { Paint.ink(Paint.gain($0), Paint.glyph(for: $0).leftPadded(to: width)) }.joined())
         }
-        rows += [labels, gains]
+        rows += [labelsRow(), gainsRow(profile.bands)]
         var lines = rows.joined(separator: "\n")
         if !profile.filters.isEmpty {
             lines += "\n" + filters(profile.filters, imported: profile.imported)

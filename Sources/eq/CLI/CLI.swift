@@ -14,6 +14,7 @@ struct CLIContext {
     var meterSocketURL: URL = Status.defaultURL.deletingLastPathComponent().appendingPathComponent("meter.sock")
     var streamLimit: Int? = nil
     var emit: (String) -> Void = { line in print(line); fflush(stdout) }
+    var terminal: () -> (isTTY: Bool, cols: Int, rows: Int) = LiveTerminal.probe
 
     static func live() -> CLIContext {
         CLIContext(
@@ -52,6 +53,7 @@ enum CLI {
       eq daemon                   run the audio engine (used by the LaunchAgent)
       eq doctor                   diagnose config, daemon, permission and audio
       eq stream                   meter frames as JSON lines, 30 per second, until Ctrl-C
+      eq watch                    the live equalizer in the terminal; q to quit
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
     --json on any command: the answer as JSON
     """
@@ -64,6 +66,7 @@ enum CLI {
         let wantsJSON = args.contains("--json")
         let args = args.filter { $0 != "--json" }
         do {
+            if wantsJSON && args.first == "watch" { throw CLIError.usage("eq watch has no JSON form; use eq stream") }
             let output = try dispatch(args, context)
             // A streamed command already printed its own lines; the empty final Output carries
             // no text in either form, JSON included, so nothing prints twice.
@@ -113,6 +116,7 @@ enum CLI {
         case "status": return try status(ctx)
         case "doctor": return doctor(ctx)
         case "stream": return try stream(rest, ctx)
+        case "watch": return try watch(rest, ctx)
         case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
@@ -384,6 +388,21 @@ enum CLI {
         client.lines(maxLines: ctx.streamLimit) { line in ctx.emit(line); return true }
         client.close()
         var output = Output("", ["ok": true])
+        output.streamed = true
+        return output
+    }
+
+    private static func watch(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq watch") }
+        let terminal = ctx.terminal()
+        try Watch.requireTerminal(isTTY: terminal.isTTY, cols: terminal.cols, rows: terminal.rows)
+        let client = MeterClient(socketURL: ctx.meterSocketURL)
+        do { try client.connect() } catch { throw CLIError.noMeter }
+        LiveTerminal.enterRaw()
+        var output = Output("", ["ok": true])
+        output.exitCode = Watch.run(source: client, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
+        LiveTerminal.leaveRaw()
+        client.close()
         output.streamed = true
         return output
     }
