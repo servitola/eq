@@ -15,23 +15,35 @@ struct WatchLayout: Equatable {
     var meterRows: Int
     var shortLabels: Bool
     var width: Int
+    var zoneRows = 0
 
     /// Two rows beyond the four fixed ones (header, live row, labels, gains) stay free, one of
     /// them for the "widen" note, so the frame never scrolls the alternate screen.
     /// Four columns is the floor: at three, neighbouring labels and numbers run together.
-    static func fit(cols: Int, rows: Int) -> WatchLayout {
+    /// Zone rows take their room from the meter down to its four-row floor, then drop from the bottom.
+    static func fit(cols: Int, rows: Int, zones: Int = 0) -> WatchLayout {
         let cellWidth = min(max((cols - 2) / 10, 4), 8)
+        let zoneRows = min(max(zones, 0), max(rows - 9, 0))
         return WatchLayout(columns: min(Config.bandLabels.count, max(1, (cols - 2) / cellWidth)),
-                           cellWidth: cellWidth, meterRows: max(4, rows - 5),
-                           shortLabels: cellWidth < 6, width: cols)
+                           cellWidth: cellWidth, meterRows: max(4, rows - 5 - zoneRows),
+                           shortLabels: cellWidth < 6, width: cols, zoneRows: zoneRows)
     }
+
+    var visibleColumns: Int { min(max(columns, 1), Config.bandLabels.count) }
+    var cell: Int { max(cellWidth, 1) }
+    var tableWidth: Int { visibleColumns * cell }
+    var barWidth: Int { cell >= 7 ? 3 : (cell >= 5 ? 2 : 1) }
+
+    /// Bars sit right-aligned in their cell, under the right end of the label.
+    func barStart(_ band: Int) -> Int { band * cell + cell - barWidth }
+    func centre(_ band: Int) -> Int { barStart(band) + (barWidth - 1) / 2 }
 }
 
 enum Watch {
     static let enter = "\u{1B}[?1049h\u{1B}[?25l"
     static let leave = "\u{1B}[?25h\u{1B}[?1049l"
     private static let bands = Config.bandLabels.count
-    private static let floorDB = -60.0
+    static let floorDB = -60.0
     private static let hotDB = -6.0
     private static let partials = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
@@ -47,32 +59,28 @@ enum Watch {
         return clean.count >= n ? Array(clean.prefix(n)) : clean + Array(repeating: fill, count: n - clean.count)
     }
 
-    /// Header, `meterRows` of bars, the live level row, labels, gains, and — when not every band
-    /// fits — a note to widen the terminal.
-    static func frame(_ f: MeterFrame, layout: WatchLayout) -> [String] {
-        let columns = min(max(layout.columns, 1), bands)
+    /// Header, `meterRows` of bars, the live level row, labels, gains, up to `zoneRows` of zones,
+    /// and — when not every band fits — a note to widen the terminal.
+    static func frame(_ f: MeterFrame, layout: WatchLayout, zones: [Zone] = []) -> [String] {
+        let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
-        let w = max(layout.cellWidth, 1)
+        let w = layout.cell
+        let shownZones = Array(zones.prefix(max(layout.zoneRows, 0)))
         let gains = padded(f.gains, to: bands, with: 0).prefix(columns).map { min(max($0, -12), 12) }
         let inLevels = padded(f.in, to: bands, with: floorDB).prefix(columns).map(clampLevel)
         let outLevels = padded(f.out, to: bands, with: floorDB).prefix(columns).map(clampLevel)
-        let barWidth = w >= 7 ? 3 : (w >= 5 ? 2 : 1)
+        let barWidth = layout.barWidth
         let pad = String(repeating: " ", count: max(w - barWidth, 0))
         func bar(_ glyph: String) -> String { String(repeating: glyph, count: barWidth) }
-        let barInks = (0..<columns).map { i -> Paint.Ink? in
-            let hot = outLevels[i] >= hotDB
-            // A flat band has no colour of its own; a loud one still has to stand out from dim.
-            if gains[i] == 0 { return hot ? nil : .dim }
-            return Paint.level(Paint.gain(gains[i]), hot: hot)
-        }
+        let barInks = (0..<columns).map { barInk(gain: gains[$0], level: outLevels[$0]) }
         let markers = gains.map { g in
             min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
         }
         let outTops = outLevels.map { height($0, rows: rows) }
         let inTops = inLevels.map { height($0, rows: rows) }
 
-        let tableWidth = columns * w
-        let indent = max(layout.width - tableWidth, 0) / 2
+        let tableWidth = layout.tableWidth
+        let indent = shownZones.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Zones.placement(layout).start
         let title = header(f, layout: layout, tableWidth: tableWidth)
 
         var body: [String] = []
@@ -99,13 +107,22 @@ enum Watch {
         }.joined())
         body += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns),
                  Table.gainsRow(gains, width: w)]
-        if columns < bands {
-            body.append(Paint.ink(.dim, String("… widen for all bands".prefix(max(layout.width - indent, 1)))))
-        }
         let margin = String(repeating: " ", count: indent)
         // The header centres with the bars when it fits beside them, and slides left rather than truncate.
         let headerIndent = String(repeating: " ", count: min(indent, max(layout.width - title.plain, 0)))
-        return [headerIndent + title.painted] + body.map { margin + $0 }
+        var lines = [headerIndent + title.painted] + body.map { margin + $0 }
+        lines += Zones.render(shownZones, layout: layout, levels: outLevels, gains: gains)
+        if columns < bands {
+            lines.append(margin + Paint.ink(.dim, String("… widen for all bands".prefix(max(layout.width - indent, 1)))))
+        }
+        return lines
+    }
+
+    /// A flat band has no colour of its own; a loud one still has to stand out from dim.
+    static func barInk(gain: Double, level: Double) -> Paint.Ink? {
+        let hot = level >= hotDB
+        if gain == 0 { return hot ? nil : .dim }
+        return Paint.level(Paint.gain(gain), hot: hot)
     }
 
     private static func clampLevel(_ db: Double) -> Double {
@@ -162,24 +179,29 @@ enum Watch {
     /// Redraws on every frame the source delivers; the key and the terminal size are checked
     /// between frames, which at 30 frames a second is quicker than a person notices.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
-                    emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
+                    zones: ZoneMode = .off, emit: (String) -> Void, readKey: () -> UInt8?) -> Int32 {
         emit(enter)
         var current = size()
-        var layout = WatchLayout.fit(cols: current.cols, rows: current.rows)
+        var mode = zones
+        var layout = WatchLayout.fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
                 let now = size()
                 var clear = ""
                 if now != current {
                     current = now
-                    layout = .fit(cols: now.cols, rows: now.rows)
+                    layout = .fit(cols: now.cols, rows: now.rows, zones: mode.zones.count)
                     // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
                     clear = "\u{1B}[2J"
                 }
-                emit(clear + "\u{1B}[H" + frame(f, layout: layout).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
+                emit(clear + "\u{1B}[H" + frame(f, layout: layout, zones: mode.zones).map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
             }
             switch readKey() {
             case UInt8(ascii: "q"), UInt8(ascii: "Q"), 3: return false
+            case UInt8(ascii: "z"), UInt8(ascii: "Z"):
+                mode = mode.next
+                layout = .fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
+                return true
             default: return true
             }
         }

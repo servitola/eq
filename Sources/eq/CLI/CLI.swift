@@ -53,7 +53,8 @@ enum CLI {
       eq daemon                   run the audio engine (used by the LaunchAgent)
       eq doctor                   diagnose config, daemon, permission and audio
       eq stream                   meter frames as JSON lines, 30 per second, until Ctrl-C
-      eq watch                    the live equalizer in the terminal; q to quit
+      eq watch [--zones]          the live equalizer in the terminal; z zones, q to quit
+      eq zones                    which bands carry which instruments, under the current curve
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
     --json on any command: the answer as JSON
     """
@@ -117,6 +118,7 @@ enum CLI {
         case "doctor": return doctor(ctx)
         case "stream": return try stream(rest, ctx)
         case "watch": return try watch(rest, ctx)
+        case "zones": return try zones(rest, ctx)
         case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
@@ -394,19 +396,32 @@ enum CLI {
     }
 
     private static func watch(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        guard args.isEmpty else { throw CLIError.usage("eq watch") }
+        guard args.allSatisfy({ $0 == "--zones" }) else { throw CLIError.usage("eq watch [--zones]") }
         let terminal = ctx.terminal()
         try Watch.requireTerminal(isTTY: terminal.isTTY)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
         LiveTerminal.enterRaw()
-        let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) }, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
+        let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) }, zones: args.isEmpty ? .off : .compact, emit: LiveTerminal.emit, readKey: LiveTerminal.readKey)
         LiveTerminal.leaveRaw()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
         output.exitCode = exitCode
         output.streamed = true
         return output
+    }
+
+    /// Laid out like a wide watch frame without the meter, so the spans line up under the labels.
+    private static func zones(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq zones") }
+        let config = try loadConfig(ctx)
+        let gains = config.profile(forDeviceUID: try currentDevice(ctx).uid).profile.bands
+        let layout = WatchLayout(columns: Config.bandLabels.count, cellWidth: Table.width, meterRows: 0, shortLabels: false,
+                                 width: Table.width * Config.bandLabels.count + 2 * Zones.fullNameWidth)
+        let margin = String(repeating: " ", count: Zones.placement(layout).start)
+        let rows = [margin + Table.labelsRow(), margin + Table.gainsRow(gains)]
+            + Zones.render(Zones.all, layout: layout, levels: [], gains: gains, why: true)
+        return Output(rows.joined(separator: "\n"), Zones.all)
     }
 
     private static func doctor(_ ctx: CLIContext) -> Output {

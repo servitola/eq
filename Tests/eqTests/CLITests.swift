@@ -450,4 +450,38 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(profile.preamp, 0)
         XCTAssertEqual(profile.bands[1], 1)
     }
+
+    func testZonesJSONListsFrequencies() throws {
+        _ = runCLI("init")
+        let result = CLI.run(["zones", "--json"], context: context)
+        XCTAssertEqual(result.exitCode, 0)
+        let zones = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [[String: Any]], result.output)
+        XCTAssertEqual(zones.count, 10)
+        let voice = try XCTUnwrap(zones.first { $0["name"] as? String == "voice" })
+        XCTAssertEqual(voice["bands"] as? [Double], [500, 1000, 2000, 4000])
+        XCTAssertEqual(Set(voice.keys), ["name", "bands", "why"])
+    }
+
+    func testZonesTextShowsCurveAndReasons() {
+        _ = runCLI("init")
+        let result = runCLI("zones")
+        XCTAssertEqual(result.exitCode, 0)
+        let lines = result.output.components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 12)
+        XCTAssertEqual(lines[0], String(repeating: " ", count: 9) + Table.labelsRow())
+        XCTAssertEqual(lines[1], String(repeating: " ", count: 9) + Table.gainsRow(Config.screenshotCurve))
+        XCTAssertTrue(lines[7].hasPrefix("voice"), lines[7])
+        XCTAssertTrue(lines[7].hasSuffix("  vowels at 500–1k, intelligibility and presence at 2–4k"), lines[7])
+        XCTAssertEqual(Set(lines.dropFirst(2).map { $0.distance(from: $0.startIndex, to: $0.range(of: "  ", options: .backwards)!.lowerBound) }).count, 1,
+                       "every reason starts in the same column")
+        XCTAssertEqual(runCLI("zones", "extra").exitCode, 2)
+    }
+
+    func testWatchAcceptsOnlyZonesFlag() {
+        let zones = runCLI("watch", "--zones")
+        XCTAssertTrue(zones.output.contains("eq watch needs a terminal"), zones.output)
+        let other = runCLI("watch", "--loud")
+        XCTAssertEqual(other.exitCode, 2)
+        XCTAssertTrue(other.output.contains("eq watch [--zones]"), other.output)
+    }
 }
