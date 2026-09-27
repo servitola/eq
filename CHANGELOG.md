@@ -5,6 +5,16 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Changed
+
+- `eq watch` fits any terminal size instead of refusing below 64×16: bars and labels
+  narrow first, then the highest bands drop off with a `… widen for all bands` note. The
+  frame is centred in a wide terminal, and wider cells get wider bars.
+- `eq watch` redraws the whole frame for the new size when the terminal is resized.
+- `eq watch` shows a live row under the bars: each band's level in dBFS after the EQ.
+- `eq watch` paints a band louder than −6 dBFS in the bright shade of its colour, and a
+  bar's top is drawn to an eighth of a row.
+
 ## 2026.09.27.3 — 2026-09-27
 
 ### Added

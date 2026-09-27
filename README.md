@@ -74,28 +74,40 @@ picks it up within a tenth of a second.
 ## Watch
 
 ```
-BE-RCA · 44.1 kHz · preamp +0.0 dB
-     █     █     █                                   █
-     █     █     █     █                             █     █
-     █     █     █     █     █     ░     █     █     █     █
-     ▬     █     █     █     █     █     █     █     █     █
-     █     ▬     ▬     ▬     █     █     █     █     ▬     ▬
-     █     █     █     █     █     █     █     █     █     █
-     █     █     █     █     ▬     █     ▬     ▬     █     █
-     █     █     █     █     █     ▬     █     █     █     █
-     █     █     █     █     █     █     █     █     █     █
-     █     █     █     █     █     █     █     █     █     █
-     █     █     █     █     █     █     █     █     █     █
-     █     █     █     █     █     █     █     █     █     █
-  32Hz  64Hz 125Hz 250Hz 500Hz  1kHz  2kHz  4kHz  8kHz 16kHz
-  +4.8  +4.0  +4.2  +2.3  +0.0  -3.1  +0.0  +0.0  +3.1  +2.4
+     BE-RCA · 44.1 kHz · preamp -4.8 dB · peak -3.2 dB
+
+         ▆▆▆    ▆▆▆
+         ███    ███    ▇▇▇
+         ███    ███    ███
+         ███    ███    ███    ███
+         ▬▬▬    ███    ███    ███           ░░░
+         ███    ▬▬▬    ▬▬▬    ███    ███    ▆▆▆    ▁▁▁
+         ███    ███    ███    ▬▬▬    ███    ███    ███           ▬▬▬    ▬▬▬
+         ███    ███    ███    ███    ███    ███    ███    ▄▄▄    ▂▂▂
+         ███    ███    ███    ███    ▬▬▬    ███    ▬▬▬    ▬▬▬    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ▬▬▬    ███    ███    ███    ▄▄▄
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
+          -4     -4     -7    -13    -19    -20    -22    -27    -28    -37
+        32Hz   64Hz  125Hz  250Hz  500Hz   1kHz   2kHz   4kHz   8kHz  16kHz
+        +4.8   +4.0   +4.2   +2.3   +0.0   -3.1   +0.0   +0.0   +3.1   +2.4
 ```
 
 `eq watch` draws all ten bands live at ~30 fps: `█`, in the gain's own colour, is the level
 after the EQ; `░` shows where the input reaches above it (a cut); `▬` marks the slider
-position from the curve. `eq stream` is the same numbers as JSON lines instead, for anyone
-who wants to draw their own. Both need a running daemon; `watch` needs a TTY at least 64
-columns by 16 rows and exits on `q` or Ctrl-C.
+position from the curve. The row of numbers under the bars is each band's level in dBFS
+after the EQ, `·` when it is silent. A band louder than −6 dBFS turns to the bright shade of
+its colour, so the bands close to clipping stand out. It fits any terminal size: narrower
+bars and short labels first, then the highest bands drop off with a note to widen the
+window. Resizing the terminal redraws the whole frame for the new size. `eq stream` is the
+same numbers as JSON lines instead, for anyone who wants to draw their own. Both need a
+running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 
 ## Colour
 
