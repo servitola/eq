@@ -64,6 +64,21 @@ final class AutoEqIndexTests: XCTestCase {
         XCTAssertThrowsError(try AutoEqCache(directory: dir.appendingPathComponent("empty")).load(fetch: { _ in throw URLError(.notConnectedToInternet) }, refresh: false))
     }
 
+    func testCacheKeepsOldIndexWhenFetchReturnsNoEntries() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cache = AutoEqCache(directory: dir)
+        let portal: (URL) throws -> Data = { _ in Data("<html>sign in</html>".utf8) }
+        XCTAssertThrowsError(try cache.load(fetch: portal, refresh: false)) {
+            XCTAssertEqual(($0 as? URLError)?.code, .cannotParseResponse)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("INDEX.md").path))
+        _ = try cache.load(fetch: { _ in Data("- [A](./s/r/A) by s\n".utf8) }, refresh: false)
+        XCTAssertEqual(try cache.load(fetch: portal, refresh: true).count, 1)
+        let cached = try String(contentsOf: dir.appendingPathComponent("INDEX.md"))
+        XCTAssertTrue(cached.contains("[A]"))
+    }
+
     func testDefaultDirectoryHonoursEQCache() {
         setenv("EQ_CACHE", "/tmp/eqc", 1); defer { unsetenv("EQ_CACHE") }
         XCTAssertEqual(AutoEqCache.defaultDirectory.path, "/tmp/eqc/autoeq")

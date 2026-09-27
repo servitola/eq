@@ -75,7 +75,8 @@ enum CLI {
             default: return (code, "error: \(error)", true)
             }
         } catch {
-            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: "internal", message: "\(error)"))), true) }
+            let code = error is ConfigError ? "config" : "internal"
+            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: code, message: "\(error)"))), true) }
             return (1, "error: \(error)", true)
         }
     }
@@ -83,7 +84,7 @@ enum CLI {
     static func encode(_ value: Encodable) -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         guard let data = try? encoder.encode(AnyEncodable(value)) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }
@@ -274,14 +275,19 @@ enum CLI {
     private static func resolveImportSource(
         _ query: String, sourceOption: String?, refresh: Bool, _ ctx: CLIContext
     ) throws -> (text: String, origin: String, what: String) {
-        if FileManager.default.fileExists(atPath: query) {
+        let isFile = FileManager.default.fileExists(atPath: query)
+        let isURL = query.hasPrefix("http://") || query.hasPrefix("https://")
+        if (isFile || isURL) && (sourceOption != nil || refresh) {
+            throw CLIError.usage("--source and --refresh apply to a headphone name")
+        }
+        if isFile {
             let text: String
             do { text = try String(contentsOfFile: query, encoding: .utf8) }
             catch { throw CLIError.importUnrecognized("\(query): \(error)") }
             let basename = URL(fileURLWithPath: query).deletingPathExtension().lastPathComponent
             return (text, "file \(basename)", query)
         }
-        if query.hasPrefix("http://") || query.hasPrefix("https://") {
+        if isURL {
             guard let url = URL(string: query) else { throw CLIError.importUnrecognized("\(query): not a valid URL") }
             let data: Data
             do { data = try ctx.fetch(url) }
@@ -298,7 +304,10 @@ enum CLI {
 
         switch AutoEqIndex.match(query, in: entries, source: sourceOption) {
         case .none: throw CLIError.importNotFound(sourceOption.map { "\(query) from \($0)" } ?? query)
-        case .ambiguous(let names): throw CLIError.importAmbiguous(names)
+        case .ambiguous(let names):
+            let shown = 20
+            let listed = names.count > shown ? Array(names.prefix(shown)) + ["… and \(names.count - shown) more"] : names
+            throw CLIError.importAmbiguous(listed)
         case .one(let entry):
             let what = "\(entry.name) from \(entry.source)"
             let data: Data

@@ -94,9 +94,13 @@ struct AutoEqCache {
 
         do {
             let data = try fetch(AutoEqIndex.indexURL)
+            let entries = AutoEqIndex.parse(String(decoding: data, as: UTF8.self))
+            // A captive portal or an error page answers 200 with HTML; caching it would hide every
+            // model for a week, so an index with no entries counts as a failed fetch.
+            guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try data.write(to: indexFile, options: .atomic)
-            return AutoEqIndex.parse(String(decoding: data, as: UTF8.self))
+            return entries
         } catch {
             if let stale = try? String(contentsOf: indexFile) {
                 return AutoEqIndex.parse(stale)

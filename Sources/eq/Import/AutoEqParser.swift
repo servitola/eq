@@ -32,11 +32,11 @@ enum AutoEqParser {
     // MARK: - Parametric text (AutoEq / Equalizer APO)
 
     private static let filterLineRegex = try! NSRegularExpression(
-        pattern: #"Filter\s*\d+[:\s]\s*(ON|OFF)?\s*([A-Z]+(?:\s+(?:6|12)\s*dB)?)\s+Fc\s+([\d.,]+)\s*k?Hz\s+Gain\s+(-?[\d.,]+)\s*dB(?:\s+(Q|BW\s+Oct)\s+([\d.,]+))?"#,
+        pattern: #"Filter\s*\d+[:\s]\s*(ON|OFF)?\s*([A-Z]+(?:\s+(?:6|12)\s*dB)?)\s+Fc\s+([\d.,]+)\s*k?Hz\s+Gain\s+([+-]?[\d.,]+)\s*dB(?:\s+(Q|BW\s+Oct)\s+([\d.,]+))?"#,
         options: [.caseInsensitive]
     )
     private static let preampRegex = try! NSRegularExpression(
-        pattern: #"Preamp[:\s]\s*(-?[\d.,]+)\s*dB"#, options: [.caseInsensitive]
+        pattern: #"Preamp[:\s]\s*([+-]?[\d.,]+)\s*dB"#, options: [.caseInsensitive]
     )
 
     static func parseParametric(_ text: String) throws -> Result {

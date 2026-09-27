@@ -310,6 +310,37 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("AirPods Pro 2"), result.output)
     }
 
+    func testImportAmbiguityListIsCapped() {
+        _ = runCLI("init")
+        let index = (1...25).map { "- [Model \($0)](./s/r/Model \($0)) by s" }.joined(separator: "\n")
+        context.fetch = { _ in Data(index.utf8) }
+        let result = runCLI("import", "model")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.hasSuffix("… and 5 more"), result.output)
+        XCTAssertEqual(result.output.components(separatedBy: "\n  ").count, 22, result.output)
+    }
+
+    func testSourceAndRefreshRejectedForFileAndURL() throws {
+        _ = runCLI("init")
+        let file = dir.appendingPathComponent("xm4.txt")
+        try fixtureText("Sony WH-1000XM4 ParametricEQ").write(to: file, atomically: true, encoding: .utf8)
+        for args in [[file.path, "--source", "crinacle"], ["https://example.com/x.txt", "--refresh"]] {
+            let result = CLI.run(["import"] + args, context: context)
+            XCTAssertEqual(result.exitCode, 2)
+            XCTAssertTrue(result.output.contains("--source and --refresh apply to a headphone name"), result.output)
+        }
+    }
+
+    func testConfigErrorsCarryConfigCodeAndSlashesStayUnescaped() throws {
+        _ = runCLI("init")
+        XCTAssertFalse(runCLI("init", "--json").output.contains("\\/"))
+        try Data(#"{"version":2,"enabled":true,"default":{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0]},"devices":{}}"#.utf8)
+            .write(to: context.store.url)
+        let j = try json("show")
+        XCTAssertEqual((j["error"] as? [String: Any])?["code"] as? String, "config")
+        XCTAssertTrue(runCLI("show").isError)
+    }
+
     func testImportRejectsUnknownOption() {
         _ = runCLI("init")
         let result = runCLI("import", "sony", "--sorce", "crinacle")

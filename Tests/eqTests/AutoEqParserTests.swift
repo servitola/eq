@@ -36,6 +36,15 @@ final class AutoEqParserTests: XCTestCase {
         XCTAssertEqual(r.warnings, ["Skipped unsupported all-pass filter."])
     }
 
+    func testLeadingPlusIsAccepted() throws {
+        let r = try AutoEqParser.parseParametric("""
+        Preamp: +1 dB
+        Filter 1: ON PK Fc 1000 Hz Gain +3.0 dB Q 1
+        """)
+        XCTAssertEqual(r.preamp, 1)
+        XCTAssertEqual(r.filters, [Filter(type: .peak, frequency: 1000, gain: 3, q: 1)])
+    }
+
     func testGraphicFixtureReducesToTenBands() throws {
         let r = try AutoEqParser.parse(try fixture("Sony WH-1000XM4 GraphicEQ"))
         let bands = try XCTUnwrap(r.bands)
