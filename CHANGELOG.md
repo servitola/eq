@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.1 — 2026-09-27
+
 ### Added
 
 - `eq import <file|url|"headphone name">` applies an AutoEq correction: parametric filters
