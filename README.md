@@ -58,7 +58,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq init` | write the default config if there is none |
 | `eq import "WH-1000XM4"` | fetch and apply an AutoEq correction by headphone name |
 | `eq import "airpods pro 2" --variant anc-on` | pick one device state when a model has several |
-| `eq import --search wh1000xm4` | list what a name matches, with source and variant, without importing |
+| `eq import --search wh1000xm4` | list what a name matches in AutoEq and OPRA, with source and variant, without importing |
+| `eq import "HD 600" --source opra` | take the correction from OPRA instead of AutoEq |
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands |
 | `eq preset` | list presets; the current device's one marked `*` |
@@ -277,6 +278,25 @@ entry with no tag, then the ANC-on one, and otherwise stops and lists the varian
 `eq import --search <name>` shows every match — model, variant, source — and marks with `*`
 the one a plain `eq import` would apply; `--json` gives the same list.
 
+### OPRA
+
+[OPRA](https://github.com/opra-project/OPRA) is a second database, run by Roon Labs: hand-made
+presets such as oratory1990's own, plus AutoEq runs against several targets. `eq import`
+asks it when AutoEq has no match, `--source opra` asks it only, and `--search` lists both,
+AutoEq first. Its whole database (about 12 MB) is fetched from Roon's mirror,
+`opra.roonlabs.net`, as OPRA asks non-commercial clients to do, and cached at
+`~/.cache/eq/opra` for 7 days like AutoEq's index. Where one model has several OPRA presets,
+oratory1990's hand-made one wins, then AutoEq runs in the reviewer order above.
+
+OPRA's data is licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/);
+every OPRA import prints the credit it asks for, preset author first:
+`preset by oratory1990 (Harman Target) · via OPRA (https://github.com/opra-project/OPRA), CC BY-SA 4.0`.
+The same line is in `--json` as `import.attribution`. The test fixture `opra.jsonl` holds a
+few of its entries under the same licence.
+
+[peqdb.com](https://peqdb.com) stays out: it has more reviewers, but its API is the private
+backend of its own site, with no stated terms.
+
 ## How it works
 
 The daemon opens a Core Audio process tap on the system mix (macOS 14.4+), which mutes the
@@ -342,7 +362,8 @@ Developer ID signature, smoke, GitHub release, cask bump.
 ## Licence
 
 [MIT](LICENSE) © [servitola](https://github.com/servitola). The vendored engine keeps its
-Unlicense.
+Unlicense. OPRA data, fetched at run time and in the test fixture, is CC BY-SA 4.0 — see
+[OPRA](#opra).
 
 ## Verified
 

@@ -48,36 +48,49 @@ enum AutoEqIndex {
 struct AutoEqCache {
     var directory: URL
 
-    static var defaultDirectory: URL {
-        if let override = ProcessInfo.processInfo.environment["EQ_CACHE"], !override.isEmpty {
-            return URL(fileURLWithPath: override).appendingPathComponent("autoeq")
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/eq/autoeq")
-    }
-
-    private var indexFile: URL { directory.appendingPathComponent("INDEX.md") }
+    static var defaultDirectory: URL { CachedDownload.root.appendingPathComponent("autoeq") }
 
     func load(fetch: (URL) throws -> Data, refresh: Bool, now: Date = Date()) throws -> [AutoEqEntry] {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: indexFile.path)
-        let modified = attributes?[.modificationDate] as? Date
-        let isFresh = modified.map { now.timeIntervalSince($0) < AutoEqIndex.cacheMaxAge } ?? false
+        try CachedDownload(file: directory.appendingPathComponent("INDEX.md"), url: AutoEqIndex.indexURL, maxAge: AutoEqIndex.cacheMaxAge)
+            .load(fetch: fetch, refresh: refresh, now: now) { AutoEqIndex.parse(String(decoding: $0, as: UTF8.self)) }
+    }
+}
 
-        if isFresh, !refresh, let cached = try? String(contentsOf: indexFile) {
-            return AutoEqIndex.parse(cached)
+/// One downloaded file kept for `maxAge`, re-fetched after that, and served stale when the
+/// network is down — a week-old index beats no import at all.
+struct CachedDownload {
+    var file: URL
+    var url: URL
+    var maxAge: TimeInterval
+
+    static var root: URL {
+        if let override = ProcessInfo.processInfo.environment["EQ_CACHE"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/eq")
+    }
+
+    func load<T>(fetch: (URL) throws -> Data, refresh: Bool, now: Date = Date(), parse: (Data) -> [T]) throws -> [T] {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+        let modified = attributes?[.modificationDate] as? Date
+        let isFresh = modified.map { now.timeIntervalSince($0) < maxAge } ?? false
+
+        if isFresh, !refresh, let cached = try? Data(contentsOf: file) {
+            return parse(cached)
         }
 
         do {
-            let data = try fetch(AutoEqIndex.indexURL)
-            let entries = AutoEqIndex.parse(String(decoding: data, as: UTF8.self))
+            let data = try fetch(url)
+            let entries = parse(data)
             // A captive portal or an error page answers 200 with HTML; caching it would hide every
-            // model for a week, so an index with no entries counts as a failed fetch.
+            // model for a week, so a file with no entries counts as a failed fetch.
             guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: indexFile, options: .atomic)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file, options: .atomic)
             return entries
         } catch {
-            if let stale = try? String(contentsOf: indexFile) {
-                return AutoEqIndex.parse(stale)
+            if let stale = try? Data(contentsOf: file) {
+                return parse(stale)
             }
             throw error
         }

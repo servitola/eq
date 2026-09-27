@@ -10,6 +10,10 @@ its entries under a dated version.
 - `eq import --search <name>` lists every headphone a name matches, with its variant and
   source, marking with `*` the one `eq import` would apply; `--json` gives the list. Nothing
   is imported.
+- OPRA as a second headphone database: `eq import <name>` falls back to it when AutoEq has no
+  match, `--source opra` uses it only, and `eq import --search` lists both, AutoEq first. OPRA
+  imports print the preset's author and OPRA's CC BY-SA 4.0 credit, also in `--json` as
+  `import.attribution`. Its database is cached at `~/.cache/eq/opra` for 7 days.
 - `eq import <name> --variant <tag>` picks a device state such as `anc-on`, `anc-off`,
   `transparency-mode` or `sample-2`. Without it, the untagged entry wins, then ANC on; a
   model with only other variants lists them and asks.

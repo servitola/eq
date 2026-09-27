@@ -158,12 +158,13 @@ enum HeadphoneMatch {
             }
         }
 
-        let ranked = candidates.map(\.entry).sorted {
-            let r0 = rank($0), r1 = rank($1)
+        let ranked = candidates.map(\.entry).enumerated().sorted {
+            let r0 = rank($0.element), r1 = rank($1.element)
             if r0 != r1 { return r0 < r1 }
-            return $0.source < $1.source
+            if $0.element.source != $1.element.source { return $0.element.source < $1.element.source }
+            return $0.offset < $1.offset
         }
-        return .one(ranked[0])
+        return .one(ranked[0].element)
     }
 
     /// Every entry a query reaches, each model's plain entry before its variants, without choosing.

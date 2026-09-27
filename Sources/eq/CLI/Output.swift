@@ -56,7 +56,7 @@ struct DevicesReport: Encodable {
     }
 }
 struct ImportReport: Encodable {
-    struct Details: Encodable { var format: String; var origin: String; var warnings: [String] }
+    struct Details: Encodable { var format: String; var origin: String; var warnings: [String]; var attribution: String? }
     var device: DeviceRef
     var source: String
     var profile: Profile
