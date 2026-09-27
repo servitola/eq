@@ -286,6 +286,10 @@ enum CLI {
         // Hand-added filters survive a new import, after the correction they were tuned against.
         let handFilters = profile.filters.filter { $0.origin != .import }
         let room = max(Config.maxFilters - handFilters.count, 0)
+        if room == 0, !result.filters.isEmpty {
+            throw CLIError.importRefused("the \(handFilters.count) filters added by hand fill all \(Config.maxFilters) slots, "
+                + "leaving none for the \(result.filters.count) imported — remove some with `eq filter rm <n>`")
+        }
         var warnings = result.warnings
         if result.filters.count > room {
             warnings.append("kept the first \(room) of \(result.filters.count) imported filters: "
@@ -348,6 +352,10 @@ enum CLI {
             opra: { try HeadphoneLookup.loadOPRA(refresh: refresh, ctx) })
         switch found {
         case .opra(let entry):
+            guard entry.preamp.isFinite, Config.preampRange.contains(entry.preamp) else {
+                throw CLIError.importRefused(String(format: "OPRA preset \u{201C}%@\u{201D} has preamp %g dB, outside %g…%g dB",
+                                                   entry.id, entry.preamp, Config.preampRange.lowerBound, Config.preampRange.upperBound))
+            }
             return (OPRA.result(entry), "OPRA \(entry.author) · \(entry.name)", OPRA.attribution(entry))
         case .autoEq(let entry):
             let what = "\(entry.name) from \(entry.source)"
@@ -712,9 +720,11 @@ enum CLI {
     private static func history(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq history") }
         guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        // Without it a hand edit mid-undo and a stash left by an interrupted step are missing from the list.
+        let note = try ctx.store.reconcileHistory()
         let position = ctx.store.historyPosition()
         let device = try? currentDevice(ctx)
-        var lines: [String] = []
+        var lines: [String] = note.map { ["\(Paint.ink(.yellow, "warning:")) \($0)"] } ?? []
         var rows: [HistoryRow] = []
 
         func row(_ index: Int, _ path: String, _ date: Date, _ config: Config?) {
@@ -742,7 +752,7 @@ enum CLI {
         for backup in ctx.store.backups() {
             row(backup.index, backup.url.path, backup.date, try? ctx.store.load(backup: backup.index))
         }
-        return Output(lines.joined(separator: "\n"), HistoryReport(position: position, entries: rows))
+        return Output(lines.joined(separator: "\n"), HistoryReport(position: position, entries: rows, warning: note))
     }
 
     private static func backupTime(_ date: Date) -> String {

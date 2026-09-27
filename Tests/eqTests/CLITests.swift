@@ -481,6 +481,22 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(runCLI("import", "sennheiser hd 600", "--source", "crinacle").exitCode, 1)
     }
 
+    func testImportRefusesAnOPRAPreampOutOfRange() throws {
+        _ = runCLI("init")
+        let before = try context.store.load()
+        let database = """
+        {"type":"vendor","id":"acme","data":{"name":"Acme"}}
+        {"type":"product","id":"acme::loud","data":{"name":"Loud","vendor_id":"acme"}}
+        {"type":"eq","id":"acme:loud::deep","data":{"author":"somebody","type":"parametric_eq","parameters":{"gain_db":-40,"bands":[{"type":"peak_dip","frequency":1000,"gain_db":-3,"q":1.4}]},"product_id":"acme::loud"}}
+        """
+        context.fetch = { _ in Data(database.utf8) }
+        let result = runCLI("import", "acme loud", "--source", "opra")
+        XCTAssertEqual(result.exitCode, 1, result.output)
+        XCTAssertTrue(result.output.contains("not imported: OPRA preset \u{201C}acme:loud::deep\u{201D} has preamp -40 dB, outside -30…12 dB"),
+                      result.output)
+        XCTAssertEqual(try context.store.load(), before)
+    }
+
     func testImportSearchKeepsAutoEqWhenOPRAIsDown() throws {
         let index = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "INDEX", withExtension: "md", subdirectory: "Fixtures")))
         context.fetch = { url in

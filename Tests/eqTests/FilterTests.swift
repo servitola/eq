@@ -65,6 +65,22 @@ final class FilterTests: XCTestCase {
         XCTAssertNil(try context.store.load().devices["BUILTIN"]?.imported)
     }
 
+    func testImportRefusesWhenHandFiltersLeaveNoRoom() throws {
+        for _ in 0..<Config.maxFilters { XCTAssertEqual(run("filter", "add", "peak", "1k", "1").exitCode, 0) }
+        let before = try context.store.load()
+        let file = dir.appendingPathComponent("xm4.txt")
+        let text = try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: "Sony WH-1000XM4 ParametricEQ",
+                                                                            withExtension: "txt", subdirectory: "Fixtures")))
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        let result = run("import", file.path)
+        XCTAssertEqual(result.exitCode, 1, result.output)
+        XCTAssertTrue(result.output.contains("not imported: the 32 filters added by hand fill all 32 slots, leaving none for the 10 imported"),
+                      result.output)
+        XCTAssertEqual(try context.store.load(), before)
+        let j = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(run("import", file.path, "--json").output.utf8)) as? [String: Any])
+        XCTAssertEqual((j["error"] as? [String: Any])?["code"] as? String, "importRefused")
+    }
+
     func testAddStoresAHandFilterWithTheGivenQ() throws {
         let result = run("filter", "add", "peak", "3k", "-2", "2")
         XCTAssertEqual(result.exitCode, 0, result.output)

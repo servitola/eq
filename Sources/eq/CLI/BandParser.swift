@@ -16,6 +16,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case importAmbiguous([String])
     case importSuggest(String, [String])
     case importVariant(String, [String], asked: String?)
+    case importRefused(String)
     case network(String)
     case noSuchPreset(String)
     case badPresetName(String)
@@ -46,6 +47,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
             if variants.isEmpty { return "\(model) has no variants — drop --variant" }
             let lead = asked.map { "\(model) has no variant \"\($0)\"" } ?? "\(model) comes in several variants"
             return "\(lead) — pick one with --variant:\n  \(variants.joined(separator: "\n  "))"
+        case .importRefused(let why): return "not imported: \(why)"
         case .network(let why): return "network: \(why)"
         case .noSuchPreset(let name): return "no preset \"\(name)\" — see `eq preset`"
         case .badPresetName(let name): return "bad preset name \"\(name)\": 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ ."

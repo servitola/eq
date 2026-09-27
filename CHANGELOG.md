@@ -35,13 +35,16 @@ its entries under a dated version.
 - `eq redo` steps forward again after `eq undo`, and `eq history` lists every saved version
   with its time and a one-line curve summary, `off` when EQ was off and `pref …` when bass,
   treble or tilt were set, marking the current position with `←` (`eq undo --list` is kept as
-  an alias). All three take `--json`; history entries carry `enabled`.
+  an alias). All three take `--json`; history entries carry `enabled`. `eq history` first
+  settles a hand edit or an interrupted step the way `eq undo` does, so both are listed.
 
 ### Changed
 
 - `eq import --clear` drops only the imported filters and keeps the ones added by hand; a new
   import replaces the imported filters and keeps the hand ones after them. When the hand ones
-  leave fewer than 32 slots, the import keeps only its first filters and says so.
+  leave fewer than 32 slots, the import keeps only its first filters and says so; when they
+  leave none, the import is refused (`importRefused` in `--json`) instead of adding nothing.
+  An OPRA preset whose preamp is outside −30…12 dB is refused with an error naming it.
 - A filter out of range names the allowed range in the error.
 - Headphone names match loosely: case, spaces and hyphens are ignored (`wh1000xm4`,
   `airpods pro2`), the brand can be omitted, and `xm4`, `app2` and a few other nicknames

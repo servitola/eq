@@ -605,4 +605,30 @@ final class PresetCLITests: XCTestCase {
         // eq undo --list is kept as an alias for eq history.
         XCTAssertEqual(run("undo", "--list").output, run("history").output)
     }
+
+    private func historyPreamps() throws -> [Double?] {
+        try XCTUnwrap(try json("history")["entries"] as? [[String: Any]]).map { ($0["profile"] as? [String: Any])?["preamp"] as? Double }
+    }
+
+    func testHistoryListsAHandEditMadeMidUndo() throws {
+        run("preamp", "-1")
+        run("preamp", "-2")
+        XCTAssertEqual(run("undo").exitCode, 0)
+        var edited = try config
+        edited.devices["BUILTIN"]?.preamp = -7
+        try JSONEncoder().encode(edited).write(to: context.store.url)
+        let out = run("history").output
+        XCTAssertTrue(out.hasPrefix("warning: eq.json was changed by hand"), out)
+        XCTAssertEqual(try historyPreamps(), [-7, -1, -2, -1, 0])
+        XCTAssertEqual(try json("history")["position"] as? Int, 0)
+    }
+
+    func testHistoryListsAStashLeftByAnInterruptedStep() throws {
+        run("preamp", "-1")
+        run("preamp", "-2")
+        XCTAssertEqual(run("undo").exitCode, 0)
+        try FileManager.default.removeItem(at: context.store.positionURL)
+        XCTAssertEqual(try historyPreamps(), [-1, -2, -1, 0])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: context.store.redoURL.path))
+    }
 }
