@@ -56,7 +56,7 @@ struct DevicesReport: Encodable {
     }
 }
 struct ImportReport: Encodable {
-    struct Details: Encodable { var format: String; var origin: String; var warnings: [String] }
+    struct Details: Encodable { var format: String; var origin: String; var warnings: [String]; var attribution: String? }
     var device: DeviceRef
     var source: String
     var profile: Profile
@@ -88,6 +88,8 @@ extension CLIError {
         case .importUnrecognized: return "importUnrecognized"
         case .importNotFound: return "importNotFound"
         case .importAmbiguous: return "importAmbiguous"
+        case .importSuggest: return "importNotFound"
+        case .importVariant: return "importVariant"
         case .network: return "network"
         case .noSuchPreset: return "noSuchPreset"
         case .badPresetName: return "badPresetName"

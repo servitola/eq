@@ -14,6 +14,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case importUnrecognized(String)
     case importNotFound(String)
     case importAmbiguous([String])
+    case importSuggest(String, [String])
+    case importVariant(String, [String], asked: String?)
     case network(String)
     case noSuchPreset(String)
     case badPresetName(String)
@@ -37,6 +39,12 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .importUnrecognized(let what): return "could not read an EQ profile from \(what)"
         case .importNotFound(let what): return "AutoEq has no ParametricEQ.txt for \(what)"
         case .importAmbiguous(let names): return "several models match — narrow the name:\n  \(names.joined(separator: "\n  "))"
+        case .importSuggest(let query, let names):
+            return "no headphone matches \"\(query)\" — did you mean:\n  \(names.joined(separator: "\n  "))"
+        case .importVariant(let model, let variants, let asked):
+            if variants.isEmpty { return "\(model) has no variants — drop --variant" }
+            let lead = asked.map { "\(model) has no variant \"\($0)\"" } ?? "\(model) comes in several variants"
+            return "\(lead) — pick one with --variant:\n  \(variants.joined(separator: "\n  "))"
         case .network(let why): return "network: \(why)"
         case .noSuchPreset(let name): return "no preset \"\(name)\" — see `eq preset`"
         case .badPresetName(let name): return "bad preset name \"\(name)\": 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ ."

@@ -210,6 +210,8 @@ enum CLI {
     private static func importCommand(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, afterDevice) = try splitDeviceOption(args, flag: "--device", ctx)
         var sourceOption: String?
+        var variantOption: String?
+        var search = false
         var keepBands = false
         var refresh = false
         var clear = false
@@ -221,6 +223,13 @@ enum CLI {
                 guard i + 1 < afterDevice.count else { throw CLIError.usage("--source needs a value") }
                 sourceOption = afterDevice[i + 1]
                 i += 2
+            case "--variant":
+                guard i + 1 < afterDevice.count else { throw CLIError.usage("--variant needs a value") }
+                variantOption = afterDevice[i + 1]
+                i += 2
+            case "--search":
+                search = true
+                i += 1
             case "--keep-bands":
                 keepBands = true
                 i += 1
@@ -237,12 +246,18 @@ enum CLI {
                 i += 1
             }
         }
+        if search {
+            guard positional.count == 1, explicit == nil, variantOption == nil, !keepBands, !clear else {
+                throw CLIError.usage("eq import --search <name> [--source SOURCE] [--refresh]")
+            }
+            return try HeadphoneLookup.search(positional[0], source: sourceOption, refresh: refresh, ctx)
+        }
         if clear {
-            guard sourceOption == nil, !keepBands, !refresh else { throw CLIError.usage("--clear takes only --device") }
+            guard sourceOption == nil, variantOption == nil, !keepBands, !refresh else { throw CLIError.usage("--clear takes only --device") }
             guard positional.isEmpty else { throw CLIError.usage("eq import --clear [--device DEVICE]") }
         } else {
             guard positional.count == 1 else {
-                throw CLIError.usage("eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--keep-bands] [--refresh]")
+                throw CLIError.usage("eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--variant VARIANT] [--keep-bands] [--refresh]")
             }
         }
 
@@ -262,11 +277,7 @@ enum CLI {
         }
 
         let query = positional[0]
-        let (text, origin, what) = try resolveImportSource(query, sourceOption: sourceOption, refresh: refresh, ctx)
-
-        let result: AutoEqParser.Result
-        do { result = try AutoEqParser.parse(text) }
-        catch { throw CLIError.importUnrecognized("\(what): \(error)") }
+        let (result, origin, attribution) = try resolveImportSource(query, sourceOption: sourceOption, variant: variantOption, refresh: refresh, ctx)
 
         var config = try loadConfig(ctx)
         var profile = editableProfile(config, target)
@@ -286,60 +297,58 @@ enum CLI {
         try ctx.store.save(config)
 
         var lines = [Paint.ink(.green, "imported ") + Paint.ink(.cyan, origin) + Paint.ink(.dim, " (\(result.format))")]
+        if let attribution { lines.append(Paint.ink(.dim, attribution)) }
         lines.append(contentsOf: warnings.map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         lines.append(Table.profile(profile, header: target.name, preset: presetMark(profile, config)))
         let report = ImportReport(
             device: DeviceRef(uid: target.uid, name: target.name),
             source: "device",
             profile: profile,
-            import: .init(format: result.format, origin: origin, warnings: warnings))
+            import: .init(format: result.format, origin: origin, warnings: warnings, attribution: attribution))
         return Output(lines.joined(separator: "\n"), report)
     }
 
     private static func resolveImportSource(
-        _ query: String, sourceOption: String?, refresh: Bool, _ ctx: CLIContext
-    ) throws -> (text: String, origin: String, what: String) {
+        _ query: String, sourceOption: String?, variant: String?, refresh: Bool, _ ctx: CLIContext
+    ) throws -> (result: AutoEqParser.Result, origin: String, attribution: String?) {
         let isFile = FileManager.default.fileExists(atPath: query)
         let isURL = query.hasPrefix("http://") || query.hasPrefix("https://")
-        if (isFile || isURL) && (sourceOption != nil || refresh) {
-            throw CLIError.usage("--source and --refresh apply to a headphone name")
+        if (isFile || isURL) && (sourceOption != nil || variant != nil || refresh) {
+            throw CLIError.usage("--source, --variant and --refresh apply to a headphone name")
+        }
+        func parse(_ text: String, _ what: String) throws -> AutoEqParser.Result {
+            do { return try AutoEqParser.parse(text) }
+            catch { throw CLIError.importUnrecognized("\(what): \(error)") }
         }
         if isFile {
             let text: String
             do { text = try String(contentsOfFile: query, encoding: .utf8) }
             catch { throw CLIError.importUnrecognized("\(query): \(error)") }
             let basename = URL(fileURLWithPath: query).deletingPathExtension().lastPathComponent
-            return (text, "file \(basename)", query)
+            return (try parse(text, query), "file \(basename)", nil)
         }
         if isURL {
             guard let url = URL(string: query) else { throw CLIError.importUnrecognized("\(query): not a valid URL") }
             let data: Data
             do { data = try ctx.fetch(url) }
             catch { throw CLIError.network("\(error)") }
-            return (String(decoding: data, as: UTF8.self), "url \(url.host ?? query)", query)
+            return (try parse(String(decoding: data, as: UTF8.self), query), "url \(url.host ?? query)", nil)
         }
 
-        let entries: [AutoEqEntry]
-        do { entries = try AutoEqCache(directory: ctx.cacheDirectory).load(fetch: ctx.fetch, refresh: refresh) }
-        catch {
-            let cachePath = ctx.cacheDirectory.appendingPathComponent("INDEX.md").path
-            throw CLIError.network("\(error) — the last index is kept in \(cachePath); pass --refresh to retry")
-        }
-
-        switch AutoEqIndex.match(query, in: entries, source: sourceOption) {
-        case .none: throw CLIError.importNotFound(sourceOption.map { "\(query) from \($0)" } ?? query)
-        case .ambiguous(let names):
-            let shown = 20
-            let listed = names.count > shown ? Array(names.prefix(shown)) + ["… and \(names.count - shown) more"] : names
-            throw CLIError.importAmbiguous(listed)
-        case .one(let entry):
+        let found = try HeadphoneLookup.resolve(
+            query, source: sourceOption, variant: variant,
+            autoEq: { try HeadphoneLookup.loadAutoEq(refresh: refresh, ctx) },
+            opra: { try HeadphoneLookup.loadOPRA(refresh: refresh, ctx) })
+        switch found {
+        case .opra(let entry):
+            return (OPRA.result(entry), "OPRA \(entry.author) · \(entry.name)", OPRA.attribution(entry))
+        case .autoEq(let entry):
             let what = "\(entry.name) from \(entry.source)"
             let data: Data
             do { data = try ctx.fetch(AutoEqIndex.fileURL(for: entry)) }
             catch let error as URLError where error.code == .fileDoesNotExist { throw CLIError.importNotFound(what) }
             catch { throw CLIError.network("\(error)") }
-            let origin = "AutoEq \(entry.source) · \(entry.name)"
-            return (String(decoding: data, as: UTF8.self), origin, what)
+            return (try parse(String(decoding: data, as: UTF8.self), what), "AutoEq \(entry.source) · \(entry.name)", nil)
         }
     }
 
