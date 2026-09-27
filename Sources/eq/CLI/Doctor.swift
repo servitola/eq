@@ -105,7 +105,7 @@ enum Doctor {
             return DoctorCheck(name: "daemon", ok: false,
                                 detail: "not running — launchctl kickstart -k gui/$UID/com.servitola.eq", warning: false)
         }
-        return DoctorCheck(name: "daemon", ok: true, detail: "running, pid \(live.pid)", warning: false)
+        return DoctorCheck(name: "daemon", ok: true, detail: "running, pid \(live.pid), v\(live.version ?? "?")", warning: false)
     }
 
     private static func permissionCheck(_ live: Status?) -> DoctorCheck {
@@ -147,6 +147,12 @@ enum Doctor {
             return DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false)
         }
         let s0 = live
+        guard s0.version == Build.version else {
+            return DoctorCheck(name: "audio", ok: false,
+                               detail: "daemon runs \(s0.version ?? "a pre-v3 build"), this eq is \(Build.version)"
+                                   + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
+                               warning: true)
+        }
         guard probes.signalStatus(s0.pid) else {
             return DoctorCheck(name: "audio", ok: false, detail: "could not signal the daemon", warning: true)
         }

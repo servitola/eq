@@ -361,7 +361,8 @@ enum CLI {
         let callbacks = Paint.ink(.yellow, "\(status.callbacks)")
         let frames = Paint.ink(.yellow, "\(status.framesProcessed)")
         let pid = Paint.ink(.yellow, "\(status.pid)")
-        lines.append("callbacks: \(callbacks)  frames: \(frames)  enabled: \(status.enabled)  pid: \(pid)")
+        let version = Paint.ink(.yellow, status.version ?? "-")
+        lines.append("callbacks: \(callbacks)  frames: \(frames)  enabled: \(status.enabled)  pid: \(pid)  version: \(version)")
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)

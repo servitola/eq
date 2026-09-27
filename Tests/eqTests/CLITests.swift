@@ -57,7 +57,8 @@ final class CLITests: XCTestCase {
     func testShowPrefersDaemonDeviceWhenStatusIsFresh() throws {
         _ = runCLI("init")
         try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,
-                   profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: getpid(), updatedAt: Date())
+                   profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: getpid(),
+                   version: "2026.09.27.1", updatedAt: Date())
             .write(to: context.statusURL)
         let result = runCLI()
         XCTAssertTrue(result.output.contains("JBL Big"))
@@ -68,7 +69,7 @@ final class CLITests: XCTestCase {
         _ = runCLI("init")
         try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,
                    profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: getpid(),
-                   updatedAt: Date().addingTimeInterval(-60))
+                   version: "2026.09.27.1", updatedAt: Date().addingTimeInterval(-60))
             .write(to: context.statusURL)
         let result = runCLI()
         XCTAssertTrue(result.output.contains("JBL Big"))
@@ -78,7 +79,7 @@ final class CLITests: XCTestCase {
         _ = runCLI("init")
         try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,
                    profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: 2_000_000_000,
-                   updatedAt: Date().addingTimeInterval(-60))
+                   version: "2026.09.27.1", updatedAt: Date().addingTimeInterval(-60))
             .write(to: context.statusURL)
         let result = runCLI()
         XCTAssertTrue(result.output.contains("MacBook Pro Speakers"))
@@ -87,7 +88,8 @@ final class CLITests: XCTestCase {
     func testSetOnCurrentDeviceCreatesProfileFromDefault() throws {
         _ = runCLI("init")
         try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,
-                   profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: getpid(), updatedAt: Date())
+                   profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: getpid(),
+                   version: "2026.09.27.1", updatedAt: Date())
             .write(to: context.statusURL)
         let result = runCLI("set", "1khz", "-3", "64hz", "+2")
         XCTAssertEqual(result.exitCode, 0, result.output)
@@ -157,7 +159,8 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 1)
         XCTAssertTrue(result.output.contains("not running"))
         try Status(state: .noPermission, device: nil, sampleRate: 0, profile: nil, framesProcessed: 0, callbacks: 0, enabled: true,
-                   error: "Couldn’t create audio tap (error 1852797029).", pid: getpid(), updatedAt: Date())
+                   error: "Couldn’t create audio tap (error 1852797029).", pid: getpid(),
+                   version: "2026.09.27.1", updatedAt: Date())
             .write(to: context.statusURL)
         result = runCLI("status")
         XCTAssertEqual(result.exitCode, 0)
@@ -228,7 +231,8 @@ final class CLITests: XCTestCase {
         j = try json("help")
         XCTAssertTrue((j["usage"] as? String ?? "").contains("eq set"))
         try Status(state: .running, device: .init(uid: "BUILTIN", name: "MacBook Pro Speakers", transport: "builtin"), sampleRate: 48000,
-                   profile: .device, framesProcessed: 1, callbacks: 2, enabled: true, error: nil, pid: getpid(), updatedAt: Date())
+                   profile: .device, framesProcessed: 1, callbacks: 2, enabled: true, error: nil, pid: getpid(),
+                   version: "2026.09.27.1", updatedAt: Date())
             .write(to: context.statusURL)
         j = try json("status")
         XCTAssertEqual(j["state"] as? String, "running")

@@ -21,6 +21,7 @@ struct Status: Codable, Equatable {
     var enabled: Bool
     var error: String?
     var pid: Int32
+    var version: String?
     var updatedAt: Date
 
     static var defaultURL: URL {
@@ -64,10 +65,11 @@ struct Status: Codable, Equatable {
 
 extension Status {
     private enum CodingKeys: String, CodingKey {
-        case state, device, sampleRate, profile, framesProcessed, callbacks, enabled, error, pid, updatedAt
+        case state, device, sampleRate, profile, framesProcessed, callbacks, enabled, error, pid, version, updatedAt
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
+    // v1/v2 daemons wrote no `version`; that's exactly how Doctor tells them apart from v3.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         state = try c.decode(State.self, forKey: .state)
@@ -79,6 +81,7 @@ extension Status {
         enabled = try c.decode(Bool.self, forKey: .enabled)
         error = try c.decodeIfPresent(String.self, forKey: .error)
         pid = try c.decode(Int32.self, forKey: .pid)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
 }

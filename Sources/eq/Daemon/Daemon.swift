@@ -311,6 +311,7 @@ final class Daemon {
             enabled: config.enabled,
             error: lastError ?? configError,
             pid: getpid(),
+            version: Build.version,
             updatedAt: Date())
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()

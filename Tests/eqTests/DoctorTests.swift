@@ -27,7 +27,8 @@ final class DoctorTests: XCTestCase {
 
     private func running(callbacks: UInt64 = 10) -> Status {
         Status(state: .running, device: .init(uid: "u", name: "Speakers", transport: "builtin"), sampleRate: 48000, profile: .device,
-               framesProcessed: 5, callbacks: callbacks, enabled: true, error: nil, pid: getpid(), updatedAt: Date())
+               framesProcessed: 5, callbacks: callbacks, enabled: true, error: nil, pid: getpid(),
+               version: Build.version, updatedAt: Date())
     }
 
     func testAllGreen() {
@@ -99,6 +100,18 @@ final class DoctorTests: XCTestCase {
         let audio = report.checks.first { $0.name == "audio" }!
         XCTAssertTrue(audio.warning)
         XCTAssertTrue(audio.detail.contains("kickstart"))
+    }
+
+    func testAudioCheckSkipsSignalWhenDaemonIsOlder() {
+        var signalCount = 0
+        var s = running(); s.version = "2026.09.27.1"
+        var p = probes(status: s, callbacksLater: 20)
+        p.signalStatus = { _ in signalCount += 1; return true }
+        let report = Doctor.run(p)
+        XCTAssertEqual(signalCount, 0)
+        let audio = report.checks.first { $0.name == "audio" }!
+        XCTAssertTrue(audio.warning)
+        XCTAssertTrue(audio.detail.contains("restart it"))
     }
 
     func testSmokeSkipsLaunchAgentRow() {

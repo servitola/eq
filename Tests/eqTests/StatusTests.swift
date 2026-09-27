@@ -4,7 +4,8 @@ import XCTest
 final class StatusTests: XCTestCase {
     private func sample(pid: Int32 = getpid(), at date: Date = Date()) -> Status {
         Status(state: .running, device: .init(uid: "u", name: "JBL", transport: "bluetooth"), sampleRate: 48000,
-               profile: .device, framesProcessed: 42, callbacks: 7, enabled: true, error: nil, pid: pid, updatedAt: date)
+               profile: .device, framesProcessed: 42, callbacks: 7, enabled: true, error: nil, pid: pid,
+               version: "2026.09.27.1", updatedAt: date)
     }
 
     func testDefaultURLHonoursOverride() {
@@ -53,5 +54,14 @@ final class StatusTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-v1-\(UUID().uuidString).json")
         try json.write(to: url); defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(Status.read(from: url)?.callbacks, 0)
+    }
+
+    func testV2StatusWithoutVersionDecodesNil() throws {
+        let json = """
+        {"enabled":true,"framesProcessed":1,"callbacks":3,"pid":1,"sampleRate":48000,"state":"running","updatedAt":"2026-01-01T00:00:00Z"}
+        """.data(using: .utf8)!
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-v2-\(UUID().uuidString).json")
+        try json.write(to: url); defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertNil(Status.read(from: url)?.version)
     }
 }
