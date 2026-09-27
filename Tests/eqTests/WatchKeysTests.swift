@@ -315,4 +315,40 @@ final class WatchKeysTests: XCTestCase {
             XCTAssertTrue(segments.allSatisfy(full.components(separatedBy: " · ").contains), line)
         }
     }
+
+    private func feed(_ reads: [String]) -> [WatchAction] {
+        var buffer = KeyBuffer()
+        return reads.flatMap { WatchKeys.actions(for: buffer.feed(Array($0.utf8)) ?? "") }
+    }
+
+    func testArrowsSplitAcrossReadsStayArrows() {
+        XCTAssertEqual(feed(["\u{1B}[", "B\u{1B}[B\u{1B}[B\u{1B}", "[B", ""]),
+                       Array(repeating: .cyclePreset, count: 4))
+        XCTAssertEqual(feed(["\u{1B}", "O", "A"]), [.previousPreset])
+    }
+
+    func testACharacterSplitAcrossReadsIsOneKey() {
+        var buffer = KeyBuffer()
+        let bytes = Array("й".utf8)
+        XCTAssertEqual(bytes.count, 2)
+        XCTAssertNil(buffer.feed([bytes[0]]))
+        XCTAssertEqual(buffer.feed([bytes[1]]), "й")
+        let sign = Array("№".utf8)
+        XCTAssertNil(buffer.feed(Array(sign.prefix(2))))
+        XCTAssertEqual(buffer.feed(Array(sign.suffix(1)) + Array("q".utf8)), "№q")
+    }
+
+    func testALoneEscIsEscOnlyWhenNothingFollowsIt() {
+        var buffer = KeyBuffer()
+        XCTAssertEqual(buffer.feed(Array("]\u{1B}".utf8)), "]")
+        XCTAssertEqual(buffer.feed([]), "\u{1B}")
+        XCTAssertNil(buffer.feed([]))
+        XCTAssertEqual(feed(["]", "\u{1B}", ""]), [.focusNext, .unfocus])
+    }
+
+    func testAnEndlessUnfinishedSequenceIsDropped() {
+        var buffer = KeyBuffer()
+        XCTAssertNil(buffer.feed(Array("\u{1B}[".utf8) + Array(repeating: UInt8(ascii: "1"), count: KeyBuffer.maxTail)))
+        XCTAssertEqual(buffer.feed(Array("q".utf8)), "q")
+    }
 }

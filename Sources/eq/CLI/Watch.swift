@@ -279,6 +279,7 @@ enum Watch {
 
     static func outsideNote(_ instrument: Instrument) -> String { "outside \(instrument.name) — Esc to unfocus" }
     static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
+    static func cannotListen(_ instrument: Instrument) -> String { "can't listen to \(instrument.name) at this rate" }
 
     /// Redraws on every frame the source delivers; the key and the terminal size are checked
     /// between frames, which at 30 frames a second is quicker than a person notices.
@@ -304,6 +305,7 @@ enum Watch {
         var prompt: String?
         var mark = preset()
         var framesSinceMark = 0
+        var rate: Double?
         var focused: Instrument? { focus.map { Instruments.all[$0] } }
         func fit() -> WatchLayout {
             .fit(cols: current.cols, rows: current.rows,
@@ -328,11 +330,16 @@ enum Watch {
         func request(_ range: HzRange?) -> Bool {
             do {
                 try send(soloRequest(range))
-                return true
             } catch {
                 show("listen: the daemon did not take the request")
                 return false
             }
+            // The daemon refuses silently (and drops the previous solo); the same clamp here says why.
+            if let range, let rate, let instrument = focused,
+               EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: rate) == nil {
+                show(cannotListen(instrument))
+            }
+            return true
         }
         func refocus(_ index: Int?) {
             focus = index
@@ -344,6 +351,7 @@ enum Watch {
         }
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
+                rate = f.rate
                 let now = size()
                 var clear = ""
                 if now != current {
@@ -450,15 +458,20 @@ enum LiveTerminal {
         if termiosSaved { tcsetattr(0, TCSANOW, &savedTermios) }
     }
 
-    /// Up to eight bytes, so a multi-byte character (`№` is three in UTF-8) or a whole escape
-    /// sequence arrives as one string instead of being split across frames.
-    static func readKey() -> String? {
+    static let maxRead = 4096
+
+    /// Everything waiting on stdin, up to `maxRead` bytes; a paste longer than that finishes on
+    /// the next frame.
+    static func drainInput() -> [UInt8] {
+        var bytes: [UInt8] = []
+        var chunk = [UInt8](repeating: 0, count: maxRead)
         var pfd = pollfd(fd: 0, events: Int16(POLLIN), revents: 0)
-        guard poll(&pfd, 1, 0) > 0 else { return nil }
-        var bytes = [UInt8](repeating: 0, count: 8)
-        let count = read(0, &bytes, bytes.count)
-        guard count > 0 else { return nil }
-        return String(decoding: bytes.prefix(count), as: UTF8.self)
+        while bytes.count < maxRead, poll(&pfd, 1, 0) > 0 {
+            let count = read(0, &chunk, maxRead - bytes.count)
+            guard count > 0 else { break }
+            bytes += chunk.prefix(count)
+        }
+        return bytes
     }
 
     static func emit(_ text: String) {

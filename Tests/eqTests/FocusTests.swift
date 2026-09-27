@@ -17,10 +17,10 @@ final class FocusTests: XCTestCase {
     private static let cymbalsSolo = #"{"solo":{"low":6000,"high":16000}}"#
     private static let soloOff = #"{"solo":null}"#
 
-    private func frame(solo: SoloRange? = nil) -> MeterFrame {
+    private func frame(solo: SoloRange? = nil, rate: Double = 44100) -> MeterFrame {
         var out = Array(repeating: -24.0, count: 10)
         out[5] = -9
-        return MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: Array(repeating: -60, count: 10), out: out,
+        return MeterFrame(t: 0, device: "BE-RCA", rate: rate, in: Array(repeating: -60, count: 10), out: out,
                           peak: -6, limiting: false, gains: Config.screenshotCurve, preamp: -1.5, enabled: true, solo: solo)
     }
 
@@ -39,10 +39,10 @@ final class FocusTests: XCTestCase {
 
     /// One key (or none) after each frame; the source ends one frame after the last key.
     private func run(_ keys: [String?], zones: Bool = false, size: (Int, Int) = (100, 30),
-                     failSend: Bool = false) throws -> Run {
+                     failSend: Bool = false, rate: Double = 44100) throws -> Run {
         var result = Run()
         var queue = keys
-        let text = try line(frame())
+        let text = try line(frame(rate: rate))
         result.code = Watch.run(source: Source(lines: Array(repeating: text, count: keys.count + 1)), size: { size },
                                 zones: zones, hintDismissed: true,
                                 emit: { if $0.contains("\u{1B}[H") { result.frames.append($0) } },
@@ -113,6 +113,14 @@ final class FocusTests: XCTestCase {
         XCTAssertEqual(r.sent, [#"{"solo":{"low":50,"high":5000}}"#, Self.soloOff])
         let quiet = try run(["]", "q"])
         XCTAssertEqual(quiet.sent, [], "nothing to clear when listen never started")
+    }
+
+    func testListenToARangeTheRateCannotPlaySaysSo() throws {
+        let call = try run(["[", "l", nil], rate: 16000)
+        XCTAssertEqual(call.sent, [#"{"solo":{"low":10000,"high":20000}}"#], "still sent, so the daemon drops the previous solo")
+        XCTAssertTrue(call.frames[2].contains(Watch.cannotListen(instrument("air"))), call.frames[2])
+        let music = try run(["[", "l", nil])
+        XCTAssertFalse(music.frames[2].contains("can't listen"), music.frames[2])
     }
 
     func testFailedSendLeavesListenOffAndSays() throws {

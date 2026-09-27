@@ -220,7 +220,9 @@ edge and a low-pass at its highest (a multi-range instrument is heard across its
 span, gaps included), and the header shows a yellow `SOLO` for as long as the daemon reports
 it. Switching focus moves the solo to the new instrument. `l` again, `Esc` and `q` switch it
 off; so does the watch going away in any other way, since the daemon drops a solo the moment
-the client that asked for it disconnects. A solo is never saved and never reaches `eq.json`.
+the client that asked for it disconnects. At a rate too low for the focus (air on a headset
+in call mode) the footer says `can't listen to air at this rate` and nothing plays solo until
+the focus moves to an instrument the rate can carry. A solo is never saved and never reaches `eq.json`.
 It is the curve you hear through, not a second curve: the EQ stays one curve per device.
 
 Any meter client can ask for a solo by writing `{"solo":{"low":L,"high":H}}` to the socket,

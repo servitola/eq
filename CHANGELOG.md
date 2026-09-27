@@ -14,12 +14,18 @@ its entries under a dated version.
 - `l` in `eq watch` listens to the focused instrument alone: the daemon band-limits the output
   to the instrument's span (two high-pass and two low-pass sections) until `l`, `Esc`, a focus
   change (which moves it), quitting or a dropped connection. The header shows `SOLO`. Nothing
-  is written to the config.
+  is written to the config. A focus the current rate cannot play (air in call mode) stops the
+  solo and says `can't listen to air at this rate`.
 - `↑`/`↓` in `eq watch` step to the previous/next preset, like `p` in both directions.
 - The meter socket takes requests: a client may send `{"solo":{"low":L,"high":H}}` (with
   `0 ≤ L < H ≤ 100000`) or `{"solo":null}`, one JSON object per line. Only the client that set
   the solo can clear it; a `null` from another client is ignored. At most eight clients connect
   at once. `eq stream` frames carry `"solo"`, `null` when off.
+
+### Fixed
+
+- `eq watch` no longer misreads an arrow key or a Russian letter whose bytes arrive split
+  across two reads as Esc, `[` or stray letters.
 
 ### Changed
 

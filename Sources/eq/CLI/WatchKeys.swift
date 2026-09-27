@@ -42,10 +42,10 @@ enum WatchKeys {
         return nil
     }
 
-    /// Everything one read delivered. ↑/↓ arrive as `ESC [ A`/`B`, or `ESC O A`/`B` when the
-    /// terminal is in application-cursor mode; any other escape sequence is skipped whole, so its
-    /// tail never reads as letter commands. A bare `ESC` is the Esc key only when nothing follows
-    /// it in the same read — a sequence always arrives in one piece at these lengths.
+    /// Complete keys as `KeyBuffer` hands them over. ↑/↓ arrive as `ESC [ A`/`B`, or `ESC O A`/`B`
+    /// when the terminal is in application-cursor mode; any other escape sequence is skipped whole,
+    /// so its tail never reads as letter commands. A trailing bare `ESC` is the Esc key: the
+    /// buffer only lets one through once nothing followed it.
     static func actions(for keys: String) -> [WatchAction] {
         let chars = Array(keys)
         var result: [WatchAction] = []
@@ -72,6 +72,53 @@ enum WatchKeys {
             i += 1
         }
         return result
+    }
+}
+
+/// Terminal input arrives in whatever pieces the tty hands over: an arrow's `ESC [ B` or a
+/// Cyrillic letter's two bytes can straddle two reads. Only whole keys go out; an unfinished
+/// tail waits for the next read.
+struct KeyBuffer {
+    private var pending: [UInt8] = []
+    // Longer than any sequence a terminal sends for a key; a tail this long is not a key.
+    static let maxTail = 32
+
+    /// `bytes` is everything one frame's read drained, possibly nothing. A lone `ESC` left over
+    /// from the previous read becomes the Esc key only when this read brought nothing after it.
+    mutating func feed(_ bytes: [UInt8]) -> String? {
+        if bytes.isEmpty, pending == [0x1B] {
+            pending = []
+            return "\u{1B}"
+        }
+        pending += bytes
+        var end = 0
+        while end < pending.count, let length = Self.token(pending, at: end) { end += length }
+        let complete = pending[..<end]
+        pending.removeFirst(end)
+        if pending.count > Self.maxTail { pending = [] }
+        return complete.isEmpty ? nil : String(decoding: complete, as: UTF8.self)
+    }
+
+    /// The length of the whole key starting at `i`, or nil when it is cut off.
+    private static func token(_ b: [UInt8], at i: Int) -> Int? {
+        guard b[i] == 0x1B else { return character(b, at: i) }
+        guard i + 1 < b.count else { return nil }
+        guard b[i + 1] == UInt8(ascii: "[") || b[i + 1] == UInt8(ascii: "O") else {
+            return character(b, at: i + 1).map { $0 + 1 }
+        }
+        // CSI parameters and intermediates run until the final byte, @ through ~.
+        var j = i + 2
+        while j < b.count, !(0x40...0x7E).contains(b[j]) { j += 1 }
+        return j < b.count ? j - i + 1 : nil
+    }
+
+    private static func character(_ b: [UInt8], at i: Int) -> Int? {
+        let lead = b[i]
+        let length = lead < 0x80 ? 1 : lead >> 5 == 0b110 ? 2 : lead >> 4 == 0b1110 ? 3 : lead >> 3 == 0b11110 ? 4 : 1
+        guard i + length <= b.count else { return nil }
+        // A broken sequence goes out one byte at a time and decodes to U+FFFD, which is no key.
+        let continued = b[(i + 1)..<(i + length)].allSatisfy { $0 & 0xC0 == 0x80 }
+        return continued ? length : 1
     }
 }
 

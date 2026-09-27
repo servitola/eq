@@ -421,10 +421,11 @@ enum CLI {
         LiveTerminal.enterRaw()
         let marker = hintOffMarker(ctx)
         let session = WatchSession(ctx)
+        var keys = KeyBuffer()
         let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
                                  zones: !args.isEmpty,
                                  hintDismissed: FileManager.default.fileExists(atPath: marker.path),
-                                 emit: LiveTerminal.emit, readKey: LiveTerminal.readKey,
+                                 emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
                                  edit: session.apply, preset: session.presetMark,
                                  dismissHint: {
                                      try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
