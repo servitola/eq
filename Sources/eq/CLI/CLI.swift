@@ -30,31 +30,47 @@ enum CLI {
       eq copy --to Q              copy the current profile onto device Q
       eq devices                  known profiles and connected outputs
       eq on | eq off              enable / bypass
-      eq status [--json]
+      eq status
       eq daemon                   run the audio engine (used by the LaunchAgent)
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
+    --json on any command: the answer as JSON
     """
 
     static let permissionHint = "System Settings → Privacy & Security → Screen & System Audio Recording → enable EQ, then: launchctl kickstart -k gui/$UID/com.servitola.eq"
 
     static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String) {
+        let wantsJSON = args.contains("--json")
+        let args = args.filter { $0 != "--json" }
         do {
-            return (0, try dispatch(args, context))
+            let output = try dispatch(args, context)
+            return (output.exitCode, wantsJSON ? encode(output.json) : output.text)
         } catch let error as CLIError {
+            let code: Int32
             switch error {
-            case .usage, .unknownBand, .badGain, .gainOutOfRange:
-                return (2, "error: \(error)\n\(usage)")
-            case .daemonNotRunning:
-                return (1, "\(error)")
-            default:
-                return (1, "error: \(error)")
+            case .usage, .unknownBand, .badGain, .gainOutOfRange: code = 2
+            default: code = 1
+            }
+            if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)")))) }
+            switch error {
+            case .usage, .unknownBand, .badGain, .gainOutOfRange: return (code, "error: \(error)\n\(usage)")
+            case .daemonNotRunning: return (code, "\(error)")
+            default: return (code, "error: \(error)")
             }
         } catch {
+            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: "internal", message: "\(error)")))) }
             return (1, "error: \(error)")
         }
     }
 
-    private static func dispatch(_ args: [String], _ ctx: CLIContext) throws -> String {
+    static func encode(_ value: Encodable) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(AnyEncodable(value)) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func dispatch(_ args: [String], _ ctx: CLIContext) throws -> Output {
         var rest = args
         let command = rest.isEmpty ? "show" : rest.removeFirst()
         switch command {
@@ -67,30 +83,33 @@ enum CLI {
         case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
-        case "status": return try status(rest, ctx)
-        case "help", "-h", "--help": return usage
+        case "status": return try status(ctx)
+        case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
     }
 
     // MARK: - Commands
 
-    private static func show(_ ctx: CLIContext) throws -> String {
+    private static func show(_ ctx: CLIContext) throws -> Output {
         let config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
         let resolved = config.profile(forDeviceUID: current.uid)
-        let source = resolved.source == .device ? "own profile" : "default profile"
-        return Table.profile(resolved.profile, header: "\(current.name) (\(source))")
+        let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
+        let table = Table.profile(resolved.profile, header: "\(current.name) (\(sourceLabel))")
+        let source = resolved.source == .device ? "device" : "default"
+        return Output(table, ProfileReport(device: DeviceRef(uid: current.uid, name: current.name), source: source, profile: resolved.profile))
     }
 
-    private static func initialise(_ ctx: CLIContext) throws -> String {
+    private static func initialise(_ ctx: CLIContext) throws -> Output {
         let builtIn = ctx.connectedDevices().first { $0.transport == "builtin" }
         let existed = ctx.store.exists()
         _ = try ctx.store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
-        return existed ? "config already exists: \(ctx.store.url.path)" : "wrote \(ctx.store.url.path)"
+        let text = existed ? "config already exists: \(ctx.store.url.path)" : "wrote \(ctx.store.url.path)"
+        return Output(text, InitReport(path: ctx.store.url.path, created: !existed))
     }
 
-    private static func set(_ args: [String], _ ctx: CLIContext) throws -> String {
+    private static func set(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         let assignments = try BandParser.assignments(rest)
         var config = try loadConfig(ctx)
@@ -100,10 +119,11 @@ enum CLI {
         for (index, gain) in assignments { profile.bands[index] = gain }
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        return Table.profile(profile, header: target.name)
+        let table = Table.profile(profile, header: target.name)
+        return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
-    private static func preamp(_ args: [String], _ ctx: CLIContext) throws -> String {
+    private static func preamp(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         guard rest.count == 1 else { throw CLIError.usage("eq preamp [--device Q] <gain>") }
         let gain = try BandParser.gain(rest[0])
@@ -114,10 +134,11 @@ enum CLI {
         profile.preamp = gain
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        return Table.profile(profile, header: target.name)
+        let table = Table.profile(profile, header: target.name)
+        return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
-    private static func flat(_ args: [String], _ ctx: CLIContext) throws -> String {
+    private static func flat(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         guard rest.isEmpty else { throw CLIError.usage("eq flat [--device Q]") }
         var config = try loadConfig(ctx)
@@ -126,10 +147,11 @@ enum CLI {
         let profile = Profile(name: target.name, preamp: 0, bands: Profile.flat.bands)
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        return Table.profile(profile, header: target.name)
+        let table = Table.profile(profile, header: target.name)
+        return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
-    private static func copy(_ args: [String], _ ctx: CLIContext) throws -> String {
+    private static func copy(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (target, rest) = try splitDeviceOption(args, flag: "--to", ctx)
         guard let target, rest.isEmpty else { throw CLIError.usage("eq copy --to Q") }
         var config = try loadConfig(ctx)
@@ -138,49 +160,49 @@ enum CLI {
         profile.name = target.name
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        return "copied \(current.name) → \(target.name)\n" + Table.profile(profile, header: target.name)
+        let text = "copied \(current.name) → \(target.name)\n" + Table.profile(profile, header: target.name)
+        return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
-    private static func devices(_ ctx: CLIContext) throws -> String {
+    private static func devices(_ ctx: CLIContext) throws -> Output {
         let config = try loadConfig(ctx)
         let connected = ctx.connectedDevices()
         let currentUID = (try? currentDevice(ctx))?.uid
         var lines: [String] = []
+        var rows: [DeviceRow] = []
         for device in connected {
             let marker = device.uid == currentUID ? "* " : "  "
-            let profile = config.devices[device.uid] != nil ? "own profile" : "default profile"
-            lines.append("\(marker)\(device.name)  [\(device.transport)]  \(profile)")
+            let hasOwn = config.devices[device.uid] != nil
+            let profileLabel = hasOwn ? "own profile" : "default profile"
+            lines.append("\(marker)\(device.name)  [\(device.transport)]  \(profileLabel)")
+            rows.append(DeviceRow(uid: device.uid, name: device.name, transport: device.transport, connected: true, profile: hasOwn ? "own" : "default"))
         }
         for (uid, profile) in config.devices.sorted(by: { ($0.value.name ?? $0.key) < ($1.value.name ?? $1.key) })
             where !connected.contains(where: { $0.uid == uid }) {
             lines.append("  \(profile.name ?? uid)  [disconnected]  own profile")
+            rows.append(DeviceRow(uid: uid, name: profile.name ?? uid, transport: nil, connected: false, profile: "own"))
         }
-        return lines.joined(separator: "\n")
+        return Output(lines.joined(separator: "\n"), DevicesReport(current: currentUID, devices: rows))
     }
 
-    private static func toggle(_ enabled: Bool, _ ctx: CLIContext) throws -> String {
+    private static func toggle(_ enabled: Bool, _ ctx: CLIContext) throws -> Output {
         var config = try loadConfig(ctx)
         config.enabled = enabled
         try ctx.store.save(config)
-        return enabled ? "eq on" : "eq off (bypass)"
+        let text = enabled ? "eq on" : "eq off (bypass)"
+        return Output(text, ToggleReport(enabled: enabled))
     }
 
-    private static func status(_ args: [String], _ ctx: CLIContext) throws -> String {
+    private static func status(_ ctx: CLIContext) throws -> Output {
         guard let status = Status.read(from: ctx.statusURL), status.isAlive() else { throw CLIError.daemonNotRunning }
-        if args == ["--json"] {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            return String(decoding: try encoder.encode(status), as: UTF8.self)
-        }
         var lines = ["state: \(status.state.rawValue)"]
         if let device = status.device {
             lines.append("device: \(device.name) [\(device.transport)] \(Int(status.sampleRate)) Hz, \(status.profile?.rawValue ?? "-") profile")
         }
-        lines.append("frames: \(status.framesProcessed)  enabled: \(status.enabled)  pid: \(status.pid)")
+        lines.append("callbacks: \(status.callbacks)  frames: \(status.framesProcessed)  enabled: \(status.enabled)  pid: \(status.pid)")
         if let error = status.error { lines.append("error: \(error)") }
         if status.state == .noPermission { lines.append(permissionHint) }
-        return lines.joined(separator: "\n")
+        return Output(lines.joined(separator: "\n"), status)
     }
 
     // MARK: - Helpers

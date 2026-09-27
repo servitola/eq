@@ -145,4 +145,56 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 2)
         XCTAssertTrue(result.output.contains("eq set"))
     }
+
+    private func json(_ args: String...) throws -> [String: Any] {
+        let result = CLI.run(args + ["--json"], context: context)
+        let data = Data(result.output.utf8)
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], result.output)
+    }
+
+    func testJSONShow() throws {
+        _ = runCLI("init")
+        let j = try json()
+        XCTAssertEqual((j["device"] as? [String: Any])?["name"] as? String, "MacBook Pro Speakers")
+        XCTAssertEqual(j["source"] as? String, "device")
+        let profile = try XCTUnwrap(j["profile"] as? [String: Any])
+        XCTAssertEqual((profile["bands"] as? [Double])?.count, 10)
+        XCTAssertEqual((profile["filters"] as? [Any])?.count, 0)
+    }
+
+    func testJSONSetDevicesToggleInitStatusHelp() throws {
+        var j = try json("init")
+        XCTAssertEqual(j["created"] as? Bool, true)
+        XCTAssertEqual(j["path"] as? String, context.store.url.path)
+        j = try json("set", "1khz", "-3")
+        XCTAssertEqual(((j["profile"] as? [String: Any])?["bands"] as? [Double])?[5], -3)
+        j = try json("devices")
+        XCTAssertEqual(j["current"] as? String, "BUILTIN")
+        let devices = try XCTUnwrap(j["devices"] as? [[String: Any]])
+        XCTAssertEqual(devices.count, 2)
+        XCTAssertEqual(devices.first { $0["uid"] as? String == "BUILTIN" }?["profile"] as? String, "own")
+        j = try json("off")
+        XCTAssertEqual(j["enabled"] as? Bool, false)
+        j = try json("help")
+        XCTAssertTrue((j["usage"] as? String ?? "").contains("eq set"))
+        try Status(state: .running, device: .init(uid: "BUILTIN", name: "MacBook Pro Speakers", transport: "builtin"), sampleRate: 48000,
+                   profile: .device, framesProcessed: 1, callbacks: 2, enabled: true, error: nil, pid: getpid(), updatedAt: Date())
+            .write(to: context.statusURL)
+        j = try json("status")
+        XCTAssertEqual(j["state"] as? String, "running")
+        XCTAssertEqual(j["callbacks"] as? Int, 2)
+    }
+
+    func testJSONErrorKeepsExitCode() throws {
+        _ = runCLI("init")
+        let result = CLI.run(["set", "77hz", "+1", "--json"], context: context)
+        XCTAssertEqual(result.exitCode, 2)
+        let j = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [String: Any])
+        let error = try XCTUnwrap(j["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "unknownBand")
+        XCTAssertTrue((error["message"] as? String ?? "").contains("77hz"))
+        let missing = CLI.run(["status", "--json"], context: context)
+        XCTAssertEqual(missing.exitCode, 1)
+        XCTAssertTrue(missing.output.contains("\"daemonNotRunning\""))
+    }
 }
