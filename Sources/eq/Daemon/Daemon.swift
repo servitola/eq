@@ -8,6 +8,11 @@ enum DaemonPolicy {
     static let failedRetry: TimeInterval = 30
     static let statusInterval: TimeInterval = 5
     static let stallTicks = 2
+    static let heartbeat: TimeInterval = 30
+
+    static func shouldWriteStatus(changed: Bool, sinceLastWrite: TimeInterval) -> Bool {
+        changed || sinceLastWrite >= heartbeat
+    }
 
     /// A tap that cannot be created is, on a machine that ran yesterday, almost always the
     /// System Audio Recording grant missing or revoked; every other engine failure is transient.
@@ -41,6 +46,7 @@ final class Daemon {
     private var configError: String?
     private var state: Status.State = .starting
     private var statusTimer: DispatchSourceTimer?
+    private var lastStatusWrite = Date.distantPast
     private var lastCallbacks: UInt64 = 0
     private var unchangedTicks = 0
     private var retryWork: DispatchWorkItem?
@@ -90,6 +96,11 @@ final class Daemon {
             source.resume()
             signalSources.append(source)
         }
+        signal(SIGUSR1, SIG_IGN)
+        let usr1 = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: queue)
+        usr1.setEventHandler { [weak self] in self?.writeStatus() }
+        usr1.resume()
+        signalSources.append(usr1)
     }
 
     private func terminate() {
@@ -263,7 +274,7 @@ final class Daemon {
 
     private func startStatusTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + DaemonPolicy.statusInterval, repeating: DaemonPolicy.statusInterval)
+        timer.schedule(deadline: .now() + DaemonPolicy.statusInterval, repeating: DaemonPolicy.statusInterval, leeway: .seconds(1))
         // Callbacks, not frames: the silence gate stops frames on a quiet Mac, but a live IO proc keeps calling back.
         timer.setEventHandler { [weak self] in
             guard let self else { return }
@@ -280,7 +291,10 @@ final class Daemon {
                 self.unchangedTicks = 0
             }
             self.lastCallbacks = self.engine.callbacks
-            self.writeStatus()
+            // Nothing changed on this tick: only the 30 s heartbeat justifies a write, to keep disk wear low.
+            if DaemonPolicy.shouldWriteStatus(changed: false, sinceLastWrite: Date().timeIntervalSince(self.lastStatusWrite)) {
+                self.writeStatus()
+            }
         }
         timer.resume()
         statusTimer = timer
@@ -299,5 +313,6 @@ final class Daemon {
             pid: getpid(),
             updatedAt: Date())
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
+        lastStatusWrite = Date()
     }
 }

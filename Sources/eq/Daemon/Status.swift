@@ -53,7 +53,7 @@ struct Status: Codable, Equatable {
         try Self.encoder.encode(self).write(to: url, options: .atomic)
     }
 
-    func isFresh(now: Date = Date(), maxAge: TimeInterval = 15) -> Bool {
+    func isFresh(now: Date = Date(), maxAge: TimeInterval = 90) -> Bool {
         now.timeIntervalSince(updatedAt) <= maxAge
     }
 

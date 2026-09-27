@@ -34,10 +34,16 @@ final class StatusTests: XCTestCase {
     func testFreshnessAndLiveness() {
         let now = Date()
         XCTAssertTrue(sample(at: now.addingTimeInterval(-5)).isFresh(now: now))
-        XCTAssertFalse(sample(at: now.addingTimeInterval(-16)).isFresh(now: now))
+        XCTAssertFalse(sample(at: now.addingTimeInterval(-91)).isFresh(now: now))
         XCTAssertTrue(sample(pid: getpid(), at: now).isAlive(now: now))
         XCTAssertFalse(sample(pid: 2_000_000_000, at: now).isAlive(now: now))
-        XCTAssertFalse(sample(pid: getpid(), at: now.addingTimeInterval(-60)).isAlive(now: now))
+        XCTAssertFalse(sample(pid: getpid(), at: now.addingTimeInterval(-91)).isAlive(now: now))
+    }
+
+    func testFreshnessDefaultIsNinetySeconds() {
+        let now = Date()
+        XCTAssertTrue(sample(at: now.addingTimeInterval(-60)).isFresh(now: now))
+        XCTAssertFalse(sample(at: now.addingTimeInterval(-91)).isFresh(now: now))
     }
 
     func testV1StatusWithoutCallbacksDecodes() throws {

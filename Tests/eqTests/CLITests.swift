@@ -64,6 +64,26 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("default profile"))
     }
 
+    func testShowUsesAliveStatusEvenWhenOld() throws {
+        _ = runCLI("init")
+        try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,
+                   profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: getpid(),
+                   updatedAt: Date().addingTimeInterval(-60))
+            .write(to: context.statusURL)
+        let result = runCLI()
+        XCTAssertTrue(result.output.contains("JBL Big"))
+    }
+
+    func testShowIgnoresDeadPidStatus() throws {
+        _ = runCLI("init")
+        try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,
+                   profile: .default, framesProcessed: 1, callbacks: 1, enabled: true, error: nil, pid: 2_000_000_000,
+                   updatedAt: Date().addingTimeInterval(-60))
+            .write(to: context.statusURL)
+        let result = runCLI()
+        XCTAssertTrue(result.output.contains("MacBook Pro Speakers"))
+    }
+
     func testSetOnCurrentDeviceCreatesProfileFromDefault() throws {
         _ = runCLI("init")
         try Status(state: .running, device: .init(uid: "BT-1", name: "JBL Big", transport: "bluetooth"), sampleRate: 48000,

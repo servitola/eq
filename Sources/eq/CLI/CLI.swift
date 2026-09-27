@@ -385,7 +385,7 @@ enum CLI {
     }
 
     private static func currentDevice(_ ctx: CLIContext) throws -> Target {
-        if let status = Status.read(from: ctx.statusURL), status.isFresh(), let device = status.device {
+        if let status = Status.read(from: ctx.statusURL), status.isAlive(), let device = status.device {
             return (device.uid, device.name)
         }
         guard let device = ctx.defaultOutput() else { throw CLIError.noCurrentDevice }

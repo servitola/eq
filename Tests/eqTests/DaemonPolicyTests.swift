@@ -22,6 +22,13 @@ final class DaemonPolicyTests: XCTestCase {
         XCTAssertEqual(DaemonPolicy.statusInterval, 5)
     }
 
+    func testHeartbeatDecision() {
+        XCTAssertTrue(DaemonPolicy.shouldWriteStatus(changed: true, sinceLastWrite: 0))
+        XCTAssertFalse(DaemonPolicy.shouldWriteStatus(changed: false, sinceLastWrite: 29))
+        XCTAssertTrue(DaemonPolicy.shouldWriteStatus(changed: false, sinceLastWrite: 30))
+        XCTAssertEqual(DaemonPolicy.heartbeat, 30)
+    }
+
     func testStallNeedsTwoUnchangedTicks() {
         var r = DaemonPolicy.stalled(previous: 100, current: 100, unchangedTicks: 0)
         XCTAssertEqual(r.unchangedTicks, 1); XCTAssertFalse(r.stalled)
