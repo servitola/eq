@@ -96,6 +96,8 @@ final class Daemon {
     private var inCallMode = false
     private var rateUnsettled = false
     private var tapSilence = TapSilence()
+    private var filterWarnings: [String] = []
+    private var loggedFilterWarnings: Set<String> = []
 
     init(store: ConfigStore, statusURL: URL) {
         self.store = store
@@ -287,7 +289,13 @@ final class Daemon {
         }
         announcedUID = device.uid
         profileSource = resolved.source
-        engine.processor.apply(profile: resolved.profile, enabled: config.enabled)
+        let unstable = engine.processor.apply(profile: resolved.profile, enabled: config.enabled)
+        let rate = Int(engine.processor.sampleRate)
+        filterWarnings = unstable.map { "\(resolved.profile.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }
+        let profileName = resolved.source == .default ? "default" : resolved.profile.name ?? device.name
+        for warning in filterWarnings where loggedFilterWarnings.insert("\(device.uid) \(warning)").inserted {
+            Log.write("profile \"\(profileName)\": \(warning)")
+        }
         // Read-modify-write from disk so a CLI edit not yet reloaded is not reverted, and skipped
         // while the file is rejected so a half-fixed hand edit survives. `config` is deliberately
         // left alone: the save wakes the watcher, whose reload then applies that pending edit too.
@@ -466,7 +474,8 @@ final class Daemon {
             version: Build.version,
             updatedAt: Date(),
             latencyMs: engine.state == .running ? engine.latencyMs : nil,
-            tapSilentSeconds: observeTap())
+            tapSilentSeconds: observeTap(),
+            warnings: filterWarnings)
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

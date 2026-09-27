@@ -152,12 +152,12 @@ final class EngineTests: XCTestCase {
 final class PathLatencyTests: XCTestCase {
     func testSumsAllStagesAtTheNominalRate() throws {
         let latency = PathLatency(outputDevice: 40 + 24, outputStream: 0, buffer: 256, tapInput: 238)
-        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 48000)), 558.0 / 48, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 44100)), 558.0 / 44.1, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 48000)), 814.0 / 48, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 44100)), 814.0 / 44.1, accuracy: 1e-9)
     }
 
-    func testBufferOnly() {
-        XCTAssertEqual(PathLatency(outputDevice: 0, outputStream: 0, buffer: 480, tapInput: 0).milliseconds(sampleRate: 48000), 10)
+    func testBufferCountsForInputAndOutput() {
+        XCTAssertEqual(PathLatency(outputDevice: 0, outputStream: 0, buffer: 240, tapInput: 0).milliseconds(sampleRate: 48000), 10)
     }
 
     func testNoRateNoNumber() {

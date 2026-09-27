@@ -91,4 +91,50 @@ final class DSPSafetyTests: XCTestCase {
         XCTAssertEqual(ConfigError.filterUnstable("X", 3).description,
                        "profile \"X\": filter 3 would be unstable at 48 kHz (its output would ring or grow without end); change its frequency or Q")
     }
+
+    private func impulseResponse(_ processor: EQProcessor, frames: Int = 4096) -> [Float] {
+        let left = UnsafeMutablePointer<Float>.allocate(capacity: frames)
+        let right = UnsafeMutablePointer<Float>.allocate(capacity: frames)
+        defer { left.deallocate(); right.deallocate() }
+        left.initialize(repeating: 0, count: frames)
+        right.initialize(repeating: 0, count: frames)
+        left[0] = 1.0 / 1024; right[0] = left[0]
+        processor.process(channels: [left, right], frameCount: frames)
+        return Array(UnsafeBufferPointer(start: left, count: frames))
+    }
+
+    private func processor(rate: Double, bands: [EQBand]) -> (EQProcessor, [Int]) {
+        let processor = EQProcessor()
+        processor.configure(sampleRate: rate)
+        let bypassed = processor.update(bands: bands, preampDB: 0, limiterEnabled: true, limiterCeilingDB: -1, bypassed: false)
+        return (processor, bypassed)
+    }
+
+    func testFilterUnstableAtTheDeviceRateIsBypassed() {
+        let shelf = [EQBand(type: .peak, frequency: 1000, gain: 0, q: 1), EQBand(type: .lowShelf, frequency: 10, gain: 30, q: 0.1)]
+        let (guarded, bypassed) = processor(rate: 192_000, bands: shelf)
+        XCTAssertEqual(bypassed, [1])
+        let (flat, _) = processor(rate: 192_000, bands: [shelf[0]])
+        let got = impulseResponse(guarded), want = impulseResponse(flat)
+        XCTAssertEqual(zip(got, want).map { abs($0 - $1) }.max()!, 0, accuracy: 1e-6)
+    }
+
+    func testSameFilterAt48kIsKept() {
+        let shelf = [EQBand(type: .lowShelf, frequency: 10, gain: 30, q: 0.1)]
+        let (kept, bypassed) = processor(rate: 48000, bands: shelf)
+        XCTAssertEqual(bypassed, [])
+        let (flat, _) = processor(rate: 48000, bands: [])
+        XCTAssertNotEqual(impulseResponse(kept), impulseResponse(flat))
+    }
+
+    func testBypassedIndexNamesTheImportedFilter() {
+        let profile = Profile(name: nil, preamp: 0, bands: Profile.flat.bands, filters: [
+            Filter(type: .peak, frequency: 1000, gain: 3, q: 1), Filter(type: .lowShelf, frequency: 10, gain: 30, q: 0.1),
+        ])
+        let processor = EQProcessor()
+        processor.configure(sampleRate: 192_000)
+        let bypassed = processor.apply(profile: profile, enabled: true)
+        XCTAssertEqual(bypassed.map(profile.engineBandLabel), ["filter 2"])
+        XCTAssertEqual(profile.engineBandLabel(0), "band 1")
+    }
 }

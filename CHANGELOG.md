@@ -5,6 +5,32 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Changed
+
+- Device and sample-rate events are coalesced into one check 150 ms after the last of them,
+  so a USB DAC plug or a Bluetooth call-mode switch rebuilds once, and a rate of 0 reported
+  mid-negotiation is re-read instead of rebuilt on. The log notes when a headset enters call
+  mode (below 44.1 kHz).
+- The engine stops before the Mac sleeps and rebuilds a second after it wakes.
+- Filter state is flushed to zero when it decays into subnormal numbers, so a silent tail no
+  longer costs CPU.
+- A filter whose coefficients would be unstable at 48 kHz is rejected by `eq import` and by
+  config validation, with the filter's number in the message.
+- At 96 and 192 kHz some in-range filters below ~14 Hz / ~28 Hz still round to unstable
+  coefficients. The daemon now passes such a filter through unchanged, logs
+  `filter N unstable at R Hz — bypassed` once, and reports it in `eq status` and in a new
+  `filters` row of `eq doctor`.
+
+### Added
+
+- `eq status` shows the path latency: the output device's own latency and safety offset, the
+  tap's input side, and the IO buffer twice (once in, once out).
+- `eq doctor` checks the default output (a Multi-Output Device with no members has no streams)
+  and warns when no audio has reached the tap for over 30 s.
+
+After upgrading, restart the daemon (`launchctl kickstart -k gui/$UID/com.servitola.eq`) —
+latency, the tap check and bypassed filters are reported only by the new daemon.
+
 ## 2026.09.27.6 — 2026-09-27
 
 ### Changed

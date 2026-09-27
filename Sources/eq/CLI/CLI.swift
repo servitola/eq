@@ -394,6 +394,7 @@ enum CLI {
         let enabled = Paint.ink(status.enabled ? .green : .yellow, "\(status.enabled)")
         lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
+        lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
     }

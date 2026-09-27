@@ -75,15 +75,26 @@ final class EQProcessor {
         snapshot.states.flatMap { [$0.z1, $0.z2] } + [limiterEnvelope]
     }
 
-    /// Called from the daemon's main queue whenever parameters change.
+    /// Called from the daemon's main queue whenever parameters change. Returns the indices into
+    /// `bands` whose coefficients are unstable at the current rate; those run as pass-through.
+    @discardableResult
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
-                limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) {
+                limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) -> [Int] {
+        var unstable: [Int] = []
         // Built inside a closure so no local keeps a second reference to the `states` buffer:
         // one would force the audio thread into a COW copy if it swaps this snapshot in mid-window.
         var incoming: Snapshot? = {
             var snap = Snapshot()
-            snap.coefficients = bands.filter(\.isEnabled).map {
-                BiquadCoefficients.make(type: $0.type, frequency: $0.frequency, gainDB: $0.gain, q: $0.q, sampleRate: sampleRate)
+            // Config.validate checks stability at 48 kHz only; at 96/192 kHz Float32 rounding pushes
+            // some in-range filters below ~28 Hz onto the unit circle, and one would ring forever.
+            snap.coefficients = bands.indices.filter { bands[$0].isEnabled }.map { index in
+                let band = bands[index]
+                let c = BiquadCoefficients.make(type: band.type, frequency: band.frequency, gainDB: band.gain, q: band.q, sampleRate: sampleRate)
+                guard c.isStable else {
+                    unstable.append(index)
+                    return BiquadCoefficients()
+                }
+                return c
             }
             snap.states = Array(repeating: BiquadState(), count: 2 * snap.coefficients.count)
             snap.preampLinear = Float(pow(10, preampDB / 20))
@@ -100,6 +111,7 @@ final class EQProcessor {
         os_unfair_lock_unlock(&lock)
         _ = retired
         _ = incoming
+        return unstable
     }
 
     /// Process non-interleaved Float32 channel buffers in place. Audio thread only.

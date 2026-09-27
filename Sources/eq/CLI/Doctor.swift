@@ -85,6 +85,7 @@ enum Doctor {
             audioCheck(probes, live),
             engineCheck(live),
             tapCheck(live),
+            filtersCheck(live),
         ]
         let ok = checks.allSatisfy { $0.warning || $0.ok }
         return DoctorReport(ok: ok, checks: checks)
@@ -142,6 +143,21 @@ enum Doctor {
         }
         return DoctorCheck(name: "tap", ok: false,
                            detail: "no audio reached the tap for \(Int(silent)) s — if something is playing, check System Audio Recording permission",
+                           warning: true)
+    }
+
+    private static func filtersCheck(_ live: Status?) -> DoctorCheck {
+        guard let live else {
+            return DoctorCheck(name: "filters", ok: true, detail: "skipped (daemon not running)", warning: false)
+        }
+        guard let warnings = live.warnings else {
+            return DoctorCheck(name: "filters", ok: true, detail: "skipped (daemon does not report it)", warning: false)
+        }
+        guard !warnings.isEmpty else {
+            return DoctorCheck(name: "filters", ok: true, detail: "stable at \(Int(live.sampleRate)) Hz", warning: false)
+        }
+        return DoctorCheck(name: "filters", ok: false,
+                           detail: warnings.joined(separator: "; ") + " — raise its frequency to use it at this rate",
                            warning: true)
     }
 

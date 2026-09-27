@@ -28,6 +28,8 @@ struct Status: Codable, Equatable {
     var latencyMs: Double? = nil
     /// Seconds the IO proc kept running while nothing but exact zeros arrived from the tap.
     var tapSilentSeconds: Double? = nil
+    /// Written as [] when there is nothing to say, so nil means a daemon too old to check.
+    var warnings: [String]? = nil
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -70,7 +72,7 @@ struct Status: Codable, Equatable {
 
 extension Status {
     private enum CodingKeys: String, CodingKey {
-        case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds
+        case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -91,5 +93,6 @@ extension Status {
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         latencyMs = try c.decodeIfPresent(Double.self, forKey: .latencyMs)
         tapSilentSeconds = try c.decodeIfPresent(Double.self, forKey: .tapSilentSeconds)
+        warnings = try c.decodeIfPresent([String].self, forKey: .warnings)
     }
 }

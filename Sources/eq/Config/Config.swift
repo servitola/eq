@@ -44,6 +44,12 @@ struct Profile: Codable, Equatable {
         zip(Config.bandFrequencies, bands).map { EQBand(type: .peak, frequency: $0, gain: $1, q: 1.41) }
             + filters.map { EQBand(type: $0.type, frequency: $0.frequency, gain: $0.gain, q: $0.q) }
     }
+
+    /// Names an `engineBands` index the way the user numbers it: a graphic band or an imported "Filter N".
+    func engineBandLabel(_ index: Int) -> String {
+        let graphic = min(Config.bandFrequencies.count, bands.count)
+        return index < graphic ? "band \(index + 1)" : "filter \(index - graphic + 1)"
+    }
 }
 
 enum ProfileSource: String, Codable {

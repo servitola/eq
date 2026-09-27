@@ -36,7 +36,7 @@ final class DoctorTests: XCTestCase {
     func testAllGreen() {
         let report = Doctor.run(probes(status: running(), callbacksLater: 20))
         XCTAssertTrue(report.ok, Doctor.text(report))
-        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap"])
+        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "filters"])
         XCTAssertTrue(report.checks.allSatisfy(\.ok))
     }
 
@@ -185,6 +185,19 @@ final class DoctorTests: XCTestCase {
         let tap = report.checks.first { $0.name == "tap" }!
         XCTAssertTrue(tap.warning); XCTAssertFalse(tap.ok)
         XCTAssertEqual(tap.detail, "no audio reached the tap for 45 s — if something is playing, check System Audio Recording permission")
+    }
+
+    func testBypassedFilterWarnsButDoesNotFail() {
+        var s = running(); s.warnings = ["filter 2 unstable at 192000 Hz — bypassed"]
+        let report = Doctor.run(probes(status: s, callbacksLater: 20))
+        XCTAssertTrue(report.ok, Doctor.text(report))
+        let filters = report.checks.first { $0.name == "filters" }!
+        XCTAssertTrue(filters.warning); XCTAssertFalse(filters.ok)
+        XCTAssertEqual(filters.detail, "filter 2 unstable at 192000 Hz — bypassed — raise its frequency to use it at this rate")
+        s.warnings = []
+        XCTAssertEqual(Doctor.run(probes(status: s, callbacksLater: 20)).checks.first { $0.name == "filters" }!.detail, "stable at 48000 Hz")
+        let unreported = Doctor.run(probes(status: running(), callbacksLater: 20)).checks.first { $0.name == "filters" }!
+        XCTAssertTrue(unreported.ok); XCTAssertTrue(unreported.detail.hasPrefix("skipped"))
     }
 
     func testTapWithinLimitOrUnreportedIsOK() {

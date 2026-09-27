@@ -233,13 +233,15 @@ final class CLITests: XCTestCase {
         XCTAssertTrue((j["usage"] as? String ?? "").contains("eq set"))
         try Status(state: .running, device: .init(uid: "BUILTIN", name: "MacBook Pro Speakers", transport: "builtin"), sampleRate: 48000,
                    profile: .device, framesProcessed: 1, callbacks: 2, writes: 1, enabled: true, error: nil, pid: getpid(),
-                   version: "2026.09.27.1", updatedAt: Date(), latencyMs: 11.6, tapSilentSeconds: 3)
+                   version: "2026.09.27.1", updatedAt: Date(), latencyMs: 11.6, tapSilentSeconds: 3,
+                   warnings: [])
             .write(to: context.statusURL)
         j = try json("status")
         XCTAssertEqual(j["state"] as? String, "running")
         XCTAssertEqual(j["callbacks"] as? Int, 2)
         XCTAssertEqual(j["latencyMs"] as? Double, 11.6)
         XCTAssertEqual(j["tapSilentSeconds"] as? Double, 3)
+        XCTAssertEqual(j["warnings"] as? [String], [])
     }
 
     func testJSONErrorKeepsExitCode() throws {
@@ -454,7 +456,8 @@ final class CLITests: XCTestCase {
             out["undo"] = runCLI("undo").output
             try Status(state: .running, device: .init(uid: "BUILTIN", name: "MacBook Pro Speakers", transport: "builtin"),
                        sampleRate: 48000, profile: .device, framesProcessed: 1, callbacks: 2, writes: 1, enabled: true,
-                       error: nil, pid: getpid(), version: "1", updatedAt: Date(), latencyMs: 11.63)
+                       error: nil, pid: getpid(), version: "1", updatedAt: Date(), latencyMs: 11.63,
+                       warnings: ["filter 2 unstable at 192000 Hz — bypassed"])
                 .write(to: context.statusURL)
             out["status"] = runCLI("status").output
             return out
@@ -470,6 +473,7 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(painted["status"]!.contains(esc + "2mstate:" + esc + "0m " + esc + "32mrunning"), painted["status"]!)
         XCTAssertTrue(painted["status"]!.contains(esc + "32mdevice profile"), painted["status"]!)
         XCTAssertTrue(painted["status"]!.contains("latency " + esc + "33m11.6 ms" + esc + "0m"), painted["status"]!)
+        XCTAssertTrue(painted["status"]!.contains(esc + "33mwarning:" + esc + "0m filter 2 unstable at 192000 Hz — bypassed"), painted["status"]!)
         let plain = try lines(false)
         for (command, text) in plain { XCTAssertFalse(text.contains("\u{1B}"), "\(command): \(text)") }
         XCTAssertEqual(plain["on"], "eq on")

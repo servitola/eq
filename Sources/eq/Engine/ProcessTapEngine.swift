@@ -68,7 +68,9 @@ struct PathLatency: Equatable {
 
     func milliseconds(sampleRate: Double) -> Double? {
         guard sampleRate > 0 else { return nil }
-        let frames = Double(outputDevice) + Double(outputStream) + Double(buffer) + Double(tapInput)
+        // Twice: the IOProc gets a full input buffer from the tap before it runs, then its output
+        // buffer waits a full cycle before the device plays it.
+        let frames = Double(outputDevice) + Double(outputStream) + 2 * Double(buffer) + Double(tapInput)
         return frames / sampleRate * 1000
     }
 }
