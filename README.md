@@ -70,7 +70,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq preset` | list presets; the current device's one marked `*` |
 | `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
 | `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
-| `eq undo [--list]` | put the config back as it was before the last change / list the ten backups |
+| `eq undo`, `eq redo` | step the config back one saved version at a time, and forward again |
+| `eq history` | list saved versions with their time and curve, marking the current one (`eq undo --list` is an alias) |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
 | `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
@@ -134,13 +135,19 @@ gain the preamp does not take back; the limiter catches peaks, or lower the prea
 ## Undo
 
 Every save of the config first copies the previous file to `eq.json.1`, shifting the older
-ones up to `eq.json.10`; the oldest drops off. A save that changes nothing makes no copy.
-`eq undo` restores `eq.json.1` — checked first, so a broken backup is refused — and prints
-the current device's curve; the file it replaced becomes the new `eq.json.1`, so a second
-`eq undo` is a redo. `eq undo --list` shows the ten backups with their times and the current
-device's curve in each. The daemon's routine writes (refreshing device names) make no backup;
-the one exception is the first time it seeds presets into a config from before they existed —
-that one backs up, so the pre-presets file stays recoverable as `eq.json.1`.
+ones up to `eq.json.10`; the oldest drops off. A save that changes nothing makes no copy. The
+daemon's routine writes (refreshing device names) make no backup; the one exception is the
+first time it seeds presets into a config from before they existed — that one backs up, so
+the pre-presets file stays recoverable as `eq.json.1`.
+
+`eq undo` steps `eq.json` back one saved version — `.1` first, then `.2`, and so on with each
+further `eq undo`, refusing and leaving every file alone if a backup turns out not to be valid
+JSON. `eq redo` steps forward again, back towards the latest edit; any real edit in between
+(`eq set`, `eq watch`, …) abandons that redo branch, same as any other editor. Both print the
+current device's curve. `eq history` lists every saved version with its time and a one-line
+curve summary, marking the current position with `←`; `eq undo --list` is kept as an alias for
+it. The backup files themselves are never reordered by undo or redo — only `eq.json` and two
+small bookkeeping files beside it, `eq.json.pos` and `eq.json.redo`, move.
 
 A whole `eq watch` session is one undo step: only its first save makes a backup, so after
 quitting, `eq undo` returns to the curve from before the session.

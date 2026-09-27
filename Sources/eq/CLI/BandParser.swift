@@ -21,6 +21,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case badPresetName(String)
     case presetExists(String)
     case noBackup
+    case noRedo
     case unreadableBackup(Int)
     case noSuchFilter(String, Int)
 
@@ -50,7 +51,11 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .badPresetName(let name): return "bad preset name \"\(name)\": 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ ."
         case .presetExists(let name): return "preset \"\(name)\" already exists"
         case .noBackup: return "nothing to undo — no backup of the config yet"
-        case .unreadableBackup(let index): return "backup eq.json.\(index) is unreadable — see eq undo --list"
+        case .noRedo: return "nothing to redo"
+        case .unreadableBackup(let index):
+            return index == 0
+                ? "the config eq redo would restore is unreadable — see eq history"
+                : "backup eq.json.\(index) is unreadable — see eq history"
         case .noSuchFilter(let token, let count):
             return count == 0 ? "no filter \"\(token)\" — this curve has no filters" : "no filter \"\(token)\" — pick 1…\(count), see `eq filter`"
         }

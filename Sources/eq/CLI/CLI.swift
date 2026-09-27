@@ -116,6 +116,8 @@ enum CLI {
         case "zones": return try zones(rest, ctx)
         case "preset": return try preset(rest, ctx)
         case "undo": return try undo(rest, ctx)
+        case "redo": return try redo(rest, ctx)
+        case "history": return try history(rest, ctx)
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
     }
@@ -651,34 +653,56 @@ enum CLI {
     private static func undo(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty || args == ["--list"] else { throw CLIError.usage("eq undo [--list]") }
         guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
-        let device = try? currentDevice(ctx)
-        if args == ["--list"] { return backupList(device, ctx) }
-        guard let newest = ctx.store.backups().first(where: { $0.index == 1 }) else { throw CLIError.noBackup }
+        if args == ["--list"] { return try history([], ctx) }
+        let target = ctx.store.historyPosition() + 1
         do {
-            try ctx.store.restore(backup: 1)
+            guard let stepped = try ctx.store.stepBack() else { throw CLIError.noBackup }
+            return try steppedOutput(stepped, ctx)
         } catch is ConfigError {
-            throw CLIError.unreadableBackup(1)
+            throw CLIError.unreadableBackup(target)
+        }
+    }
+
+    private static func redo(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq redo") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        let target = max(ctx.store.historyPosition() - 1, 0)
+        do {
+            guard let stepped = try ctx.store.stepForward() else { throw CLIError.noRedo }
+            return try steppedOutput(stepped, ctx)
+        } catch is ConfigError {
+            throw CLIError.unreadableBackup(target)
+        }
+    }
+
+    private static func steppedOutput(_ stepped: (index: Int, date: Date), _ ctx: CLIContext) throws -> Output {
+        let heading = Paint.ink(.green, "restored the config from ") + Paint.ink(.dim, backupTime(stepped.date))
+        guard let device = try? currentDevice(ctx) else {
+            return Output(heading, HistoryStepReport(position: stepped.index, date: stepped.date, device: nil, source: nil, profile: nil))
         }
         let config = try ctx.store.load()
-        let heading = Paint.ink(.green, "restored the config from ") + Paint.ink(.dim, backupTime(newest.date))
-        guard let device else {
-            return Output(heading, ["restored": newest.url.path])
-        }
         let resolved = config.profile(forDeviceUID: device.uid)
         let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
         let table = Table.profile(resolved.profile, header: "\(device.name) (\(sourceLabel))", preset: presetMark(resolved.profile, config))
-        let report = UndoReport(restored: newest.url.path, device: DeviceRef(uid: device.uid, name: device.name),
-                                source: resolved.source == .device ? "device" : "default", profile: resolved.profile)
+        let report = HistoryStepReport(position: stepped.index, date: stepped.date,
+                                       device: DeviceRef(uid: device.uid, name: device.name),
+                                       source: resolved.source == .device ? "device" : "default", profile: resolved.profile)
         return Output(heading + "\n" + table, report)
     }
 
-    private static func backupList(_ device: Target?, _ ctx: CLIContext) -> Output {
+    /// Position 0 is the latest edit, `.1`…`.10` the backup chain; `←` marks where `eq undo`/`eq redo`
+    /// currently sit. `eq undo --list` is an alias kept for muscle memory.
+    private static func history(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq history") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        let position = ctx.store.historyPosition()
+        let device = try? currentDevice(ctx)
         var lines: [String] = []
-        var rows: [BackupRow] = []
-        for backup in ctx.store.backups() {
-            let config = try? ctx.store.load(backup: backup.index)
+        var rows: [HistoryRow] = []
+
+        func row(_ index: Int, _ path: String, _ date: Date, _ config: Config?) {
             let profile = config.flatMap { config in device.map { config.profile(forDeviceUID: $0.uid).profile } }
-            var line = String(format: "%3d  ", backup.index) + Paint.ink(.dim, backupTime(backup.date))
+            var line = String(format: "%3d  ", index) + Paint.ink(.dim, backupTime(date))
             if let config, let profile {
                 line += "  " + Table.compactGains(profile.bands)
                 line += "  preamp " + Paint.ink(Paint.gain(profile.preamp), Table.gain(profile.preamp))
@@ -687,11 +711,18 @@ enum CLI {
             } else if config == nil {
                 line += "  " + Paint.ink(.red, "unreadable")
             }
+            if index == position { line += Paint.ink(.green, " ←") }
             lines.append(line)
-            rows.append(BackupRow(index: backup.index, path: backup.url.path, date: backup.date, profile: profile))
+            rows.append(HistoryRow(index: index, path: path, date: date, profile: profile, current: index == position))
         }
-        let text = lines.isEmpty ? Paint.ink(.dim, "no backups yet") : lines.joined(separator: "\n")
-        return Output(text, BackupsReport(backups: rows))
+
+        if let latest = ctx.store.latestVersion() {
+            row(0, latest.url.path, latest.date, try? ctx.store.load(at: latest.url))
+        }
+        for backup in ctx.store.backups() {
+            row(backup.index, backup.url.path, backup.date, try? ctx.store.load(backup: backup.index))
+        }
+        return Output(lines.joined(separator: "\n"), HistoryReport(position: position, entries: rows))
     }
 
     private static func backupTime(_ date: Date) -> String {

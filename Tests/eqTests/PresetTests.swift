@@ -135,6 +135,16 @@ final class BackupTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("eq.json.11").path))
     }
 
+    func testTenFileCapHoldsAcrossUndoAndANewSave() throws {
+        for i in 0...11 { try store.save(config(preamp: -Double(i))) }
+        _ = try store.stepBack()
+        _ = try store.stepBack()
+        try store.save(config(preamp: -20))
+        let backups = store.backups()
+        XCTAssertEqual(backups.count, 10)
+        XCTAssertEqual(backups.map(\.index), Array(1...10))
+    }
+
     func testSaveWithoutBackupAndIdenticalSaveDoNotRotate() throws {
         try store.save(config(preamp: 0))
         try store.save(config(preamp: -1), backup: false)
@@ -143,41 +153,52 @@ final class BackupTests: XCTestCase {
         XCTAssertTrue(store.backups().isEmpty, "an unchanged file is not a version worth undoing to")
     }
 
-    func testRestoreSwapsSoUndoTwiceIsRedo() throws {
+    func testStepBackWalksFurtherEachTimeAndStepForwardReturns() throws {
         try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        try store.save(config(preamp: -2))
         try store.save(config(preamp: -3))
-        try store.restore(backup: 1)
+        XCTAssertEqual(try store.stepBack()?.index, 1)
+        XCTAssertEqual(try store.load().default.preamp, -2, "the first undo goes back one save, not to the start")
+        XCTAssertEqual(try store.stepBack()?.index, 2)
+        XCTAssertEqual(try store.load().default.preamp, -1)
+        XCTAssertEqual(try store.stepBack()?.index, 3)
         XCTAssertEqual(try store.load().default.preamp, 0)
-        XCTAssertEqual(try store.load(backup: 1).default.preamp, -3)
-        try store.restore(backup: 1)
-        XCTAssertEqual(try store.load().default.preamp, -3)
-        XCTAssertEqual(store.backups().count, 1)
+        XCTAssertEqual(store.backups().map(\.index), [1, 2, 3], "undo never rearranges the backup chain")
+
+        XCTAssertEqual(try store.stepForward()?.index, 2)
+        XCTAssertEqual(try store.load().default.preamp, -1)
+        XCTAssertEqual(try store.stepForward()?.index, 1)
+        XCTAssertEqual(try store.load().default.preamp, -2)
+        XCTAssertEqual(try store.stepForward()?.index, 0)
+        XCTAssertEqual(try store.load().default.preamp, -3, "redoing all the way back reaches the latest edit")
+        XCTAssertNil(try store.stepForward(), "nothing left once back at the latest edit")
     }
 
-    /// On FAT/exFAT, renamex_np(RENAME_SWAP) has been observed to return 0 while actually doing a
-    /// plain rename: the backup path vanishes and whatever was at `url` is gone. Simulate that by
-    /// replacing the swap with an actual rename and verify the current config is not lost.
-    func testRestoreRecoversWhenSwapIsActuallyAPlainRename() throws {
+    func testStepBackReturnsNilPastTheOldestBackup() throws {
         try store.save(config(preamp: 0))
-        try store.save(config(preamp: -3))
-        let originalSwap = ConfigStore.swap
-        defer { ConfigStore.swap = originalSwap }
-        ConfigStore.swap = { from, to in
-            try? FileManager.default.removeItem(atPath: to)
-            try? FileManager.default.moveItem(atPath: from, toPath: to)
-            return 0
-        }
-        try store.restore(backup: 1)
-        XCTAssertEqual(try store.load().default.preamp, 0, "restore still lands the backup's content")
-        XCTAssertEqual(try store.load(backup: 1).default.preamp, -3, "the pre-undo current is recovered into .1, not lost")
+        try store.save(config(preamp: -1))
+        XCTAssertNotNil(try store.stepBack())
+        XCTAssertNil(try store.stepBack())
     }
 
-    func testRestoreRefusesInvalidBackupAndLeavesFilesAlone() throws {
+    func testANewSaveAfterUndoingDropsTheRedoSide() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        _ = try store.stepBack()
+        XCTAssertEqual(store.historyPosition(), 1)
+        try store.save(config(preamp: -9))
+        XCTAssertEqual(store.historyPosition(), 0, "a real edit abandons the undo chain")
+        XCTAssertNil(try store.stepForward())
+    }
+
+    func testStepBackRefusesInvalidBackupAndLeavesFilesAlone() throws {
         try store.save(config(preamp: 0))
         try "{ broken".write(to: dir.appendingPathComponent("eq.json.1"), atomically: true, encoding: .utf8)
-        XCTAssertThrowsError(try store.restore(backup: 1))
+        XCTAssertThrowsError(try store.stepBack())
         XCTAssertEqual(try store.load().default.preamp, 0)
         XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("eq.json.1")), "{ broken")
+        XCTAssertEqual(store.historyPosition(), 0, "a refused step never moves the position")
     }
 }
 
@@ -327,14 +348,44 @@ final class PresetCLITests: XCTestCase {
         XCTAssertEqual(try config.presets?.keys.sorted(), ["favourite", "flat"])
     }
 
-    func testUndoTwiceIsRedo() throws {
+    func testUndoWalksBackFurtherEachTimeAndRedoWalksItAllBack() throws {
+        run("set", "1khz", "+2")
+        run("set", "1khz", "+4")
         run("set", "1khz", "+6")
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 6)
+
         let undone = run("undo")
         XCTAssertEqual(undone.exitCode, 0, undone.output)
         XCTAssertTrue(undone.output.contains("MacBook Pro Speakers"), undone.output)
-        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], Config.screenshotCurve[5])
-        run("undo")
-        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 6)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 4)
+        XCTAssertEqual(run("undo").exitCode, 0)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 2)
+        XCTAssertEqual(run("undo").exitCode, 0)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], Config.screenshotCurve[5], "three undos reach the original curve")
+
+        let redone = run("redo")
+        XCTAssertEqual(redone.exitCode, 0, redone.output)
+        XCTAssertTrue(redone.output.contains("MacBook Pro Speakers"), redone.output)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 2)
+        XCTAssertEqual(run("redo").exitCode, 0)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 4)
+        XCTAssertEqual(run("redo").exitCode, 0)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 6, "three redos return to the latest edit")
+
+        let noMore = run("redo")
+        XCTAssertEqual(noMore.exitCode, 1)
+        XCTAssertTrue(noMore.output.contains("nothing to redo"), noMore.output)
+        XCTAssertEqual(try json("redo")["error"].flatMap { ($0 as? [String: Any])?["code"] as? String }, "noRedo")
+    }
+
+    func testANewSetAfterUndoingClearsRedo() throws {
+        run("set", "1khz", "+6")
+        XCTAssertEqual(run("undo").exitCode, 0)
+        run("set", "1khz", "+9")
+        let result = run("redo")
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("nothing to redo"), result.output)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 9, "the new edit stands, not the abandoned redo branch")
     }
 
     func testUndoWithoutBackup() throws {
@@ -349,20 +400,33 @@ final class PresetCLITests: XCTestCase {
         try "{ broken".write(to: dir.appendingPathComponent("eq.json.1"), atomically: true, encoding: .utf8)
         let result = run("undo")
         XCTAssertEqual(result.exitCode, 1)
-        XCTAssertTrue(result.output.contains("backup eq.json.1 is unreadable — see eq undo --list"), result.output)
+        XCTAssertTrue(result.output.contains("backup eq.json.1 is unreadable — see eq history"), result.output)
         XCTAssertEqual(try json("undo")["error"].flatMap { ($0 as? [String: Any])?["code"] as? String }, "unreadableBackup")
     }
 
-    func testUndoListSummarisesEachBackup() throws {
+    func testHistoryListsEveryVersionAndMarksThePosition() throws {
         run("set", "1khz", "+6")
-        run("preset", "use", "flat")
-        let out = run("undo", "--list").output
+        run("set", "1khz", "+9")
+        let out = run("history").output
         let lines = out.components(separatedBy: "\n")
-        XCTAssertEqual(lines.count, 2, out)
-        XCTAssertTrue(lines[0].hasPrefix("  1  "), out)
-        XCTAssertTrue(lines[0].contains("+6.0"), out)
-        XCTAssertTrue(lines[1].contains("-3.1"), out)
-        let j = try json("undo", "--list")
-        XCTAssertEqual((j["backups"] as? [[String: Any]])?.count, 2)
+        XCTAssertEqual(lines.count, 3, out)
+        XCTAssertTrue(lines[0].hasPrefix("  0  "), out)
+        XCTAssertTrue(lines[0].contains("+9.0"), out)
+        XCTAssertTrue(lines[0].hasSuffix("←") || lines[0].contains("\u{2190}"), "the current position is marked: \(out)")
+        XCTAssertFalse(lines[1].contains("\u{2190}") || lines[2].contains("\u{2190}"))
+        XCTAssertTrue(lines[1].hasPrefix("  1  "), out)
+        XCTAssertTrue(lines[1].contains("+6.0"), out)
+        XCTAssertTrue(lines[2].contains("-3.1"), "the oldest row is the config before either set: \(out)")
+
+        XCTAssertEqual(run("undo").exitCode, 0)
+        let afterUndo = run("history").output.components(separatedBy: "\n")
+        XCTAssertTrue(afterUndo[1].contains("\u{2190}"), "undo moves the marker to position 1: \(afterUndo)")
+
+        let j = try json("history")
+        XCTAssertEqual(j["position"] as? Int, 1)
+        XCTAssertEqual((j["entries"] as? [[String: Any]])?.count, 3)
+
+        // eq undo --list is kept as an alias for eq history.
+        XCTAssertEqual(run("undo", "--list").output, run("history").output)
     }
 }

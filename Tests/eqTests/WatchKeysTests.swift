@@ -236,6 +236,18 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertNil(try ctx.store.load(backup: 1).devices["SPK"], "the backup is the pre-session file")
     }
 
+    func testAWatchSessionCostsOneUndoStep() throws {
+        let ctx = try context()
+        let start = try ctx.store.load()
+        let session = CLI.WatchSession(ctx)
+        try session.apply(.bandStep(0, 0.5))
+        try session.apply(.bandStep(1, 0.5))
+        try session.apply(.preamp(-0.5))
+        XCTAssertEqual(try ctx.store.stepBack()?.index, 1, "the whole session undoes in a single eq undo")
+        XCTAssertEqual(try ctx.store.load().devices, start.devices)
+        XCTAssertNil(try ctx.store.stepBack(), "nothing further back than the pre-session config")
+    }
+
     func testSaveAsStoresThePresetAndMarksTheDevice() throws {
         let ctx = try context()
         let session = CLI.WatchSession(ctx)

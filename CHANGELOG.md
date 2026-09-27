@@ -29,6 +29,9 @@ its entries under a dated version.
 - `eq import <name> --variant <tag>` picks a device state such as `anc-on`, `anc-off`,
   `transparency-mode` or `sample-2`. Without it, the untagged entry wins, then ANC on; a
   model with only other variants lists them and asks.
+- `eq redo` steps forward again after `eq undo`, and `eq history` lists every saved version
+  with its time and a one-line curve summary, marking the current position with `←`
+  (`eq undo --list` is kept as an alias). All three take `--json`.
 
 ### Changed
 
@@ -39,6 +42,10 @@ its entries under a dated version.
   `airpods pro2`), the brand can be omitted, and `xm4`, `app2` and a few other nicknames
   work. A typo now answers "did you mean" with the closest models instead of "no
   ParametricEQ.txt".
+- `eq undo` steps back one saved version at a time — repeat it to keep walking further back —
+  instead of toggling between the last two versions; a real edit after undoing (`eq set`,
+  `eq watch`, …) now drops the redo side instead of overwriting the version `eq undo` would
+  have brought back.
 
 ## 2026.09.27.8 — 2026-09-27
 

@@ -35,11 +35,15 @@ struct ConfigStore {
     }
 
     func load() throws -> Config {
-        try Self.decode(Data(contentsOf: url))
+        try load(at: url)
     }
 
     func load(backup index: Int) throws -> Config {
-        try Self.decode(Data(contentsOf: backupURL(index)))
+        try load(at: backupURL(index))
+    }
+
+    func load(at fileURL: URL) throws -> Config {
+        try Self.decode(Data(contentsOf: fileURL))
     }
 
     private static func decode(_ data: Data) throws -> Config {
@@ -62,10 +66,12 @@ struct ConfigStore {
         if backup, let previous = try? Data(contentsOf: url), previous != data {
             try rotateBackups()
             // Copied, not moved: the daemon's watcher must never catch the directory without a config.
-            // copyItem also keeps the version's own modification time, which `eq undo --list` shows.
+            // copyItem also keeps the version's own modification time, which `eq history` shows.
             try FileManager.default.copyItem(at: url, to: backupURL(1))
         }
         try data.write(to: url, options: .atomic)
+        // A real edit abandons whatever `eq undo` chain was in progress — there is nothing left to redo.
+        clearHistoryPosition()
     }
 
     private func rotateBackups() throws {
@@ -76,31 +82,85 @@ struct ConfigStore {
         }
     }
 
-    /// Injectable so tests can simulate a filesystem where the syscall lies (see below).
-    static var swap: (_ from: String, _ to: String) -> Int32 = { renamex_np($0, $1, UInt32(RENAME_SWAP)) }
+    var positionURL: URL { url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).pos") }
+    /// Holds the content `eq.json` had before the first `eq undo` in the current chain, so `eq redo`
+    /// can reach it again — the backup files themselves are never touched by undo/redo.
+    var redoURL: URL { url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).redo") }
 
-    /// Swaps rather than rotates, so restoring `.1` twice returns to where it started.
-    func restore(backup index: Int) throws {
-        let backup = backupURL(index)
-        let restored = try Data(contentsOf: backup)
-        _ = try Self.decode(restored)
-        // Read before the swap: on FAT/exFAT volumes renamex_np(RENAME_SWAP) has been observed
-        // to return 0 (success) while actually performing a plain rename — which moves the backup
-        // onto the current path and leaves nothing at the backup path, silently destroying the
-        // current config. Keeping our own copy of it lets us recover from exactly that case.
-        let current = try? Data(contentsOf: url)
-        if Self.swap(backup.path, url.path) == 0 {
-            if !FileManager.default.fileExists(atPath: backup.path), let current {
-                try current.write(to: backup, options: .atomic)
+    /// How many steps `eq.json` currently sits back from the latest edit; 0 means `eq undo` has
+    /// not been used, or `eq redo` has walked all the way back to it.
+    func historyPosition() -> Int {
+        guard let raw = try? String(contentsOf: positionURL, encoding: .utf8),
+              let n = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), n > 0 else { return 0 }
+        return n
+    }
+
+    private func setHistoryPosition(_ n: Int) throws {
+        if n <= 0 {
+            try? FileManager.default.removeItem(at: positionURL)
+        } else {
+            try String(n).write(to: positionURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func clearHistoryPosition() {
+        try? FileManager.default.removeItem(at: positionURL)
+        try? FileManager.default.removeItem(at: redoURL)
+    }
+
+    /// The version `eq history` shows at position 0: whatever is live when nothing has been undone,
+    /// or the stashed pre-undo content while a chain is in progress.
+    func latestVersion() -> (url: URL, date: Date)? {
+        let source = historyPosition() == 0 ? url : redoURL
+        guard let date = (try? FileManager.default.attributesOfItem(atPath: source.path))?[.modificationDate] as? Date else { return nil }
+        return (source, date)
+    }
+
+    /// Steps `eq.json` one version further into the backup chain — `.1` first, then `.2`, and so
+    /// on with each further call. Returns `nil` once there is nothing further back. Throws
+    /// `ConfigError` and leaves every file untouched if the backup is not valid JSON.
+    func stepBack() throws -> (index: Int, date: Date)? {
+        let target = historyPosition() + 1
+        guard let backup = backups().first(where: { $0.index == target }) else { return nil }
+        let data = try Data(contentsOf: backup.url)
+        _ = try Self.decode(data)
+        if historyPosition() == 0 {
+            try? FileManager.default.removeItem(at: redoURL)
+            try FileManager.default.copyItem(at: url, to: redoURL)
+        }
+        try data.write(to: url, options: .atomic)
+        try setHistoryPosition(target)
+        return (target, backup.date)
+    }
+
+    /// The inverse of `stepBack()`: walks back toward the latest edit. Returns `nil` at position 0.
+    func stepForward() throws -> (index: Int, date: Date)? {
+        let position = historyPosition()
+        guard position > 0 else { return nil }
+        let target = position - 1
+        let data: Data
+        let date: Date
+        if target == 0 {
+            guard let redone = try? Data(contentsOf: redoURL),
+                  let attrs = try? FileManager.default.attributesOfItem(atPath: redoURL.path),
+                  let redoDate = attrs[.modificationDate] as? Date else {
+                // The stash is missing — nothing sane to redo to; drop the stale position rather
+                // than leave `eq undo`/`eq redo` disagreeing about where they are.
+                try? FileManager.default.removeItem(at: positionURL)
+                return nil
             }
-            return
+            data = redone
+            date = redoDate
+        } else {
+            guard let backup = backups().first(where: { $0.index == target }) else { return nil }
+            data = try Data(contentsOf: backup.url)
+            date = backup.date
         }
-        guard let current else {
-            try restored.write(to: url, options: .atomic)
-            return
-        }
-        try current.write(to: backup, options: .atomic)
-        try restored.write(to: url, options: .atomic)
+        _ = try Self.decode(data)
+        try data.write(to: url, options: .atomic)
+        try setHistoryPosition(target)
+        if target == 0 { try? FileManager.default.removeItem(at: redoURL) }
+        return (target, date)
     }
 
     func loadOrCreate(builtInUID: String?, builtInName: String?) throws -> Config {
