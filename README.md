@@ -59,6 +59,10 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq import "WH-1000XM4"` | fetch and apply an AutoEq correction by headphone name |
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands |
+| `eq preset` | list presets; the current device's one marked `*` |
+| `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device Q` for another device) |
+| `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
+| `eq undo [--list]` | put the config back as it was before the last change / list the ten backups |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
 | `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
 | `eq zones` | which bands carry which instruments, under the current curve |
@@ -72,10 +76,38 @@ A device without its own curve gets `default`; the first `eq set` on it makes a 
 Everything lives in `~/.config/eq/eq.json`, which you can also edit by hand — the daemon
 picks it up within a tenth of a second.
 
+## Presets
+
+A preset is a named curve — bands, preamp and filters — that any device can use. `eq preset
+save "club mix"` stores the current device's curve under that name and marks the device as
+using it; `eq preset use flat` copies a preset onto the device. Names are 1–32 letters,
+digits, spaces or `- _ .`, and are matched without regard to case. Two presets come with the
+config: `favourite`, the curve eq ships with, and `flat`. A config from before presets gets
+them when the daemon starts or on `eq init`; delete them all and they stay deleted.
+
+`eq` and every command that prints a curve show which preset the device uses: `BE-RCA (own
+profile · favourite)`. Tune the curve afterwards and the name gets a yellow `*` —
+`favourite*` — meaning the device started from that preset and has moved away from it; the
+preset itself is unchanged until you save over it. `eq preset rm` and `rename` update the
+devices that point at the preset, and leave their curves alone.
+
+## Undo
+
+Every save of the config first copies the previous file to `eq.json.1`, shifting the older
+ones up to `eq.json.10`; the oldest drops off. A save that changes nothing makes no copy.
+`eq undo` restores `eq.json.1` — checked first, so a broken backup is refused — and prints
+the current device's curve; the file it replaced becomes the new `eq.json.1`, so a second
+`eq undo` is a redo. `eq undo --list` shows the ten backups with their times and the current
+device's curve in each. The daemon's own writes (seeding presets, refreshing device names)
+make no backup.
+
+A whole `eq watch` session is one undo step: only its first save makes a backup, so after
+quitting, `eq undo` returns to the curve from before the session.
+
 ## Watch
 
 ```
-     BE-RCA · 44.1 kHz · preamp -4.8 dB · peak -3.2 dB
+     BE-RCA · 44.1 kHz · preamp -4.8 dB · favourite* · peak -3.2 dB
 
          ▆▆▆    ▆▆▆
          ███    ███    ▇▇▇
@@ -117,6 +149,9 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 | `1` … `9`, `0` | raise band 32 Hz … 16 kHz by 0.5 dB (`0` is the tenth band, 16 kHz) |
 | Shift + the same key | lower it by 0.5 dB — `! @ # $ % ^ & * ( )` on a US layout, `! " № ; % : * ( )` on a Russian one |
 | `+` / `-` | preamp ±0.5 dB (`=` and `_` work too, no Shift needed) |
+| `p` | next preset, alphabetically, wrapping round |
+| `u` | undo the last change made in this session, back to how it started |
+| `s` | save the curve as a preset: type a name, Enter saves, Esc cancels |
 | `z` | zones: off → compact → all → off |
 | `h`, `?` | show the hint again |
 | `x` | hide the hint for good |
@@ -127,13 +162,21 @@ else the default output — clamps to ±12 dB (preamp −30…+12), and saves at
 picks it up and the slider marker moves on the next frame, while the band's label flashes
 bold. When the edit cannot be saved (no config yet, say), the reason shows in a dim line at
 the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
-band 7 (2 kHz) can only be lowered from a US layout; `h`, `z`, `x` and `q` work from the
-same physical keys on either layout.
+band 7 (2 kHz) can only be lowered from a US layout; the letter keys work from the same
+physical keys on either layout (`з` for `p`, `г` for `u`, `ы` for `s`, and so on).
+
+The header names the device's preset after the preamp, with the yellow `*` once the curve has
+moved away from it. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
+through this session's steps, preset changes included, one per press, until the curve is as it
+was when the session started; it does not reach past the session — that is `eq undo`. `s`
+turns the bottom line into `save as: ▏`; while it is open every key types into it, digits
+included, Backspace deletes, and a bad name shows its error in the same line for two seconds.
 
 On start a small box in the top-right corner lists the keys. It hides after 8 seconds or on
 any key; `h` brings it back. `x` hides it and writes the empty marker
 `~/.config/eq/watch-hint-off`, after which it no longer appears on start (delete the file to
-get it back). A terminal narrower than twice the box shows one dim line at the bottom instead.
+get it back). A terminal narrower than twice the box shows one dim line at the bottom instead,
+which leaves out whole keys rather than cut one in half, and always keeps `q quit`.
 
 ### Zones
 

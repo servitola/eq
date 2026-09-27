@@ -5,6 +5,18 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- Presets: named curves any device can use. `eq preset` lists them, `eq preset save|use
+  <name>` stores or applies one, `show`, `rm` and `rename` manage them. The config comes with
+  `favourite` and `flat`. Headers name the device's preset, `favourite*` once the curve has
+  moved away from it.
+- Undo: every config save keeps the previous file as `eq.json.1`…`eq.json.10`. `eq undo`
+  restores the newest (twice is a redo), `eq undo --list` shows them all.
+- `eq watch` keys: `p` cycles presets, `u` undoes the session's last change back to its start,
+  `s` saves the curve as a preset from a prompt on the bottom line. The header shows the preset
+  name. One watch session is one `eq undo` step.
+
 ## 2026.09.27.4 — 2026-09-27
 
 ### Added
