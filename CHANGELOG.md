@@ -18,6 +18,11 @@ its entries under a dated version.
 - `eq status` reports `callbacks`, the IO tap's own counter, alongside `framesProcessed`.
 - Profiles carry `filters` (peak, low/high shelf, low/high pass, notch, band pass) alongside
   the ten graphic bands; a v1 config with no `filters` still loads.
+- `eq` and every command that prints a curve list the imported filters in a table under
+  the bands: type, Fc, gain, Q, and where the import came from.
+- Colour on a terminal: sixteen terminal colours, one meaning each, plus a spark row that
+  draws the curve above the band labels. Piped output stays plain and keeps the v1
+  three-line shape; `NO_COLOR` or `TERM=dumb` turn colour off.
 
 ### Changed
 
@@ -26,6 +31,11 @@ its entries under a dated version.
 - A device counts as `running` once its IO callback fires, not after frames with signal —
   no more five rebuilds waiting for audio on a silent Mac.
 - A stalled IO path (10 s with no new callback) logs and rebuilds instead of running dark.
+- A profile holds at most 32 filters, and its preamp may go down to −30 dB (up to +12 dB)
+  so an imported curve with a large boost keeps its compensating preamp.
+- Imports accept a leading `+` on gains and preamp (`Gain +3.0 dB`, `Preamp: +1 dB`).
+- `--json` output writes `/` unescaped, so paths and URLs read as they are.
+- Only errors go to stderr; a failing `eq doctor` report prints on stdout with exit 1.
 
 ### Fixed
 

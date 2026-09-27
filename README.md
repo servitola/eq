@@ -70,6 +70,16 @@ A device without its own curve gets `default`; the first `eq set` on it makes a 
 Everything lives in `~/.config/eq/eq.json`, which you can also edit by hand — the daemon
 picks it up within a tenth of a second.
 
+## Colour
+
+On a terminal the output uses the sixteen standard terminal colours, each with one meaning
+everywhere: green for a boost, a healthy check or a running engine, magenta for a cut,
+yellow for a warning or a device on the default profile, red for a failure. `eq` and the
+other curve-printing commands add a spark row of block glyphs above the band labels, so the
+curve's shape reads at a glance. Piped or redirected output has no colour and no spark row,
+so it keeps the three-line shape above; `NO_COLOR` or `TERM=dumb` turn colour off on a
+terminal too.
+
 ## AutoEq
 
 `eq import <file|url|"headphone name">` applies a published correction for a specific
@@ -88,12 +98,12 @@ of resetting them to flat.
 ## How it works
 
 The daemon opens a Core Audio process tap on the system mix (macOS 14.4+), which mutes the
-original output and hands the audio to the daemon. Ten peaking biquads, a preamp and a
-limiter at −1 dBFS later, the daemon plays it back on the same device. About 10 ms of
+original output and hands the audio to the daemon. Ten peaking biquads plus the imported
+filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. About 10 ms of
 latency; volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
 
 It listens for the default output changing and rebuilds on the new device with that device's
-curve. Bluetooth devices arrive in two steps, so it waits for audio to actually flow before
+curve. Bluetooth devices arrive in two steps, so it waits for the IO callback to fire before
 it calls the switch done.
 
 The engine — tap, aggregate device, IO callback, Bluetooth and sample-rate handling — is taken
@@ -104,14 +114,16 @@ to get right; the rest of this project is small.
 ## Limits
 
 - macOS 14.4 or newer, Apple Silicon. Tested on macOS 26.6.
-- Fixed bands, fixed Q. If you want a parametric EQ, this is not it.
+- Ten graphic bands you edit by hand, plus the parametric filters an import brings in (up to
+  32). There is no command for hand-editing a filter's type, frequency, gain or Q — if you
+  want a parametric EQ you tune yourself, this is not it.
 - One curve per device, applied to everything on that device. No per-app EQ.
 - A DAW that needs zero latency: `eq off` while you work.
 
 ## Development
 
 ```sh
-swift test               # 91 unit tests
+swift test               # 105 unit tests
 scripts/build-app.sh     # build/EQ.app, ad-hoc signed
 scripts/smoke.sh         # starts the daemon against a scratch config; play something first
 ```
