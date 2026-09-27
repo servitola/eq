@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.7 — 2026-09-27
+
 ### Changed
 
 - Device and sample-rate events are coalesced into one check 150 ms after the last of them,
