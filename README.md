@@ -150,8 +150,8 @@ away from. A save that changes nothing and the daemon's device-name refresh keep
 branch. Editing `eq.json` by hand while stepped back makes that edit the latest version the
 next time you run `eq undo` or `eq redo`; the version it started from and the previous latest
 both go into the history. Both commands print the current device's curve. `eq history` lists
-every saved version with its time and a one-line curve summary, marking the current position
-with `←`; `eq undo --list` is kept as an alias for it. Undo and redo themselves never reorder
+every saved version with its time and a one-line curve summary — `off` when EQ was off in that
+version, `pref …` when bass, treble or tilt were set — marking the current position with `←`; `eq undo --list` is kept as an alias for it. Undo and redo themselves never reorder
 the backup files — they move only `eq.json` and two small bookkeeping files beside it,
 `eq.json.pos` and `eq.json.redo`.
 

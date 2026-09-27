@@ -56,6 +56,15 @@ final class FilterTests: XCTestCase {
         XCTAssertEqual(list.prefix(2).map(\.origin), [.import, .import])
     }
 
+    func testRemovingTheLastImportedFilterClearsTheImportLabel() throws {
+        try importFixture()
+        run("filter", "add", "peak", "1k", "1")
+        XCTAssertEqual(run("filter", "rm", "11").exitCode, 0)
+        XCTAssertNotNil(try context.store.load().devices["BUILTIN"]?.imported, "imported filters remain")
+        XCTAssertEqual(run("filter", "rm", "all").exitCode, 0)
+        XCTAssertNil(try context.store.load().devices["BUILTIN"]?.imported)
+    }
+
     func testAddStoresAHandFilterWithTheGivenQ() throws {
         let result = run("filter", "add", "peak", "3k", "-2", "2")
         XCTAssertEqual(result.exitCode, 0, result.output)

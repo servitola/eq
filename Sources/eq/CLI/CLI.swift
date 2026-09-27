@@ -724,13 +724,16 @@ enum CLI {
                 line += "  " + Table.compactGains(profile.bands)
                 line += "  preamp " + Paint.ink(Paint.gain(profile.preamp), Table.gain(profile.preamp))
                 if !profile.filters.isEmpty { line += Paint.ink(.cyan, "  +\(profile.filters.count) filters") }
+                if let layer = profile.preference, !layer.isFlat { line += "  pref " + Table.preference(layer) }
+                if !config.enabled { line += "  " + Paint.ink(.yellow, "off") }
                 if let mark = presetMark(profile, config) { line += "  " + Table.presetLabel(mark) }
             } else if config == nil {
                 line += "  " + Paint.ink(.red, "unreadable")
             }
             if index == position { line += Paint.ink(.green, " ←") }
             lines.append(line)
-            rows.append(HistoryRow(index: index, path: path, date: date, profile: profile, current: index == position))
+            rows.append(HistoryRow(index: index, path: path, date: date, enabled: config?.enabled, profile: profile,
+                                   current: index == position))
         }
 
         if let latest = ctx.store.latestVersion() {

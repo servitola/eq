@@ -511,6 +511,19 @@ final class PresetCLITests: XCTestCase {
         XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 1, "redo reaches the hand edit")
     }
 
+    func testHistoryRowsShowOffAndPreference() throws {
+        run("off")
+        run("on")
+        run("bass", "3")
+        let lines = run("history").output.components(separatedBy: "\n")
+        XCTAssertTrue(lines[0].contains("pref bass +3.0 dB"), "\(lines)")
+        XCTAssertFalse(lines[0].contains("off"), "\(lines)")
+        XCTAssertFalse(lines[1].contains("pref"), "\(lines)")
+        XCTAssertTrue(lines[2].contains("  off"), "the version saved while off says so: \(lines)")
+        let entries = try XCTUnwrap(try json("history")["entries"] as? [[String: Any]])
+        XCTAssertEqual(entries.map { $0["enabled"] as? Bool }, [true, true, false, true])
+    }
+
     func testUndoWithoutBackup() throws {
         let result = run("undo")
         XCTAssertEqual(result.exitCode, 1)

@@ -53,6 +53,9 @@ extension CLI {
         case "rm":
             guard operands.count == 1 else { throw CLIError.usage("eq filter rm <n>|all [--device DEVICE]") }
             return try editProfile(explicit, ctx) { profile in
+                let hadImported = profile.filters.contains { $0.origin == .import }
+                // A GraphicEQ import has no filters, so the label goes only with the last imported filter.
+                defer { if hadImported, !profile.filters.contains(where: { $0.origin == .import }) { profile.imported = nil } }
                 if operands[0].lowercased() == "all" {
                     let count = profile.filters.count
                     profile.filters = []

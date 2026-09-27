@@ -10,7 +10,8 @@ its entries under a dated version.
 - `eq filter` edits parametric filters by hand: `eq filter` lists them, `eq filter add <type>
   <freq> <gain> [q]` adds one (peak, lowshelf, highshelf, lowpass, highpass, notch, bandpass;
   Q defaults to 1.41 for peak/notch/bandpass, 0.707 otherwise), `eq filter set <n>
-  freq=… gain=… q=… type=…` changes one, `eq filter rm <n>|all` removes. All take `--device`
+  freq=… gain=… q=… type=…` changes one, `eq filter rm <n>|all` removes (removing the last
+  imported filter also drops the `imported:` label). All take `--device`
   and `--json`. `eq` shows a `source` column, `import` or `hand`; the config stores it as
   `"origin"` on each filter.
 - Bass, treble and tilt on top of the curve, as AutoEq defines them: `eq bass <gain>` (low shelf
@@ -32,8 +33,9 @@ its entries under a dated version.
   `transparency-mode` or `sample-2`. Without it, the untagged entry wins, then ANC on; a
   model with only other variants lists them and asks.
 - `eq redo` steps forward again after `eq undo`, and `eq history` lists every saved version
-  with its time and a one-line curve summary, marking the current position with `←`
-  (`eq undo --list` is kept as an alias). All three take `--json`.
+  with its time and a one-line curve summary, `off` when EQ was off and `pref …` when bass,
+  treble or tilt were set, marking the current position with `←` (`eq undo --list` is kept as
+  an alias). All three take `--json`; history entries carry `enabled`.
 
 ### Changed
 
@@ -55,7 +57,7 @@ its entries under a dated version.
   `warning` when the undo state had to be reset) instead of `{restored, device, source,
   profile}`; `device`, `source` and `profile` are omitted when no output device is found.
 - **Breaking:** `eq history --json` and `eq undo --list --json` print `{position, entries:
-  [{index, path, date, profile, current}]}` instead of `{backups: [{index, path, date,
+  [{index, path, date, enabled, profile, current}]}` instead of `{backups: [{index, path, date,
   profile}]}`; entry 0 is the latest version.
 
 ## 2026.09.27.8 — 2026-09-27
