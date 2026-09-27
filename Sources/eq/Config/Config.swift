@@ -13,12 +13,14 @@ struct Profile: Codable, Equatable {
     var bands: [Double]
     var filters: [Filter]
     var imported: String?
+    var preset: String?
 
-    init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil) {
+    init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil, preset: String? = nil) {
         self.name = name; self.preamp = preamp; self.bands = bands; self.filters = filters; self.imported = imported
+        self.preset = preset
     }
 
-    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported }
+    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -27,6 +29,13 @@ struct Profile: Codable, Equatable {
         bands = try c.decode([Double].self, forKey: .bands)
         filters = try c.decodeIfPresent([Filter].self, forKey: .filters) ?? []
         imported = try c.decodeIfPresent(String.self, forKey: .imported)
+        preset = try c.decodeIfPresent(String.self, forKey: .preset)
+    }
+
+    /// `==` stays exact so the daemon still sees a renamed device or a new preset label as a change;
+    /// "modified" is about what you hear.
+    func sameCurve(as other: Profile) -> Bool {
+        bands == other.bands && preamp == other.preamp && filters == other.filters
     }
 
     static let flat = Profile(name: nil, preamp: 0, bands: Array(repeating: 0, count: Config.bandFrequencies.count))
@@ -49,6 +58,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
     case preampOutOfRange(String, Double)
     case invalidJSON(String)
     case filterOutOfRange(String, String)
+    case badPresetName(String)
 
     var description: String {
         switch self {
@@ -58,6 +68,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .preampOutOfRange(let key, let g): return "profile \"\(key)\" has preamp \(g) dB outside \(Config.preampRange.lowerBound)…\(Config.preampRange.upperBound)"
         case .invalidJSON(let why): return "config is not valid JSON: \(why)"
         case .filterOutOfRange(let key, let what): return "profile \"\(key)\" has a filter with \(what) outside the allowed range"
+        case .badPresetName(let name): return "preset name \"\(name)\" is not 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ . (or repeats another name)"
         }
     }
 }
@@ -81,6 +92,31 @@ struct Config: Codable, Equatable {
     var enabled: Bool
     var `default`: Profile
     var devices: [String: Profile]
+    // nil, not empty, means "never seeded": a user who deleted every preset keeps none.
+    var presets: [String: Profile]? = nil
+
+    static let presetNameLength = 1...32
+    private static let presetNameCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))
+
+    static func isValidPresetName(_ name: String) -> Bool {
+        presetNameLength.contains(name.count) && name.unicodeScalars.allSatisfy(presetNameCharacters.contains)
+    }
+
+    static let seedPresets: [String: Profile] = [
+        "favourite": Profile(name: nil, preamp: 0, bands: screenshotCurve),
+        "flat": Profile.flat,
+    ]
+
+    mutating func seedPresetsIfNeeded() -> Bool {
+        guard presets == nil else { return false }
+        presets = Self.seedPresets
+        return true
+    }
+
+    func preset(named query: String) -> (name: String, profile: Profile)? {
+        let needle = query.lowercased()
+        return presets?.first { $0.key.lowercased() == needle }.map { ($0.key, $0.value) }
+    }
 
     static func initial(builtInUID: String?, builtInName: String?) -> Config {
         let curve = Profile(name: nil, preamp: 0, bands: screenshotCurve)
@@ -88,7 +124,7 @@ struct Config: Codable, Equatable {
         if let builtInUID {
             devices[builtInUID] = Profile(name: builtInName, preamp: 0, bands: screenshotCurve)
         }
-        return Config(version: 1, enabled: true, default: curve, devices: devices)
+        return Config(version: 1, enabled: true, default: curve, devices: devices, presets: seedPresets)
     }
 
     func validate() throws {
@@ -96,6 +132,11 @@ struct Config: Codable, Equatable {
         try Self.validate(profile: `default`, key: "default")
         for (uid, profile) in devices.sorted(by: { $0.key < $1.key }) {
             try Self.validate(profile: profile, key: uid)
+        }
+        var seen = Set<String>()
+        for (name, profile) in (presets ?? [:]).sorted(by: { $0.key < $1.key }) {
+            guard Self.isValidPresetName(name), seen.insert(name.lowercased()).inserted else { throw ConfigError.badPresetName(name) }
+            try Self.validate(profile: profile, key: "preset \(name)")
         }
     }
 

@@ -68,6 +68,9 @@ final class Daemon {
         let builtIn = AudioDeviceManager.builtInOutputDevice()
         do {
             config = try store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
+            if config.seedPresetsIfNeeded() {
+                do { try store.save(config, backup: false) } catch { Log.write("cannot seed presets: \(error)") }
+            }
         } catch {
             Log.write("config unreadable (\(error)); starting with the built-in curve")
             config = Config.initial(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
@@ -252,7 +255,7 @@ final class Daemon {
         if var fresh = try? store.load(), var known = fresh.devices[device.uid], known.name != device.name {
             known.name = device.name
             fresh.devices[device.uid] = known
-            try? store.save(fresh)
+            try? store.save(fresh, backup: false)
         }
     }
 

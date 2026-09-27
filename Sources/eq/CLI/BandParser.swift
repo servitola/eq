@@ -15,6 +15,10 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case importNotFound(String)
     case importAmbiguous([String])
     case network(String)
+    case noSuchPreset(String)
+    case badPresetName(String)
+    case presetExists(String)
+    case noBackup
 
     var description: String {
         switch self {
@@ -32,6 +36,10 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .importNotFound(let what): return "AutoEq has no ParametricEQ.txt for \(what)"
         case .importAmbiguous(let names): return "several models match — narrow the name:\n  \(names.joined(separator: "\n  "))"
         case .network(let why): return "network: \(why)"
+        case .noSuchPreset(let name): return "no preset \"\(name)\" — see `eq preset`"
+        case .badPresetName(let name): return "bad preset name \"\(name)\": 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ ."
+        case .presetExists(let name): return "preset \"\(name)\" already exists"
+        case .noBackup: return "nothing to undo — no backup of the config yet"
         }
     }
 }

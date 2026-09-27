@@ -55,6 +55,11 @@ enum CLI {
       eq stream                   meter frames as JSON lines, 30 per second, until Ctrl-C
       eq watch [--zones]          the live equalizer; tune with 1…0, h for keys, q to quit
       eq zones                    which bands carry which instruments, under the current curve
+      eq preset                   list presets; the current device's one marked *
+      eq preset save|use <name> [--device Q]   save the curve as <name> / apply <name>
+      eq preset show|rm <name>    show / delete a preset
+      eq preset rename <old> <new>
+      eq undo [--list]            restore the config before the last change (twice = redo)
     bands: \(Config.bandLabels.joined(separator: " "))   gains: \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound) dB
     --json on any command: the answer as JSON
     """
@@ -119,6 +124,8 @@ enum CLI {
         case "stream": return try stream(rest, ctx)
         case "watch": return try watch(rest, ctx)
         case "zones": return try zones(rest, ctx)
+        case "preset": return try preset(rest, ctx)
+        case "undo": return try undo(rest, ctx)
         case "help", "-h", "--help": return Output(usage, UsageReport(usage: usage))
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
@@ -131,15 +138,18 @@ enum CLI {
         let current = try currentDevice(ctx)
         let resolved = config.profile(forDeviceUID: current.uid)
         let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
-        let table = Table.profile(resolved.profile, header: "\(current.name) (\(sourceLabel))")
+        let mark = presetMark(resolved.profile, config)
+        let table = Table.profile(resolved.profile, header: "\(current.name) (\(sourceLabel))", preset: mark)
         let source = resolved.source == .device ? "device" : "default"
-        return Output(table, ProfileReport(device: DeviceRef(uid: current.uid, name: current.name), source: source, profile: resolved.profile))
+        return Output(table, ProfileReport(device: DeviceRef(uid: current.uid, name: current.name), source: source,
+                                           profile: resolved.profile, preset: mark?.name))
     }
 
     private static func initialise(_ ctx: CLIContext) throws -> Output {
         let builtIn = ctx.connectedDevices().first { $0.transport == "builtin" }
         let existed = ctx.store.exists()
-        _ = try ctx.store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
+        var config = try ctx.store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
+        if config.seedPresetsIfNeeded() { try ctx.store.save(config, backup: false) }
         let text = existed ? "config already exists: \(ctx.store.url.path)" : "wrote \(ctx.store.url.path)"
         return Output(text, InitReport(path: ctx.store.url.path, created: !existed))
     }
@@ -154,7 +164,7 @@ enum CLI {
         for (index, gain) in assignments { profile.bands[index] = gain }
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        let table = Table.profile(profile, header: target.name)
+        let table = Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
@@ -169,7 +179,7 @@ enum CLI {
         profile.preamp = gain
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        let table = Table.profile(profile, header: target.name)
+        let table = Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
@@ -182,7 +192,7 @@ enum CLI {
         let profile = Profile(name: target.name, preamp: 0, bands: Profile.flat.bands)
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        let table = Table.profile(profile, header: target.name)
+        let table = Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
@@ -195,7 +205,7 @@ enum CLI {
         profile.name = target.name
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
-        let text = Paint.ink(.green, "copied \(current.name) → \(target.name)") + "\n" + Table.profile(profile, header: target.name)
+        let text = Paint.ink(.green, "copied \(current.name) → \(target.name)") + "\n" + Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
@@ -249,7 +259,7 @@ enum CLI {
             profile.preamp = 0
             config.setProfile(profile, forDeviceUID: target.uid)
             try ctx.store.save(config)
-            let table = Table.profile(profile, header: target.name)
+            let table = Table.profile(profile, header: target.name, preset: presetMark(profile, config))
             return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
         }
 
@@ -277,7 +287,7 @@ enum CLI {
 
         var lines = [Paint.ink(.green, "imported \(origin) (\(result.format))")]
         lines.append(contentsOf: warnings.map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
-        lines.append(Table.profile(profile, header: target.name))
+        lines.append(Table.profile(profile, header: target.name, preset: presetMark(profile, config)))
         let report = ImportReport(
             device: DeviceRef(uid: target.uid, name: target.name),
             source: "device",
@@ -448,6 +458,147 @@ enum CLI {
         try ctx.store.save(config)
     }
 
+    private static func preset(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
+        var config = try loadConfig(ctx)
+        _ = config.seedPresetsIfNeeded()
+        let usage = "eq preset [save|use|show|rm <name> | rename <old> <new>] [--device Q]"
+        func target() throws -> Target { if let explicit { return explicit } else { return try currentDevice(ctx) } }
+        func existing(_ name: String) throws -> (name: String, profile: Profile) {
+            guard let found = config.preset(named: name) else { throw CLIError.noSuchPreset(name) }
+            return found
+        }
+        func validName(_ name: String) throws -> String {
+            guard Config.isValidPresetName(name) else { throw CLIError.badPresetName(name) }
+            return name
+        }
+        let takesDevice = ["save", "use"].contains(rest.first ?? "")
+        guard explicit == nil || takesDevice else { throw CLIError.usage(usage) }
+
+        switch (rest.first, rest.count) {
+        case (nil, _):
+            return presetList(config, ctx)
+        case ("save", 2):
+            let name = try validName(rest[1])
+            let target = try target()
+            var profile = editableProfile(config, target)
+            if let old = config.preset(named: name) { config.presets?[old.name] = nil }
+            config.presets?[name] = Profile(name: nil, preamp: profile.preamp, bands: profile.bands,
+                                            filters: profile.filters, imported: profile.imported)
+            profile.preset = name
+            config.setProfile(profile, forDeviceUID: target.uid)
+            try ctx.store.save(config)
+            let text = Paint.ink(.green, "saved ") + Paint.ink(.bold, name) + "\n"
+                + Table.profile(profile, header: target.name, preset: (name, false))
+            return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile, preset: name))
+        case ("use", 2):
+            let found = try existing(rest[1])
+            let target = try target()
+            var profile = found.profile
+            profile.name = target.name
+            profile.preset = found.name
+            config.setProfile(profile, forDeviceUID: target.uid)
+            try ctx.store.save(config)
+            let table = Table.profile(profile, header: target.name, preset: (found.name, false))
+            return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile, preset: found.name))
+        case ("show", 2):
+            let found = try existing(rest[1])
+            return Output(Table.profile(found.profile, header: found.name), PresetShowReport(preset: found.name, profile: found.profile))
+        case ("rm", 2):
+            let found = try existing(rest[1])
+            config.presets?[found.name] = nil
+            renamePresetReferences(&config, from: found.name, to: nil)
+            try ctx.store.save(config)
+            return Output(Paint.ink(.green, "removed ") + Paint.ink(.bold, found.name), PresetRemovedReport(removed: found.name))
+        case ("rename", 3):
+            let found = try existing(rest[1])
+            let name = try validName(rest[2])
+            if let clash = config.preset(named: name), clash.name != found.name { throw CLIError.presetExists(clash.name) }
+            config.presets?[found.name] = nil
+            config.presets?[name] = found.profile
+            renamePresetReferences(&config, from: found.name, to: name)
+            try ctx.store.save(config)
+            let text = Paint.ink(.green, "renamed ") + Paint.ink(.bold, found.name) + " → " + Paint.ink(.bold, name)
+            return Output(text, PresetRenamedReport(from: found.name, to: name))
+        default:
+            throw CLIError.usage(usage)
+        }
+    }
+
+    private static func presetList(_ config: Config, _ ctx: CLIContext) -> Output {
+        let profile = (try? currentDevice(ctx)).map { config.profile(forDeviceUID: $0.uid).profile }
+        let mark = profile.flatMap { presetMark($0, config) }
+        let entries = (config.presets ?? [:]).sorted { $0.key.lowercased() < $1.key.lowercased() }
+        let width = entries.map(\.key.count).max() ?? 0
+        let lines = entries.map { name, preset -> String in
+            let isCurrent = name == mark?.name
+            let marker = isCurrent ? Paint.ink(.green, "*") + " " : "  "
+            let label = Table.presetLabel((name, isCurrent && mark?.modified == true))
+            let pad = String(repeating: " ", count: width - name.count + (isCurrent && mark?.modified == true ? 0 : 1))
+            let filters = preset.filters.isEmpty ? "" : Paint.ink(.cyan, "  +\(preset.filters.count) filters")
+            let preamp = "preamp " + Paint.ink(Paint.gain(preset.preamp), Table.gain(preset.preamp))
+            return "\(marker)\(label)\(pad)  \(Table.compactGains(preset.bands))  \(preamp)\(filters)"
+        }
+        let report = PresetsReport(current: mark?.name, presets: entries.map { PresetEntry(name: $0.key, profile: $0.value) })
+        return Output(lines.joined(separator: "\n"), report)
+    }
+
+    private static func renamePresetReferences(_ config: inout Config, from old: String, to new: String?) {
+        let needle = old.lowercased()
+        if config.default.preset?.lowercased() == needle { config.default.preset = new }
+        for (uid, profile) in config.devices where profile.preset?.lowercased() == needle {
+            config.devices[uid]?.preset = new
+        }
+    }
+
+    private static func undo(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty || args == ["--list"] else { throw CLIError.usage("eq undo [--list]") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        let device = try? currentDevice(ctx)
+        if args == ["--list"] { return backupList(device, ctx) }
+        guard let newest = ctx.store.backups().first(where: { $0.index == 1 }) else { throw CLIError.noBackup }
+        try ctx.store.restore(backup: 1)
+        let config = try ctx.store.load()
+        let heading = Paint.ink(.green, "restored the config from \(backupTime(newest.date))")
+        guard let device else {
+            return Output(heading, ["restored": newest.url.path])
+        }
+        let resolved = config.profile(forDeviceUID: device.uid)
+        let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
+        let table = Table.profile(resolved.profile, header: "\(device.name) (\(sourceLabel))", preset: presetMark(resolved.profile, config))
+        let report = UndoReport(restored: newest.url.path, device: DeviceRef(uid: device.uid, name: device.name),
+                                source: resolved.source == .device ? "device" : "default", profile: resolved.profile)
+        return Output(heading + "\n" + table, report)
+    }
+
+    private static func backupList(_ device: Target?, _ ctx: CLIContext) -> Output {
+        var lines: [String] = []
+        var rows: [BackupRow] = []
+        for backup in ctx.store.backups() {
+            let config = try? ctx.store.load(backup: backup.index)
+            let profile = config.flatMap { config in device.map { config.profile(forDeviceUID: $0.uid).profile } }
+            var line = String(format: "%3d  ", backup.index) + Paint.ink(.dim, backupTime(backup.date))
+            if let config, let profile {
+                line += "  " + Table.compactGains(profile.bands)
+                line += "  preamp " + Paint.ink(Paint.gain(profile.preamp), Table.gain(profile.preamp))
+                if !profile.filters.isEmpty { line += Paint.ink(.cyan, "  +\(profile.filters.count) filters") }
+                if let mark = presetMark(profile, config) { line += "  " + Table.presetLabel(mark) }
+            } else if config == nil {
+                line += "  " + Paint.ink(.red, "unreadable")
+            }
+            lines.append(line)
+            rows.append(BackupRow(index: backup.index, path: backup.url.path, date: backup.date, profile: profile))
+        }
+        let text = lines.isEmpty ? "no backups yet" : lines.joined(separator: "\n")
+        return Output(text, BackupsReport(backups: rows))
+    }
+
+    private static func backupTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
     /// Laid out like a wide watch frame without the meter, so the spans line up under the labels.
     private static func zones(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq zones") }
@@ -484,6 +635,11 @@ enum CLI {
         }
         guard let device = ctx.defaultOutput() else { throw CLIError.noCurrentDevice }
         return device
+    }
+
+    private static func presetMark(_ profile: Profile, _ config: Config) -> Table.PresetMark? {
+        guard let name = profile.preset, let preset = config.preset(named: name) else { return nil }
+        return (preset.name, !profile.sameCurve(as: preset.profile))
     }
 
     private static func editableProfile(_ config: Config, _ target: Target) -> Profile {

@@ -31,9 +31,12 @@ enum Table {
         return whole > 0 ? "+\(whole)" : "\(whole)"
     }
 
-    static func profile(_ profile: Profile, header: String) -> String {
+    typealias PresetMark = (name: String, modified: Bool)
+
+    static func profile(_ profile: Profile, header: String, preset: PresetMark? = nil) -> String {
         let preamp = Paint.ink(Paint.gain(profile.preamp), gain(profile.preamp))
-        var rows = ["\(paintedHeader(header))   preamp: \(preamp) dB"]
+        let painted = preset.map { paintedHeader(header, preset: $0) } ?? paintedHeader(header)
+        var rows = ["\(painted)   preamp: \(preamp) dB"]
         // Piped output keeps the v1 three-line shape that scripts already parse.
         if Paint.enabled {
             rows.append(profile.bands.map { Paint.ink(Paint.gain($0), Paint.glyph(for: $0).leftPadded(to: width)) }.joined())
@@ -56,6 +59,23 @@ enum Table {
             return Paint.ink(.bold, String(header.dropLast(defaultSuffix.count))) + Paint.ink(.yellow, defaultSuffix)
         }
         return Paint.ink(.bold, header)
+    }
+
+    static func presetLabel(_ preset: PresetMark) -> String {
+        Paint.ink(.bold, preset.name) + (preset.modified ? Paint.ink(.yellow, "*") : "")
+    }
+
+    /// "Name (own profile · favourite*)", or "Name (favourite)" for a bare header.
+    private static func paintedHeader(_ header: String, preset: PresetMark) -> String {
+        for (suffix, ink) in [("own profile", Paint.Ink.dim), ("default profile", .yellow)] where header.hasSuffix(" (\(suffix))") {
+            let base = String(header.dropLast(suffix.count + 3))
+            return Paint.ink(.bold, base) + Paint.ink(ink, " (\(suffix) · ") + presetLabel(preset) + Paint.ink(ink, ")")
+        }
+        return Paint.ink(.bold, header) + Paint.ink(.dim, " (") + presetLabel(preset) + Paint.ink(.dim, ")")
+    }
+
+    static func compactGains(_ bands: [Double]) -> String {
+        bands.map { Paint.ink(Paint.gain($0), gain($0)) }.joined(separator: " ")
     }
 
     private static func filters(_ filters: [Filter], imported: String?) -> String {

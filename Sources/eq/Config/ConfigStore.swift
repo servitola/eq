@@ -19,8 +19,30 @@ struct ConfigStore {
         FileManager.default.fileExists(atPath: url.path)
     }
 
+    static let backupCount = 10
+
+    func backupURL(_ index: Int) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).\(index)")
+    }
+
+    func backups() -> [(index: Int, url: URL, date: Date)] {
+        (1...Self.backupCount).compactMap { index in
+            let backup = backupURL(index)
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: backup.path),
+                  let date = attributes[.modificationDate] as? Date else { return nil }
+            return (index, backup, date)
+        }
+    }
+
     func load() throws -> Config {
-        let data = try Data(contentsOf: url)
+        try Self.decode(Data(contentsOf: url))
+    }
+
+    func load(backup index: Int) throws -> Config {
+        try Self.decode(Data(contentsOf: backupURL(index)))
+    }
+
+    private static func decode(_ data: Data) throws -> Config {
         let config: Config
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
@@ -31,13 +53,40 @@ struct ConfigStore {
         return config
     }
 
-    func save(_ config: Config) throws {
+    func save(_ config: Config, backup: Bool = true) throws {
         try config.validate()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(config)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if backup, let previous = try? Data(contentsOf: url), previous != data {
+            try rotateBackups()
+            // Copied, not moved: the daemon's watcher must never catch the directory without a config.
+            // copyItem also keeps the version's own modification time, which `eq undo --list` shows.
+            try FileManager.default.copyItem(at: url, to: backupURL(1))
+        }
         try data.write(to: url, options: .atomic)
+    }
+
+    private func rotateBackups() throws {
+        let files = FileManager.default
+        try? files.removeItem(at: backupURL(Self.backupCount))
+        for index in stride(from: Self.backupCount - 1, through: 1, by: -1) where files.fileExists(atPath: backupURL(index).path) {
+            try files.moveItem(at: backupURL(index), to: backupURL(index + 1))
+        }
+    }
+
+    /// Swaps rather than rotates, so restoring `.1` twice returns to where it started.
+    func restore(backup index: Int) throws {
+        let backup = backupURL(index)
+        let restored = try Data(contentsOf: backup)
+        _ = try Self.decode(restored)
+        // An atomic swap keeps both files' times and never leaves the config missing; filesystems
+        // without RENAME_SWAP fall back to two writes.
+        if renamex_np(backup.path, url.path, UInt32(RENAME_SWAP)) == 0 { return }
+        let current = try Data(contentsOf: url)
+        try current.write(to: backup, options: .atomic)
+        try restored.write(to: url, options: .atomic)
     }
 
     func loadOrCreate(builtInUID: String?, builtInName: String?) throws -> Config {
