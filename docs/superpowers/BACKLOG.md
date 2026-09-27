@@ -22,3 +22,10 @@
 - ≤ 8 rows: shrink the meter below 4 rows or drop the footer so nothing scrolls.
 - Option C of watch was done as keyboard tuning; arrows for band select + fine steps later.
 - Ctrl‑Z in `eq watch` leaves the alternate screen up.
+
+## Follow-ups from the v7 review
+- Esc then `[`/`O` in the same frame waits for a sequence and swallows the next key (even `q`).
+- A refocus while the device is settling (0 Hz) clears the solo; watch keeps "listening" without SOLO.
+- A stray UTF-8 lead byte delays the next ASCII key until enough bytes arrive.
+- A same-user connect flood keeps the accept loop busy (accept-and-close until EAGAIN).
+- Listening to wide instruments (kick, voice) isolates little: consider soloing each range, not the outer span.

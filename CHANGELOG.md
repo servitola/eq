@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.8 — 2026-09-27
+
 ### Added
 
 - `eq watch` focuses on one instrument: `]`/`Tab` and `[` pick it, `Esc` lets go. The header
