@@ -61,6 +61,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
+| `eq watch` | the live equalizer in the terminal; `q` to quit |
+| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C |
 
 `--json` works on any command; the answer becomes one JSON document on stdout, exit codes
 unchanged.
@@ -69,6 +71,26 @@ Bands are `32hz 64hz 125hz 250hz 500hz 1khz 2khz 4khz 8khz 16khz`, gains `-12` t
 A device without its own curve gets `default`; the first `eq set` on it makes a copy.
 Everything lives in `~/.config/eq/eq.json`, which you can also edit by hand — the daemon
 picks it up within a tenth of a second.
+
+## Watch
+
+```
+BE-RCA · 44.1 kHz · preamp -1.5 dB                                    LIMIT
+  █     █                                                 (12 rows)
+  █     █     █                 ▬
+  █ ▬   █     █     █           ░
+  █     █ ▬   █ ▬   █ ▬   █     ░     ░           ▬     ▬
+  ░     █     █     █     █     █ ▬   ░     ░ ▬   █     █
+  ░     ░     ░     ░     ░     ░     ░     ░     ░     ░
+  32Hz  64Hz 125Hz 250Hz 500Hz  1kHz  2kHz  4kHz  8kHz 16kHz
+  +4.8  +4.0  +4.2  +2.3  +0.0  -3.1  +0.0  +0.0  +3.1  +2.4
+```
+
+`eq watch` draws all ten bands live at ~30 fps: `█`, in the gain's own colour, is the level
+after the EQ; `░` shows where the input reaches above it (a cut); `▬` marks the slider
+position from the curve. `eq stream` is the same numbers as JSON lines instead, for anyone
+who wants to draw their own. Both need a running daemon; `watch` needs a TTY at least 64
+columns by 16 rows and exits on `q` or Ctrl-C.
 
 ## Colour
 
@@ -133,6 +155,9 @@ Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 
 512 IO frames halves context switches but more than doubles CPU, so 256 stays the default;
 `EQ_IO_FRAMES` is the escape hatch to re-measure on other hardware (see "How it works" above).
 
+Zero cost while nobody watches: the meter and its 30 Hz timer exist only while a client is
+connected.
+
 ## Limits
 
 - macOS 14.4 or newer, Apple Silicon. Tested on macOS 26.6.
@@ -145,7 +170,7 @@ Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 
 ## Development
 
 ```sh
-swift test               # 114 unit tests
+swift test               # 140 unit tests
 scripts/build-app.sh     # build/EQ.app, ad-hoc signed
 scripts/smoke.sh         # starts the daemon against a scratch config; play something first
 ```

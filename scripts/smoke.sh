@@ -1,8 +1,9 @@
 #!/bin/zsh
-# Launch the daemon against a scratch config, wait for a live tap, edit a band through the
-# CLI, confirm the daemon picked it up and frames keep flowing while counting status.json
-# writes over 20 s (the eq set + at most one heartbeat should land ≤ 2), run doctor and an
-# import, then hold 12 s of silence to prove the watchdog stays quiet.
+# Launch the daemon against a scratch config, wait for a live tap, pull 2 s of `eq stream`
+# to prove the meter socket works end to end, edit a band through the CLI, confirm the
+# daemon picked it up and frames keep flowing while counting status.json writes over 20 s
+# (the eq set + at most one heartbeat should land ≤ 2), run doctor and an import, then hold
+# 12 s of silence to prove the watchdog stays quiet.
 # EQ_SMOKE_TONE=1: the script plays its own tone and stops it for the silence window.
 # Without it the caller supplies the audio and must stop playback when the script prints
 # "silence window"; the script never touches an afplay it did not start.
@@ -52,6 +53,16 @@ if [[ $state != running ]]; then
   exit 1
 fi
 
+# Runs during the tone, ahead of the status-write window below — nothing pins it there.
+( "$eq" stream >"$scratch/stream.jsonl" 2>/dev/null & sp=$!; sleep 2; kill $sp 2>/dev/null; wait $sp 2>/dev/null || true )
+stream_lines=$(wc -l < "$scratch/stream.jsonl" | tr -d ' ')
+(( stream_lines >= 20 )) || { echo "stream produced $stream_lines lines/2s, want >= 20"; cat "$scratch/daemon.log"; exit 1 }
+/usr/bin/python3 -c 'import json,sys; d=json.loads(open(sys.argv[1]).readline()); assert len(d["in"]) == 10 and len(d["out"]) == 10 and len(d["gains"]) == 10, d' "$scratch/stream.jsonl" \
+  || { echo "stream line missing 10-element in/out/gains"; exit 1 }
+grep -q "meter: 1 client" "$scratch/daemon.log" || { echo "daemon log missing meter: 1 client"; cat "$scratch/daemon.log"; exit 1 }
+sleep 1
+grep -q "meter: 0 clients" "$scratch/daemon.log" || { echo "daemon log missing meter: 0 clients"; cat "$scratch/daemon.log"; exit 1 }
+
 frames1=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["framesProcessed"])')
 status_mtime=$(stat -f %m "$EQ_STATUS")
 status_writes=0
@@ -90,4 +101,4 @@ grep -q "IO stalled" "$scratch/daemon.log" && { echo "watchdog fired on silence"
 rss=$(ps -o rss= -p $pid | tr -d ' ')
 (( rss / 1024 <= 30 )) || { echo "RSS $((rss / 1024)) MB exceeds the 30 MB budget"; exit 1 }
 callbacks=$("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["callbacks"])')
-echo "smoke ok: running on $("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["device"]["name"])'), frames $frames1 → $frames2, callbacks $callbacks, RSS $((rss / 1024)) MB, status writes $status_writes/20s"
+echo "smoke ok: running on $("$eq" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["device"]["name"])'), frames $frames1 → $frames2, callbacks $callbacks, RSS $((rss / 1024)) MB, status writes $status_writes/20s, stream $stream_lines lines/2s"

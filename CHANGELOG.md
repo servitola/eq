@@ -5,6 +5,15 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq watch`: the ten bands live in the terminal, ~30 fps, in the sixteen colours — input and
+  output level per band plus the slider position; `q` or Ctrl-C exits.
+- `eq stream`: the same numbers as JSON lines on stdout, 30 a second, for anyone who wants to
+  draw their own.
+- A meter socket at `~/.cache/eq/meter.sock`, created by the daemon when it starts and removed
+  on exit; the band meter and its 30 Hz timer run only while a client is connected.
+
 ## 2026.09.27.2 — 2026-09-27
 
 ### Added
