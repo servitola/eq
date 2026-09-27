@@ -654,10 +654,11 @@ enum CLI {
         guard args.isEmpty || args == ["--list"] else { throw CLIError.usage("eq undo [--list]") }
         guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
         if args == ["--list"] { return try history([], ctx) }
+        let note = try ctx.store.reconcileHistory()
         let target = ctx.store.historyPosition() + 1
         do {
-            guard let stepped = try ctx.store.stepBack() else { throw CLIError.noBackup }
-            return try steppedOutput(stepped, ctx)
+            guard let stepped = try ctx.store.stepBack() else { throw noStep(.noBackup, note) }
+            return try steppedOutput(stepped, note: note, ctx)
         } catch is ConfigError {
             throw CLIError.unreadableBackup(target)
         }
@@ -666,19 +667,29 @@ enum CLI {
     private static func redo(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq redo") }
         guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        let note = try ctx.store.reconcileHistory()
         let target = max(ctx.store.historyPosition() - 1, 0)
         do {
-            guard let stepped = try ctx.store.stepForward() else { throw CLIError.noRedo }
-            return try steppedOutput(stepped, ctx)
+            guard let stepped = try ctx.store.stepForward() else { throw noStep(.noRedo, note) }
+            return try steppedOutput(stepped, note: note, ctx)
         } catch is ConfigError {
             throw CLIError.unreadableBackup(target)
         }
     }
 
-    private static func steppedOutput(_ stepped: (index: Int, date: Date), _ ctx: CLIContext) throws -> Output {
-        let heading = Paint.ink(.green, "restored the config from ") + Paint.ink(.dim, backupTime(stepped.date))
+    /// The reset note explains why there is suddenly nothing to redo, so it rides along with the error.
+    private static func noStep(_ error: CLIError, _ note: String?) -> Error {
+        guard let note else { return error }
+        FileHandle.standardError.write(Data("warning: \(note)\n".utf8))
+        return error
+    }
+
+    private static func steppedOutput(_ stepped: (index: Int, date: Date), note: String?, _ ctx: CLIContext) throws -> Output {
+        var heading = Paint.ink(.green, "restored the config from ") + Paint.ink(.dim, backupTime(stepped.date))
+        if let note { heading = "\(Paint.ink(.yellow, "warning:")) \(note)\n" + heading }
         guard let device = try? currentDevice(ctx) else {
-            return Output(heading, HistoryStepReport(position: stepped.index, date: stepped.date, device: nil, source: nil, profile: nil))
+            return Output(heading, HistoryStepReport(position: stepped.index, date: stepped.date, device: nil, source: nil,
+                                                     profile: nil, warning: note))
         }
         let config = try ctx.store.load()
         let resolved = config.profile(forDeviceUID: device.uid)
@@ -686,7 +697,8 @@ enum CLI {
         let table = Table.profile(resolved.profile, header: "\(device.name) (\(sourceLabel))", preset: presetMark(resolved.profile, config))
         let report = HistoryStepReport(position: stepped.index, date: stepped.date,
                                        device: DeviceRef(uid: device.uid, name: device.name),
-                                       source: resolved.source == .device ? "device" : "default", profile: resolved.profile)
+                                       source: resolved.source == .device ? "device" : "default", profile: resolved.profile,
+                                       warning: note)
         return Output(heading + "\n" + table, report)
     }
 

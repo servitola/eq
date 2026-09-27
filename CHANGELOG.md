@@ -43,9 +43,17 @@ its entries under a dated version.
   work. A typo now answers "did you mean" with the closest models instead of "no
   ParametricEQ.txt".
 - `eq undo` steps back one saved version at a time — repeat it to keep walking further back —
-  instead of toggling between the last two versions; a real edit after undoing (`eq set`,
-  `eq watch`, …) now drops the redo side instead of overwriting the version `eq undo` would
-  have brought back.
+  instead of toggling between the last two versions. No version is lost: a real edit after
+  undoing (`eq set`, `eq watch`, …) ends the redo side but puts the abandoned latest version
+  into `eq history`; a save that changes nothing and the daemon's device-name refresh keep it;
+  a hand edit of `eq.json` while stepped back becomes the latest version instead of being
+  overwritten by the next `eq undo` or `eq redo`.
+- **Breaking:** `eq undo --json` now prints `{position, date, device, source, profile}` (plus
+  `warning` when the undo state had to be reset) instead of `{restored, device, source,
+  profile}`; `device`, `source` and `profile` are omitted when no output device is found.
+- **Breaking:** `eq history --json` and `eq undo --list --json` print `{position, entries:
+  [{index, path, date, profile, current}]}` instead of `{backups: [{index, path, date,
+  profile}]}`; entry 0 is the latest version.
 
 ## 2026.09.27.8 — 2026-09-27
 

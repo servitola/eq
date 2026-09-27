@@ -142,12 +142,18 @@ the pre-presets file stays recoverable as `eq.json.1`.
 
 `eq undo` steps `eq.json` back one saved version — `.1` first, then `.2`, and so on with each
 further `eq undo`, refusing and leaving every file alone if a backup turns out not to be valid
-JSON. `eq redo` steps forward again, back towards the latest edit; any real edit in between
-(`eq set`, `eq watch`, …) abandons that redo branch, same as any other editor. Both print the
-current device's curve. `eq history` lists every saved version with its time and a one-line
-curve summary, marking the current position with `←`; `eq undo --list` is kept as an alias for
-it. The backup files themselves are never reordered by undo or redo — only `eq.json` and two
-small bookkeeping files beside it, `eq.json.pos` and `eq.json.redo`, move.
+JSON. `eq redo` steps forward again, back towards the latest edit. No version is lost: a new
+edit after `eq undo` (`eq set`, `eq watch`, …) ends the redo branch, but first puts the
+abandoned latest version into the history, just behind the version you edited — `eq undo`
+right after returns to what you edited, and `eq history` still lists the version you walked
+away from. A save that changes nothing and the daemon's device-name refresh keep the redo
+branch. Editing `eq.json` by hand while stepped back makes that edit the latest version the
+next time you run `eq undo` or `eq redo`; the version it started from and the previous latest
+both go into the history. Both commands print the current device's curve. `eq history` lists
+every saved version with its time and a one-line curve summary, marking the current position
+with `←`; `eq undo --list` is kept as an alias for it. Undo and redo themselves never reorder
+the backup files — they move only `eq.json` and two small bookkeeping files beside it,
+`eq.json.pos` and `eq.json.redo`.
 
 A whole `eq watch` session is one undo step: only its first save makes a backup, so after
 quitting, `eq undo` returns to the curve from before the session.

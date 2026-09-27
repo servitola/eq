@@ -200,6 +200,114 @@ final class BackupTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("eq.json.1")), "{ broken")
         XCTAssertEqual(store.historyPosition(), 0, "a refused step never moves the position")
     }
+
+    private func toggled(_ enabled: Bool) -> Config {
+        var config = config(preamp: 0)
+        config.enabled = enabled
+        return config
+    }
+
+    func testANoOpSaveAfterUndoKeepsRedo() throws {
+        try store.save(toggled(false))
+        try store.save(toggled(true))
+        try store.save(toggled(false))
+        XCTAssertEqual(try store.stepBack()?.index, 1)
+        XCTAssertTrue(try store.load().enabled)
+        try store.save(toggled(true))
+        XCTAssertEqual(store.historyPosition(), 1, "an unchanged save is not an edit")
+        XCTAssertEqual(try store.stepForward()?.index, 0)
+        XCTAssertFalse(try store.load().enabled, "redo still reaches the latest version")
+    }
+
+    func testAnEditAfterUndoKeepsTheAbandonedLatestInHistory() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        try store.save(config(preamp: -2))
+        _ = try store.stepBack()
+        try store.save(config(preamp: -9))
+        XCTAssertEqual(store.historyPosition(), 0)
+        XCTAssertEqual(try store.load(backup: 1).default.preamp, -1, "undo after the edit returns to what was edited")
+        XCTAssertEqual(try store.load(backup: 2).default.preamp, -2, "the abandoned latest version stays in history")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.redoURL.path))
+        XCTAssertEqual(try store.stepBack()?.index, 1)
+        XCTAssertEqual(try store.load().default.preamp, -1)
+    }
+
+    func testABackgroundSaveAfterUndoKeepsRedo() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        _ = try store.stepBack()
+        var renamed = try store.load()
+        renamed.default.name = "renamed by the daemon"
+        try store.save(renamed, backup: false)
+        XCTAssertEqual(store.historyPosition(), 1)
+        XCTAssertEqual(try store.stepForward()?.index, 0)
+        XCTAssertEqual(try store.load().default.preamp, -1)
+        XCTAssertEqual(store.backups().count, 1, "nothing was pushed into the chain")
+    }
+
+    func testAHandEditMidUndoBecomesTheLatestVersion() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        try store.save(config(preamp: -2))
+        _ = try store.stepBack()
+        var edited = try store.load()
+        edited.default.preamp = -7
+        try JSONEncoder().encode(edited).write(to: store.url)
+
+        XCTAssertNotNil(try store.reconcileHistory())
+        XCTAssertEqual(store.historyPosition(), 0)
+        XCTAssertEqual(try store.load().default.preamp, -7, "the hand edit is never overwritten")
+        XCTAssertEqual(try store.load(backup: 1).default.preamp, -1, "the version the edit started from")
+        XCTAssertEqual(try store.load(backup: 2).default.preamp, -2, "the stashed latest version")
+        XCTAssertNil(try store.stepForward())
+    }
+
+    func testStepBackAfterAHandEditMidUndoKeepsIt() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        _ = try store.stepBack()
+        var edited = try store.load()
+        edited.default.preamp = -7
+        try JSONEncoder().encode(edited).write(to: store.url)
+        XCTAssertEqual(try store.stepBack()?.index, 1)
+        XCTAssertEqual(try store.load().default.preamp, 0)
+        XCTAssertEqual(try store.stepForward()?.index, 0)
+        XCTAssertEqual(try store.load().default.preamp, -7, "redo reaches the hand edit")
+        XCTAssertEqual(store.backups().map { try? store.load(backup: $0.index).default.preamp }, [0, -1, 0])
+    }
+
+    func testALegacyPositionWithoutDigestComparesAgainstTheBackup() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        _ = try store.stepBack()
+        try "1".write(to: store.positionURL, atomically: true, encoding: .utf8)
+        XCTAssertNil(try store.reconcileHistory())
+        XCTAssertEqual(try store.stepForward()?.index, 0)
+        XCTAssertEqual(try store.load().default.preamp, -1)
+    }
+
+    func testAnOutOfRangePositionResetsToTheLatest() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        _ = try store.stepBack()
+        try "7".write(to: store.positionURL, atomically: true, encoding: .utf8)
+        let note = try XCTUnwrap(try store.reconcileHistory())
+        XCTAssertTrue(note.contains("not a saved version"), note)
+        XCTAssertEqual(store.historyPosition(), 0)
+        XCTAssertEqual(try store.load(backup: 1).default.preamp, -1, "the stashed latest is kept")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.redoURL.path))
+    }
+
+    func testALeftoverStashAtPositionZeroIsKept() throws {
+        try store.save(config(preamp: 0))
+        try store.save(config(preamp: -1))
+        _ = try store.stepBack()
+        // A redo that stopped after clearing `.pos` but before writing `eq.json`.
+        try FileManager.default.removeItem(at: store.positionURL)
+        _ = try store.stepBack()
+        XCTAssertEqual(store.backups().compactMap { try? store.load(backup: $0.index).default.preamp }, [-1, 0])
+    }
 }
 
 final class PresetCLITests: XCTestCase {
@@ -386,6 +494,21 @@ final class PresetCLITests: XCTestCase {
         XCTAssertEqual(result.exitCode, 1)
         XCTAssertTrue(result.output.contains("nothing to redo"), result.output)
         XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 9, "the new edit stands, not the abandoned redo branch")
+    }
+
+    func testUndoAfterAHandEditMidUndoSaysSoAndKeepsIt() throws {
+        run("set", "1khz", "+6")
+        run("set", "1khz", "+9")
+        XCTAssertEqual(run("undo").exitCode, 0)
+        var edited = try config
+        edited.devices["BUILTIN"]?.bands[5] = 1
+        try JSONEncoder().encode(edited).write(to: context.store.url)
+        let undone = run("undo")
+        XCTAssertEqual(undone.exitCode, 0, undone.output)
+        XCTAssertTrue(undone.output.contains("changed by hand"), undone.output)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 6, "undo returns to the version the hand edit started from")
+        XCTAssertEqual(run("redo").exitCode, 0)
+        XCTAssertEqual(try config.devices["BUILTIN"]?.bands[5], 1, "redo reaches the hand edit")
     }
 
     func testUndoWithoutBackup() throws {

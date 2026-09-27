@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct ConfigStore {
@@ -63,15 +64,26 @@ struct ConfigStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(config)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if backup, let previous = try? Data(contentsOf: url), previous != data {
-            try rotateBackups()
-            // Copied, not moved: the daemon's watcher must never catch the directory without a config.
-            // copyItem also keeps the version's own modification time, which `eq history` shows.
-            try FileManager.default.copyItem(at: url, to: backupURL(1))
+        let previous = try? Data(contentsOf: url)
+        // A no-op save must not touch undo state: `eq on` while already on would otherwise drop redo.
+        guard previous != data else { return }
+        let position = historyPosition()
+        if backup {
+            if previous != nil {
+                // The abandoned latest version goes into the chain first, so `eq history` still shows it
+                // and the version being edited lands on top as `.1` — what the next `eq undo` returns to.
+                if position > 0 { try pushRedoIntoChain() }
+                // Copied, not moved: the daemon's watcher must never catch the directory without a config.
+                // copyItem also keeps the version's own modification time, which `eq history` shows.
+                try pushBackup(url, move: false)
+            }
+            try? FileManager.default.removeItem(at: positionURL)
+        } else if position > 0, liveMatchesPosition() {
+            // Daemon bookkeeping (a device rename) mid-undo keeps the undo chain; recording the new
+            // content keeps it from reading as a hand edit. A hand edit already on disk stays detectable.
+            try setHistoryPosition(position, content: data)
         }
         try data.write(to: url, options: .atomic)
-        // A real edit abandons whatever `eq undo` chain was in progress — there is nothing left to redo.
-        clearHistoryPosition()
     }
 
     private func rotateBackups() throws {
@@ -82,30 +94,98 @@ struct ConfigStore {
         }
     }
 
-    var positionURL: URL { url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).pos") }
+    private func pushBackup(_ file: URL, move: Bool) throws {
+        try rotateBackups()
+        if move {
+            try FileManager.default.moveItem(at: file, to: backupURL(1))
+        } else {
+            try FileManager.default.copyItem(at: file, to: backupURL(1))
+        }
+    }
+
+    private func pushRedoIntoChain() throws {
+        guard FileManager.default.fileExists(atPath: redoURL.path) else { return }
+        try pushBackup(redoURL, move: true)
+    }
+
+    private func sibling(_ suffix: String) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).\(suffix)")
+    }
+
+    /// Line 1: how many steps back; line 2: SHA-256 of the `eq.json` that step wrote, which is how a
+    /// hand edit made mid-undo is told apart from the daemon's own bookkeeping saves.
+    var positionURL: URL { sibling("pos") }
     /// Holds the content `eq.json` had before the first `eq undo` in the current chain, so `eq redo`
     /// can reach it again — the backup files themselves are never touched by undo/redo.
-    var redoURL: URL { url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).redo") }
+    var redoURL: URL { sibling("redo") }
+
+    private func positionRecord() -> (raw: String, position: Int?, digest: String?)? {
+        guard let text = try? String(contentsOf: positionURL, encoding: .utf8) else { return nil }
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        let raw = lines.first ?? ""
+        return (raw, Int(raw), lines.count > 1 ? lines[1] : nil)
+    }
 
     /// How many steps `eq.json` currently sits back from the latest edit; 0 means `eq undo` has
     /// not been used, or `eq redo` has walked all the way back to it.
     func historyPosition() -> Int {
-        guard let raw = try? String(contentsOf: positionURL, encoding: .utf8),
-              let n = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), n > 0 else { return 0 }
+        guard let n = positionRecord()?.position, n > 0 else { return 0 }
         return n
     }
 
-    private func setHistoryPosition(_ n: Int) throws {
+    private func setHistoryPosition(_ n: Int, content: Data) throws {
         if n <= 0 {
             try? FileManager.default.removeItem(at: positionURL)
         } else {
-            try String(n).write(to: positionURL, atomically: true, encoding: .utf8)
+            try "\(n)\n\(Self.digest(content))\n".write(to: positionURL, atomically: true, encoding: .utf8)
         }
     }
 
-    private func clearHistoryPosition() {
-        try? FileManager.default.removeItem(at: positionURL)
-        try? FileManager.default.removeItem(at: redoURL)
+    private static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// A `.pos` without a digest predates it; the backup it points at is then the reference.
+    private func liveMatchesPosition() -> Bool {
+        guard let record = positionRecord(), let n = record.position,
+              let live = try? Data(contentsOf: url) else { return false }
+        if let digest = record.digest { return Self.digest(live) == digest }
+        return (try? Data(contentsOf: backupURL(n))) == live
+    }
+
+    /// Brings the undo bookkeeping back in line with the files before a step, without losing a
+    /// version: an out-of-range `.pos` or an `eq.json` edited by hand mid-undo resets to position 0,
+    /// pushing the stashed latest version (and the version the edit started from) into the chain.
+    /// Returns a note for the user when it had to do that.
+    @discardableResult
+    func reconcileHistory() throws -> String? {
+        let files = FileManager.default
+        guard let record = positionRecord() else {
+            // Position 0 with a leftover stash: a step toward the latest edit stopped between writing
+            // `.pos` and `eq.json`. Keep that version unless it is the live file anyway.
+            guard files.fileExists(atPath: redoURL.path) else { return nil }
+            if (try? Data(contentsOf: redoURL)) == (try? Data(contentsOf: url)) {
+                try? files.removeItem(at: redoURL)
+            } else {
+                try pushRedoIntoChain()
+            }
+            return nil
+        }
+        guard let n = record.position, n > 0, n <= Self.backupCount, files.fileExists(atPath: backupURL(n).path) else {
+            try pushRedoIntoChain()
+            try? files.removeItem(at: positionURL)
+            return "\(positionURL.lastPathComponent) says \u{201C}\(record.raw)\u{201D}, which is not a saved version; "
+                + "treated the live config as the latest (the stashed latest, if any, is now eq.json.1)"
+        }
+        guard !liveMatchesPosition() else { return nil }
+        let staged = sibling("base")
+        try? files.removeItem(at: staged)
+        try files.copyItem(at: backupURL(n), to: staged)
+        try pushRedoIntoChain()
+        try pushBackup(staged, move: true)
+        try? files.removeItem(at: positionURL)
+        return "\(url.lastPathComponent) was changed by hand \(n) step\(n == 1 ? "" : "s") back; kept it as the latest "
+            + "version — the version it started from and the previous latest are in eq history"
     }
 
     /// The version `eq history` shows at position 0: whatever is live when nothing has been undone,
@@ -120,21 +200,25 @@ struct ConfigStore {
     /// on with each further call. Returns `nil` once there is nothing further back. Throws
     /// `ConfigError` and leaves every file untouched if the backup is not valid JSON.
     func stepBack() throws -> (index: Int, date: Date)? {
-        let target = historyPosition() + 1
+        try reconcileHistory()
+        let position = historyPosition()
+        let target = position + 1
         guard let backup = backups().first(where: { $0.index == target }) else { return nil }
         let data = try Data(contentsOf: backup.url)
         _ = try Self.decode(data)
-        if historyPosition() == 0 {
+        if position == 0 {
             try? FileManager.default.removeItem(at: redoURL)
             try FileManager.default.copyItem(at: url, to: redoURL)
         }
+        // `.pos` first: a crash in between then reads as a hand edit, which keeps every version.
+        try setHistoryPosition(target, content: data)
         try data.write(to: url, options: .atomic)
-        try setHistoryPosition(target)
         return (target, backup.date)
     }
 
     /// The inverse of `stepBack()`: walks back toward the latest edit. Returns `nil` at position 0.
     func stepForward() throws -> (index: Int, date: Date)? {
+        try reconcileHistory()
         let position = historyPosition()
         guard position > 0 else { return nil }
         let target = position - 1
@@ -157,8 +241,8 @@ struct ConfigStore {
             date = backup.date
         }
         _ = try Self.decode(data)
+        try setHistoryPosition(target, content: data)
         try data.write(to: url, options: .atomic)
-        try setHistoryPosition(target)
         if target == 0 { try? FileManager.default.removeItem(at: redoURL) }
         return (target, date)
     }

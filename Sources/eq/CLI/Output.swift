@@ -33,7 +33,9 @@ struct PresetRemovedReport: Encodable { var removed: String }
 struct PresetRenamedReport: Encodable { var from: String; var to: String }
 struct HistoryRow: Encodable { var index: Int; var path: String; var date: Date; var profile: Profile?; var current: Bool }
 struct HistoryReport: Encodable { var position: Int; var entries: [HistoryRow] }
-struct HistoryStepReport: Encodable { var position: Int; var date: Date; var device: DeviceRef?; var source: String?; var profile: Profile? }
+struct HistoryStepReport: Encodable {
+    var position: Int; var date: Date; var device: DeviceRef?; var source: String?; var profile: Profile?; var warning: String?
+}
 struct DeviceRow: Encodable {
     var uid: String; var name: String; var transport: String?; var connected: Bool; var profile: String
     enum CodingKeys: String, CodingKey { case uid, name, transport, connected, profile }
