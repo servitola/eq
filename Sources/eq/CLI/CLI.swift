@@ -413,11 +413,12 @@ enum CLI {
         do { try client.connect() } catch { throw CLIError.noMeter }
         LiveTerminal.enterRaw()
         let marker = hintOffMarker(ctx)
+        let session = WatchSession(ctx)
         let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
                                  zones: args.isEmpty ? .off : .compact,
                                  hintDismissed: FileManager.default.fileExists(atPath: marker.path),
                                  emit: LiveTerminal.emit, readKey: LiveTerminal.readKey,
-                                 edit: { try watchEdit($0, ctx) },
+                                 edit: session.apply, preset: session.presetMark,
                                  dismissHint: {
                                      try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
                                      FileManager.default.createFile(atPath: marker.path, contents: nil)
@@ -434,28 +435,93 @@ enum CLI {
         ctx.store.url.deletingLastPathComponent().appendingPathComponent("watch-hint-off")
     }
 
-    /// One step from `eq watch`, on the same device `eq set` would edit. Rounded to hundredths so
-    /// an imported 3.7 stepped up saves as 4.2, not 4.2000000000000002.
     static func watchEdit(_ action: WatchAction, _ ctx: CLIContext) throws {
-        var config = try loadConfig(ctx)
-        let target = try currentDevice(ctx)
-        let before = editableProfile(config, target)
-        var profile = before
-        func stepped(_ value: Double, _ delta: Double, _ range: ClosedRange<Double>) -> Double {
-            (min(max(value + delta, range.lowerBound), range.upperBound) * 100).rounded() / 100
+        try WatchSession(ctx).apply(action)
+    }
+
+    /// The edits of one `eq watch`, on the same device `eq set` would edit. Only the session's first
+    /// save backs up the file, so the whole session is one `eq undo` step; `u` walks back inside it
+    /// through the device profiles the session replaced.
+    final class WatchSession {
+        struct Note: Error, CustomStringConvertible { let description: String }
+
+        private let ctx: CLIContext
+        private var history: [(uid: String, profile: Profile?)] = []
+        private var backedUp = false
+
+        init(_ ctx: CLIContext) { self.ctx = ctx }
+
+        func presetMark() -> Table.PresetMark? {
+            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
+            return CLI.presetMark(config.profile(forDeviceUID: target.uid).profile, config)
         }
-        switch action {
-        case .bandStep(let band, let delta):
-            guard profile.bands.indices.contains(band) else { return }
-            profile.bands[band] = stepped(profile.bands[band], delta, Config.gainRange)
-        case .preamp(let delta):
-            profile.preamp = stepped(profile.preamp, delta, Config.preampRange)
-        case .zones, .help, .dismissHelp, .quit:
-            return
+
+        func apply(_ action: WatchAction) throws {
+            let original = try loadConfig(ctx)
+            var config = original
+            if case .undo = action {
+                guard let last = history.popLast() else { throw Note(description: "nothing left to undo in this session") }
+                config.devices[last.uid] = last.profile
+                try save(config)
+                return
+            }
+            let target = try currentDevice(ctx)
+            let before = config.devices[target.uid]
+            if case .savePreset(let name) = action {
+                try CLI.savePreset(name, on: target, in: &config)
+            } else {
+                guard let profile = try edited(editableProfile(config, target), by: action, &config) else { return }
+                config.setProfile(profile, forDeviceUID: target.uid)
+            }
+            guard config != original else { return }
+            try save(config)
+            if config.devices[target.uid] != before { history.append((target.uid, before)) }
         }
-        guard profile != before else { return }
+
+        /// Rounded to hundredths so an imported 3.7 stepped up saves as 4.2, not 4.2000000000000002.
+        private func edited(_ before: Profile, by action: WatchAction, _ config: inout Config) throws -> Profile? {
+            var profile = before
+            func stepped(_ value: Double, _ delta: Double, _ range: ClosedRange<Double>) -> Double {
+                (min(max(value + delta, range.lowerBound), range.upperBound) * 100).rounded() / 100
+            }
+            switch action {
+            case .bandStep(let band, let delta):
+                guard profile.bands.indices.contains(band) else { return nil }
+                profile.bands[band] = stepped(profile.bands[band], delta, Config.gainRange)
+            case .preamp(let delta):
+                profile.preamp = stepped(profile.preamp, delta, Config.preampRange)
+            case .cyclePreset:
+                _ = config.seedPresetsIfNeeded()
+                let names = (config.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
+                guard !names.isEmpty else { throw Note(description: "no presets — press s to save one") }
+                let at = profile.preset.flatMap { name in names.firstIndex { $0.lowercased() == name.lowercased() } }
+                let next = names[at.map { ($0 + 1) % names.count } ?? 0]
+                profile = config.presets![next]!
+                profile.name = before.name
+                profile.preset = next
+            case .undo, .savePreset, .startSave, .zones, .help, .dismissHelp, .quit:
+                return nil
+            }
+            return profile == before ? nil : profile
+        }
+
+        private func save(_ config: Config) throws {
+            try ctx.store.save(config, backup: !backedUp)
+            backedUp = true
+        }
+    }
+
+    /// Saves the target's curve as `name`, replacing a preset of that name in any case, and marks
+    /// the target as using it.
+    static func savePreset(_ name: String, on target: Target, in config: inout Config) throws {
+        guard Config.isValidPresetName(name) else { throw CLIError.badPresetName(name) }
+        _ = config.seedPresetsIfNeeded()
+        var profile = editableProfile(config, target)
+        if let old = config.preset(named: name) { config.presets?[old.name] = nil }
+        config.presets?[name] = Profile(name: nil, preamp: profile.preamp, bands: profile.bands,
+                                        filters: profile.filters, imported: profile.imported)
+        profile.preset = name
         config.setProfile(profile, forDeviceUID: target.uid)
-        try ctx.store.save(config)
     }
 
     private static func preset(_ args: [String], _ ctx: CLIContext) throws -> Output {
@@ -481,12 +547,8 @@ enum CLI {
         case ("save", 2):
             let name = try validName(rest[1])
             let target = try target()
-            var profile = editableProfile(config, target)
-            if let old = config.preset(named: name) { config.presets?[old.name] = nil }
-            config.presets?[name] = Profile(name: nil, preamp: profile.preamp, bands: profile.bands,
-                                            filters: profile.filters, imported: profile.imported)
-            profile.preset = name
-            config.setProfile(profile, forDeviceUID: target.uid)
+            try savePreset(name, on: target, in: &config)
+            let profile = editableProfile(config, target)
             try ctx.store.save(config)
             let text = Paint.ink(.green, "saved ") + Paint.ink(.bold, name) + "\n"
                 + Table.profile(profile, header: target.name, preset: (name, false))

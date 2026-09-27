@@ -60,11 +60,12 @@ enum Watch {
     }
 
     /// Header, `meterRows` of bars, the live level row, labels, gains, up to `zoneRows` of zones,
-    /// and one footer row: a `note`, else the one-line hint when the box does not fit, else — when
-    /// not every band fits — a note to widen the terminal. Sharing that row keeps the frame inside
-    /// the height `WatchLayout.fit` budgeted.
+    /// and one footer row: the save-as `prompt`, else a `note`, else the one-line hint when the box
+    /// does not fit, else — when not every band fits — a note to widen the terminal. Sharing that
+    /// row keeps the frame inside the height `WatchLayout.fit` budgeted.
     static func frame(_ f: MeterFrame, layout: WatchLayout, zones: [Zone] = [], hint: Bool = false,
-                      flash: Int? = nil, note: String? = nil) -> [String] {
+                      flash: Int? = nil, note: String? = nil, preset: Table.PresetMark? = nil,
+                      prompt: String? = nil) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -84,7 +85,7 @@ enum Watch {
 
         let tableWidth = layout.tableWidth
         let indent = shownZones.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Zones.placement(layout).start
-        let title = header(f, layout: layout, tableWidth: tableWidth)
+        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset)
 
         var body: [String] = []
         for r in 0..<rows {
@@ -120,8 +121,13 @@ enum Watch {
             for (i, row) in HintBox.rows.enumerated() { lines[1 + i] = overlay(lines[1 + i], row, at: column, width: HintBox.width) }
         }
         lines += Zones.render(shownZones, layout: layout, levels: outLevels, gains: gains)
-        if let footer = note ?? (hint && !boxFits ? HintBox.compact : nil) ?? (columns < bands ? "… widen for all bands" : nil) {
-            lines.append(margin + Paint.ink(.dim, String(footer.prefix(max(layout.width - indent, 1)))))
+        let room = max(layout.width - indent, 1)
+        if let prompt {
+            // The end of a long name stays in sight: that is where the typing happens.
+            let typed = String(prompt.suffix(max(room - promptLabel.count - 1, 0)))
+            lines.append(margin + Paint.ink(.dim, promptLabel) + typed + "▏")
+        } else if let footer = note ?? (hint && !boxFits ? HintBox.compact(width: room) : nil) ?? (columns < bands ? "… widen for all bands" : nil) {
+            lines.append(margin + Paint.ink(.dim, String(footer.prefix(room))))
         }
         return lines
     }
@@ -170,7 +176,10 @@ enum Watch {
 
     /// Segments drop from the right until the line fits; the BYPASS/LIMIT flags outlive them
     /// because they are the ones that explain a surprising sound.
-    private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int) -> (plain: Int, painted: String) {
+    static let promptLabel = "save as: "
+
+    private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int,
+                               preset: Table.PresetMark?) -> (plain: Int, painted: String) {
         let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
         let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
@@ -180,8 +189,9 @@ enum Watch {
             (device, Paint.ink(.bold, device)),
             ("\(rate) kHz", "\(rate) kHz"),
             ("preamp \(preamp) dB", "preamp \(Paint.ink(Paint.gain(f.preamp), preamp)) dB"),
-            ("peak \(peak) dB", "peak \(peak) dB"),
         ]
+        if let preset { segments.append((preset.name + (preset.modified ? "*" : ""), Table.presetLabel(preset))) }
+        segments.append(("peak \(peak) dB", "peak \(peak) dB"))
         var flags: [(plain: String, painted: String)] = []
         if !f.enabled { flags.append(("BYPASS", Paint.ink(.yellow, "BYPASS"))) }
         if f.limiting { flags.append(("LIMIT", Paint.ink(.yellow, "LIMIT"))) }
@@ -210,13 +220,37 @@ enum Watch {
     static let hintFrames = 240
     static let flashFrames = 15
     static let noteFrames = 60
+    static let markFrames = 30
+
+    enum PromptStep: Equatable {
+        case typing(String), cancel, submit(String)
+    }
+
+    /// Esc alone cancels; any other escape sequence (an arrow) is ignored. Enter arrives as `\n`
+    /// because ICRNL stays on in the raw mode `LiveTerminal` sets.
+    static func promptStep(_ typed: String, _ keys: String) -> PromptStep {
+        if keys == "\u{1B}" { return .cancel }
+        guard !keys.contains("\u{1B}") else { return .typing(typed) }
+        var text = typed
+        for c in keys {
+            switch c {
+            case "\r", "\n", "\r\n": return .submit(text)
+            case "\u{7F}", "\u{08}": if !text.isEmpty { text.removeLast() }
+            default: if !c.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) { text.append(c) }
+            }
+        }
+        return .typing(text)
+    }
 
     /// Redraws on every frame the source delivers; the key and the terminal size are checked
     /// between frames, which at 30 frames a second is quicker than a person notices.
-    /// `edit` saves a band or preamp step; what it throws is shown in the footer for two seconds.
+    /// `edit` applies a band, preamp, preset or undo step; what it throws is shown in the footer
+    /// for two seconds. `preset` names the current device's preset for the header; it is asked
+    /// again after every edit and once a second, so a change from another terminal shows too.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
                     zones: ZoneMode = .off, hintDismissed: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
+                    preset: () -> Table.PresetMark? = { nil },
                     dismissHint: () -> Void = {}) -> Int32 {
         emit(enter)
         var current = size()
@@ -225,7 +259,20 @@ enum Watch {
         var hintLeft = dismissed ? 0 : hintFrames
         var flash: (band: Int, left: Int)?
         var note: (text: String, left: Int)?
+        var prompt: String?
+        var mark = preset()
+        var framesSinceMark = 0
         var layout = WatchLayout.fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
+        func apply(_ action: WatchAction) {
+            do {
+                try edit(action)
+                if case .bandStep(let band, _) = action { flash = (band, flashFrames) }
+            } catch {
+                note = (String(describing: error).split(separator: "\n").first.map(String.init) ?? "", noteFrames)
+            }
+            mark = preset()
+            framesSinceMark = 0
+        }
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
                 let now = size()
@@ -236,7 +283,10 @@ enum Watch {
                     // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
                     clear = "\u{1B}[2J"
                 }
-                let lines = frame(f, layout: layout, zones: mode.zones, hint: hintLeft > 0, flash: flash?.band, note: note?.text)
+                framesSinceMark += 1
+                if framesSinceMark >= markFrames { mark = preset(); framesSinceMark = 0 }
+                let lines = frame(f, layout: layout, zones: mode.zones, hint: hintLeft > 0, flash: flash?.band,
+                                  note: note?.text, preset: mark, prompt: prompt)
                 emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
                 hintLeft = max(hintLeft - 1, 0)
                 flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
@@ -244,6 +294,16 @@ enum Watch {
             }
             guard let keys = readKey() else { return true }
             hintLeft = 0
+            if let typed = prompt {
+                switch promptStep(typed, keys) {
+                case .typing(let text): prompt = text
+                case .cancel: prompt = nil
+                case .submit(let name):
+                    prompt = nil
+                    apply(.savePreset(name))
+                }
+                return true
+            }
             // An arrow or function key arrives as one escape sequence; none of it is a command.
             guard !keys.contains("\u{1B}") else { return true }
             for action in keys.compactMap({ WatchKeys.action(for: String($0)) }) {
@@ -255,13 +315,12 @@ enum Watch {
                 case .help: hintLeft = hintFrames
                 case .dismissHelp:
                     if !dismissed { dismissed = true; dismissHint() }
-                case .bandStep, .preamp:
-                    do {
-                        try edit(action)
-                        if case .bandStep(let band, _) = action { flash = (band, flashFrames) }
-                    } catch {
-                        note = (String(describing: error).split(separator: "\n").first.map(String.init) ?? "", noteFrames)
-                    }
+                case .startSave:
+                    // The rest of this read would otherwise act as commands after the prompt opened.
+                    prompt = ""
+                    return true
+                case .bandStep, .preamp, .cyclePreset, .undo, .savePreset:
+                    apply(action)
                 }
             }
             return true

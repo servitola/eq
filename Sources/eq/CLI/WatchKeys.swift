@@ -3,7 +3,9 @@ import Foundation
 enum WatchAction: Equatable {
     case bandStep(Int, Double)
     case preamp(Double)
-    case zones, help, dismissHelp, quit
+    case cyclePreset, undo
+    case savePreset(String)
+    case startSave, zones, help, dismissHelp, quit
 }
 
 enum WatchKeys {
@@ -22,6 +24,9 @@ enum WatchKeys {
         case "+", "=": return .preamp(step)
         case "-", "_": return .preamp(-step)
         case "z", "Z", "я", "Я": return .zones
+        case "p", "P", "з", "З": return .cyclePreset
+        case "u", "U", "г", "Г": return .undo
+        case "s", "S", "ы", "Ы": return .startSave
         case "h", "H", "?", "р", "Р": return .help
         case "x", "X", "ч", "Ч": return .dismissHelp
         case "q", "Q", "й", "Й", "\u{03}": return .quit
@@ -35,12 +40,23 @@ enum WatchKeys {
 
 enum HintBox {
     static let width = 29
-    static let compact = "1…0 up · ⇧ down · +/− preamp · z zones · h help · q quit"
+    private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "p preset", "u undo", "s save",
+                                          "z zones", "h help", "q quit"]
+
+    /// Whole segments drop from the right to fit `width`, except `q quit`: the way out always shows.
+    static func compact(width: Int) -> String {
+        var segments = compactSegments
+        func line() -> String { segments.joined(separator: " · ") }
+        while line().count > width, segments.count > 1 { segments.remove(at: segments.count - 2) }
+        return line()
+    }
 
     private static let entries: [[(key: String, text: String)]] = [
         [("1…0", "band up   0.5 dB")],
         [("⇧1…0", "band down 0.5 dB")],
         [("+ −", "preamp")],
+        [("p", "preset  "), ("u", "undo")],
+        [("s", "save as preset")],
         [("z", "zones   "), ("h", "this hint")],
         [("x", "hide this for good")],
         [("q", "quit")],

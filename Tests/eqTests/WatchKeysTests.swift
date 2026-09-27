@@ -156,7 +156,8 @@ final class WatchKeysTests: XCTestCase {
         let lines = Watch.frame(f, layout: layout, hint: true)
         XCTAssertEqual(lines.count, Watch.frame(f, layout: layout).count)
         XCTAssertTrue(lines[1].hasSuffix("┌ tune ─────────────────────┐"), lines[1])
-        XCTAssertTrue(lines[8].hasSuffix("└───────────────────────────┘"), lines[8])
+        XCTAssertTrue(lines[10].hasSuffix("└───────────────────────────┘"), lines[10])
+        XCTAssertTrue(lines[5].contains("│ p     preset  u undo      │"), lines[5])
         XCTAssertEqual(lines[1].count, 90)
     }
 
@@ -183,5 +184,134 @@ final class WatchKeysTests: XCTestCase {
         let drawn = frames(emitted)
         XCTAssertTrue(drawn[1].contains("\u{1B}[1m    1kHz"), drawn[1])
         XCTAssertTrue(drawn[2].contains("no config"), drawn[2])
+    }
+
+    func testPresetUndoSaveKeysOnBothLayouts() {
+        for key in ["p", "P", "з", "З"] { XCTAssertEqual(WatchKeys.action(for: key), .cyclePreset, key) }
+        for key in ["u", "U", "г", "Г"] { XCTAssertEqual(WatchKeys.action(for: key), .undo, key) }
+        for key in ["s", "S", "ы", "Ы"] { XCTAssertEqual(WatchKeys.action(for: key), .startSave, key) }
+    }
+
+    func testPCyclesPresetsAlphabeticallyAndWraps() throws {
+        let ctx = try context()
+        let session = CLI.WatchSession(ctx)
+        XCTAssertNil(session.presetMark())
+        try session.apply(.cyclePreset)
+        XCTAssertEqual(try profile(ctx).preset, "favourite")
+        XCTAssertEqual(try profile(ctx).bands, Config.screenshotCurve)
+        try session.apply(.cyclePreset)
+        XCTAssertEqual(try profile(ctx).preset, "flat")
+        XCTAssertEqual(try profile(ctx).bands, Array(repeating: 0, count: 10))
+        XCTAssertEqual(session.presetMark()?.name, "flat")
+        XCTAssertEqual(session.presetMark()?.modified, false)
+        try session.apply(.cyclePreset)
+        XCTAssertEqual(try profile(ctx).preset, "favourite")
+        try session.apply(.bandStep(0, 0.5))
+        XCTAssertEqual(session.presetMark()?.modified, true)
+    }
+
+    func testUndoWalksBackToTheSessionStart() throws {
+        let ctx = try context()
+        let start = try ctx.store.load()
+        let session = CLI.WatchSession(ctx)
+        try session.apply(.bandStep(0, 0.5))
+        try session.apply(.preamp(-0.5))
+        try session.apply(.undo)
+        XCTAssertEqual(try profile(ctx).preamp, 0)
+        XCTAssertEqual(try profile(ctx).bands[0], start.default.bands[0] + 0.5)
+        try session.apply(.undo)
+        XCTAssertEqual(try ctx.store.load().devices, start.devices)
+        XCTAssertThrowsError(try session.apply(.undo)) { XCTAssertTrue("\($0)".contains("nothing left to undo")) }
+    }
+
+    func testOnlyTheFirstWatchSaveBacksUp() throws {
+        let ctx = try context()
+        let session = CLI.WatchSession(ctx)
+        try session.apply(.bandStep(0, 0.5))
+        try session.apply(.bandStep(1, 0.5))
+        try session.apply(.cyclePreset)
+        XCTAssertEqual(ctx.store.backups().map(\.index), [1])
+        XCTAssertNil(try ctx.store.load(backup: 1).devices["SPK"], "the backup is the pre-session file")
+    }
+
+    func testSaveAsStoresThePresetAndMarksTheDevice() throws {
+        let ctx = try context()
+        let session = CLI.WatchSession(ctx)
+        try session.apply(.bandStep(0, 0.5))
+        try session.apply(.savePreset("club mix"))
+        let config = try ctx.store.load()
+        XCTAssertEqual(config.presets?["club mix"]?.bands, try profile(ctx).bands)
+        XCTAssertEqual(try profile(ctx).preset, "club mix")
+        XCTAssertEqual(session.presetMark()?.name, "club mix")
+        XCTAssertThrowsError(try session.apply(.savePreset("bad/name"))) { XCTAssertEqual($0 as? CLIError, .badPresetName("bad/name")) }
+    }
+
+    private func runKeys(_ keys: [String?], edits: inout [WatchAction], count: Int? = nil) throws -> [String] {
+        let line = try frameLine()
+        var emitted: [String] = []
+        var queue = keys
+        var seen: [WatchAction] = []
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: count ?? keys.count + 1)), size: { (100, 30) },
+                      hintDismissed: true, emit: { emitted.append($0) },
+                      readKey: { queue.isEmpty ? nil : queue.removeFirst() }, edit: { seen.append($0) })
+        edits = seen
+        return frames(emitted)
+    }
+
+    func testSaveAsPromptTypesAndSavesOnEnter() throws {
+        var edits: [WatchAction] = []
+        let drawn = try runKeys(["s", "m", "1", "x", "\u{7F}", "y", "\n"], edits: &edits)
+        XCTAssertEqual(edits, [.savePreset("m1y")], "digits type into the prompt instead of editing bands")
+        XCTAssertTrue(drawn[2].contains("save as: m▏"), drawn[2])
+        XCTAssertTrue(drawn[4].contains("save as: m1x▏"), drawn[4])
+        XCTAssertFalse(drawn[7].contains("save as:"), drawn[7])
+    }
+
+    func testSaveAsTakesAWholeLineInOneRead() throws {
+        var edits: [WatchAction] = []
+        _ = try runKeys(["s", "club mix\n", "2"], edits: &edits)
+        XCTAssertEqual(edits, [.savePreset("club mix"), .bandStep(1, 0.5)])
+    }
+
+    func testEscCancelsTheSavePrompt() throws {
+        var edits: [WatchAction] = []
+        let drawn = try runKeys(["s", "a", "\u{1B}[A", "\u{1B}", "1"], edits: &edits)
+        XCTAssertEqual(edits, [.bandStep(0, 0.5)])
+        XCTAssertTrue(drawn[3].contains("save as: a▏"), "an arrow does not cancel")
+        XCTAssertFalse(drawn[4].contains("save as:"), drawn[4])
+    }
+
+    func testSaveErrorShowsInTheFooter() throws {
+        let line = try frameLine()
+        var emitted: [String] = []
+        var keys: [String?] = ["s", "?\n"]
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 4)), size: { (100, 30) }, hintDismissed: true,
+                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                      edit: { if case .savePreset(let name) = $0 { throw CLIError.badPresetName(name) } })
+        XCTAssertTrue(frames(emitted)[2].contains("bad preset name \"?\""), frames(emitted)[2])
+    }
+
+    func testHeaderShowsThePresetAfterPreamp() throws {
+        let line = try frameLine()
+        var emitted: [String] = []
+        var modified = false
+        var keys: [String?] = [nil, "1"]
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) }, hintDismissed: true,
+                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                      edit: { _ in modified = true }, preset: { ("favourite", modified) })
+        XCTAssertTrue(frames(emitted)[0].contains("preamp -1.5 dB · favourite · peak"), frames(emitted)[0])
+        XCTAssertTrue(frames(emitted)[2].contains("preamp -1.5 dB · favourite* · peak"), frames(emitted)[2])
+    }
+
+    func testCompactHintDropsWholeSegments() {
+        let full = HintBox.compact(width: 200)
+        XCTAssertEqual(full, "1…0 up · ⇧ down · +/− preamp · p preset · u undo · s save · z zones · h help · q quit")
+        for width in 6..<full.count {
+            let line = HintBox.compact(width: width)
+            XCTAssertLessThanOrEqual(line.count, width, "\(width)")
+            XCTAssertTrue(line.hasSuffix("q quit"), line)
+            let segments = line.components(separatedBy: " · ")
+            XCTAssertTrue(segments.allSatisfy(full.components(separatedBy: " · ").contains), line)
+        }
     }
 }
