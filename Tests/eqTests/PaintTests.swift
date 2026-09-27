@@ -27,7 +27,8 @@ final class PaintTests: XCTestCase {
         XCTAssertEqual(text.components(separatedBy: "\n").count, 4)
         Paint.forced = false
         let plain = Table.profile(Profile(name: "X", preamp: 0, bands: Config.screenshotCurve), header: "X")
-        XCTAssertTrue(plain.components(separatedBy: "\n")[1].contains("▅"))
+        XCTAssertEqual(plain.components(separatedBy: "\n").count, 3)
+        XCTAssertFalse(plain.contains("▅"))
         XCTAssertFalse(plain.contains("\u{1B}"))
     }
 

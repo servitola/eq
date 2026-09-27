@@ -24,7 +24,7 @@ final class CLITests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func runCLI(_ args: String...) -> (exitCode: Int32, output: String) {
+    private func runCLI(_ args: String...) -> (exitCode: Int32, output: String, isError: Bool) {
         CLI.run(args, context: context)
     }
 
@@ -158,6 +158,7 @@ final class CLITests: XCTestCase {
         }
         let result = runCLI("doctor")
         XCTAssertEqual(result.exitCode, 1)
+        XCTAssertFalse(result.isError)
         XCTAssertTrue(result.output.contains("✗ daemon"), result.output)
         let j = try? json("doctor")
         XCTAssertEqual(j?["ok"] as? Bool, false)
@@ -166,6 +167,7 @@ final class CLITests: XCTestCase {
     func testUnknownCommandShowsUsage() {
         let result = runCLI("bogus")
         XCTAssertEqual(result.exitCode, 2)
+        XCTAssertTrue(result.isError)
         XCTAssertTrue(result.output.contains("eq set"))
     }
 

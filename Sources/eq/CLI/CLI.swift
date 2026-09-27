@@ -54,27 +54,29 @@ enum CLI {
 
     static let permissionHint = "System Settings → Privacy & Security → Screen & System Audio Recording → enable EQ, then: launchctl kickstart -k gui/$UID/com.servitola.eq"
 
-    static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String) {
+    /// `isError` marks a thrown error, the only output that belongs on stderr; a report that merely
+    /// exits non-zero (a failing `doctor`) is still the answer and goes to stdout.
+    static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String, isError: Bool) {
         let wantsJSON = args.contains("--json")
         let args = args.filter { $0 != "--json" }
         do {
             let output = try dispatch(args, context)
-            return (output.exitCode, wantsJSON ? encode(output.json) : output.text)
+            return (output.exitCode, wantsJSON ? encode(output.json) : output.text, false)
         } catch let error as CLIError {
             let code: Int32
             switch error {
             case .usage, .unknownBand, .badGain, .gainOutOfRange: code = 2
             default: code = 1
             }
-            if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)")))) }
+            if wantsJSON { return (code, encode(ErrorReport(error: .init(code: error.code, message: "\(error)"))), true) }
             switch error {
-            case .usage, .unknownBand, .badGain, .gainOutOfRange: return (code, "error: \(error)\n\(usage)")
-            case .daemonNotRunning: return (code, "\(error)")
-            default: return (code, "error: \(error)")
+            case .usage, .unknownBand, .badGain, .gainOutOfRange: return (code, "error: \(error)\n\(usage)", true)
+            case .daemonNotRunning: return (code, "\(error)", true)
+            default: return (code, "error: \(error)", true)
             }
         } catch {
-            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: "internal", message: "\(error)")))) }
-            return (1, "error: \(error)")
+            if wantsJSON { return (1, encode(ErrorReport(error: .init(code: "internal", message: "\(error)"))), true) }
+            return (1, "error: \(error)", true)
         }
     }
 
