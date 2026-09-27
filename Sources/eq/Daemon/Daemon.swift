@@ -59,6 +59,7 @@ final class Daemon {
     // Our own aggregate create/destroy fires the devices listener; cleared only when a rebuild succeeds, and failures retry on a timer, so a self-fired Devices event can never restart the cycle.
     private var rebuilding = false
     private var signalSources: [DispatchSourceSignal] = []
+    private var meterServer: MeterServer?
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
 
     init(store: ConfigStore, statusURL: URL) {
@@ -81,6 +82,7 @@ final class Daemon {
         }
         // A status file carrying `version` tells doctor SIGUSR1 is safe; the handler must exist before that file does.
         installSignalHandlers()
+        startMeterServer()
         let env = ProcessInfo.processInfo.environment
         if let frames = DaemonPolicy.ioFrames(from: env) {
             engine.requestedIOBufferFrames = frames
@@ -118,10 +120,46 @@ final class Daemon {
     }
 
     private func terminate() {
+        meterServer?.stop()
         engine.stop()
         AudioDeviceManager.destroyStaleAggregates()
         try? FileManager.default.removeItem(at: statusURL)
         exit(0)
+    }
+
+    private func startMeterServer() {
+        let processor = engine.processor
+        let server = MeterServer(
+            socketURL: statusURL.deletingLastPathComponent().appendingPathComponent("meter.sock"),
+            queue: queue,
+            source: { [unowned self] in self.frame() },
+            onClientsChanged: { n in
+                processor.meteringEnabled = n > 0
+                if n == 0 { processor.meter.reset() }
+                Log.write("meter: \(n) client\(n == 1 ? "" : "s")")
+            })
+        do {
+            try server.start()
+            meterServer = server
+        } catch {
+            Log.write("meter socket unavailable: \(error)")
+        }
+    }
+
+    private func frame() -> MeterFrame {
+        let processor = engine.processor
+        let profile = device.map { config.profile(forDeviceUID: $0.uid).profile }
+        return MeterFrame(
+            t: Date().timeIntervalSince1970,
+            device: device?.name,
+            rate: processor.sampleRate,
+            in: processor.meter.inputDB.map(MeterFrame.round1),
+            out: processor.meter.outputDB.map(MeterFrame.round1),
+            peak: MeterFrame.round1(processor.meter.peakDB),
+            limiting: processor.limiting,
+            gains: profile?.bands ?? [],
+            preamp: profile?.preamp ?? 0,
+            enabled: config.enabled)
     }
 
     // MARK: - Engine
