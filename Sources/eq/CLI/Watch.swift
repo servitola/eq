@@ -16,17 +16,21 @@ struct WatchLayout: Equatable {
     var shortLabels: Bool
     var width: Int
     var zoneRows = 0
+    var bracketRows = 0
 
     /// Two rows beyond the four fixed ones (header, live row, labels, gains) stay free, one of
     /// them for the "widen" note, so the frame never scrolls the alternate screen.
     /// Four columns is the floor: at three, neighbouring labels and numbers run together.
-    /// Zone rows take their room from the meter down to its four-row floor, then drop from the bottom.
-    static func fit(cols: Int, rows: Int, zones: Int = 0) -> WatchLayout {
+    /// The focus bracket and the zone strip take their room from the meter down to its four-row
+    /// floor — the bracket first, since it names what the dimmed bars mean — then strip rows drop
+    /// from the bottom.
+    static func fit(cols: Int, rows: Int, zones: Int = 0, bracket: Bool = false) -> WatchLayout {
         let cellWidth = min(max((cols - 2) / 10, 4), 8)
-        let zoneRows = min(max(zones, 0), max(rows - 9, 0))
+        let bracketRows = bracket && rows >= 10 ? 1 : 0
+        let zoneRows = min(max(zones, 0), max(rows - 9 - bracketRows, 0))
         return WatchLayout(columns: min(Config.bandLabels.count, max(1, (cols - 2) / cellWidth)),
-                           cellWidth: cellWidth, meterRows: max(4, rows - 5 - zoneRows),
-                           shortLabels: cellWidth < 6, width: cols, zoneRows: zoneRows)
+                           cellWidth: cellWidth, meterRows: max(4, rows - 5 - zoneRows - bracketRows),
+                           shortLabels: cellWidth < 6, width: cols, zoneRows: zoneRows, bracketRows: bracketRows)
     }
 
     var visibleColumns: Int { min(max(columns, 1), Config.bandLabels.count) }
@@ -59,24 +63,27 @@ enum Watch {
         return clean.count >= n ? Array(clean.prefix(n)) : clean + Array(repeating: fill, count: n - clean.count)
     }
 
-    /// Header, `meterRows` of bars, the live level row, labels, gains, up to `zoneRows` of zones,
-    /// and one footer row: the save-as `prompt`, else a `note`, else the one-line hint when the box
-    /// does not fit, else — when not every band fits — a note to widen the terminal. Sharing that
-    /// row keeps the frame inside the height `WatchLayout.fit` budgeted.
-    static func frame(_ f: MeterFrame, layout: WatchLayout, zones: [Zone] = [], hint: Bool = false,
-                      flash: Int? = nil, note: String? = nil, preset: Table.PresetMark? = nil,
-                      prompt: String? = nil) -> [String] {
+    /// Header, the focus bracket, `meterRows` of bars, up to `zoneRows` of the instrument strip,
+    /// the live level row, labels, gains, and one footer row: the save-as `prompt`, else a `note`,
+    /// else the one-line hint when the box does not fit, else — when not every band fits — a
+    /// note to widen the terminal. Sharing that row keeps the frame inside the height
+    /// `WatchLayout.fit` budgeted. With a `focus` the strip shows only that instrument.
+    static func frame(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
+                      hint: Bool = false, flash: Int? = nil, note: String? = nil,
+                      preset: Table.PresetMark? = nil, prompt: String? = nil) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
-        let shownZones = Array(zones.prefix(max(layout.zoneRows, 0)))
+        let stripped = strip ? Array((focus.map { [$0] } ?? Instruments.all).prefix(max(layout.zoneRows, 0))) : []
+        let focused = focus.map { Set($0.bands) }
+        let outside = Set((0..<columns).filter { band in focused.map { !$0.contains(band) } ?? false })
         let gains = padded(f.gains, to: bands, with: 0).prefix(columns).map { min(max($0, -12), 12) }
         let inLevels = padded(f.in, to: bands, with: floorDB).prefix(columns).map(clampLevel)
         let outLevels = padded(f.out, to: bands, with: floorDB).prefix(columns).map(clampLevel)
         let barWidth = layout.barWidth
         let pad = String(repeating: " ", count: max(w - barWidth, 0))
         func bar(_ glyph: String) -> String { String(repeating: glyph, count: barWidth) }
-        let barInks = (0..<columns).map { barInk(gain: gains[$0], level: outLevels[$0]) }
+        let barInks = (0..<columns).map { outside.contains($0) ? .dim : barInk(gain: gains[$0], level: outLevels[$0]) }
         let markers = gains.map { g in
             min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
         }
@@ -84,16 +91,20 @@ enum Watch {
         let inTops = inLevels.map { height($0, rows: rows) }
 
         let tableWidth = layout.tableWidth
-        let indent = shownZones.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Zones.placement(layout).start
-        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset)
+        let indent = stripped.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Strip.placement(layout).start
+        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, focus: focus)
+        let margin = String(repeating: " ", count: indent)
 
+        var top: [String] = []
+        if let focus, layout.bracketRows > 0 { top.append(margin + Strip.bracket(focus, layout: layout)) }
         var body: [String] = []
         for r in 0..<rows {
             let b = rows - 1 - r
             body.append((0..<columns).map { i -> String in
                 // The marker wins over a partial top: where the slider sits matters more than an eighth of a row.
                 if r == markers[i] {
-                    return pad + Paint.ink(Paint.level(Paint.gain(gains[i]), hot: abs(gains[i]) > 6), bar("▬"))
+                    let ink = outside.contains(i) ? .dim : Paint.level(Paint.gain(gains[i]), hot: abs(gains[i]) > 6)
+                    return pad + Paint.ink(ink, bar("▬"))
                 }
                 let full = Int(outTops[i])
                 let fraction = outTops[i] - Double(full)
@@ -105,22 +116,27 @@ enum Watch {
                 return pad + bar(" ")
             }.joined())
         }
-        body.append((0..<columns).map { i -> String in
+        let live = (0..<columns).map { i -> String in
             let text = outLevels[i] <= floorDB + 0.5 ? "·" : String(Int(outLevels[i].rounded()))
-            return paint(barInks[i], text.leftPadded(to: w))
-        }.joined())
-        body += [Table.labelsRow(width: w, short: layout.shortLabels, columns: columns, bold: flash),
-                 Table.gainsRow(gains, width: w)]
-        let margin = String(repeating: " ", count: indent)
+            // Inside a focus the numbers are what gets tuned against, so they stand out.
+            let ink = focus != nil && !outside.contains(i)
+                ? (gains[i] == 0 ? .bold : Paint.level(Paint.gain(gains[i]), hot: true)) : barInks[i]
+            return paint(ink, text.leftPadded(to: w))
+        }.joined()
+        let tail = [live, Table.labelsRow(width: w, short: layout.shortLabels, columns: columns, bold: flash, focus: focused),
+                    Table.gainsRow(gains, width: w, dimmed: outside)]
         // The header centres with the bars when it fits beside them, and slides left rather than truncate.
         let headerIndent = String(repeating: " ", count: min(indent, max(layout.width - title.plain, 0)))
-        var lines = [headerIndent + title.painted] + body.map { margin + $0 }
+        var lines = [headerIndent + title.painted] + top + body.map { margin + $0 }
         let boxFits = HintBox.width * 2 <= layout.width && rows >= HintBox.rows.count
         if hint, boxFits {
             let column = max(indent + tableWidth - HintBox.width, 0)
-            for (i, row) in HintBox.rows.enumerated() { lines[1 + i] = overlay(lines[1 + i], row, at: column, width: HintBox.width) }
+            for (i, row) in HintBox.rows.enumerated() {
+                lines[1 + top.count + i] = overlay(lines[1 + top.count + i], row, at: column, width: HintBox.width)
+            }
         }
-        lines += Zones.render(shownZones, layout: layout, levels: outLevels, gains: gains)
+        lines += stripped.map { Strip.row($0, layout: layout, levels: outLevels, gains: gains, highlighted: focus != nil) }
+        lines += tail.map { margin + $0 }
         let room = max(layout.width - indent, 1)
         if let prompt {
             // The end of a long name stays in sight: that is where the typing happens.
@@ -174,12 +190,17 @@ enum Watch {
         ink.map { Paint.ink($0, text) } ?? text
     }
 
-    /// Segments drop from the right until the line fits; the BYPASS/LIMIT flags outlive them
-    /// because they are the ones that explain a surprising sound.
     static let promptLabel = "save as: "
 
+    static func focusText(_ instrument: Instrument) -> String {
+        let span = instrument.outerSpan
+        return "focus: \(instrument.name) (\(InstrumentTable.hz(span.low, gap: " "))–\(InstrumentTable.hz(span.high, gap: " ")))"
+    }
+
+    /// Segments drop from the right until the line fits, then the flags, then the focus: the
+    /// flags explain a surprising sound, and the focus explains why most bars went dim.
     private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int,
-                               preset: Table.PresetMark?) -> (plain: Int, painted: String) {
+                               preset: Table.PresetMark?, focus: Instrument?) -> (plain: Int, painted: String) {
         let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
         let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
@@ -192,13 +213,19 @@ enum Watch {
         ]
         if let preset { segments.append((preset.name + (preset.modified ? "*" : ""), Table.presetLabel(preset))) }
         segments.append(("peak \(peak) dB", "peak \(peak) dB"))
+        var focusSegment = focus.map { instrument -> (plain: String, painted: String) in
+            let text = focusText(instrument)
+            return (text, text.replacingOccurrences(of: instrument.name, with: Paint.ink(.bold, instrument.name)))
+        }
         var flags: [(plain: String, painted: String)] = []
+        if f.solo != nil { flags.append(("SOLO", Paint.ink(.brightYellow, "SOLO"))) }
         if !f.enabled { flags.append(("BYPASS", Paint.ink(.yellow, "BYPASS"))) }
         if f.limiting { flags.append(("LIMIT", Paint.ink(.yellow, "LIMIT"))) }
 
         func compose() -> (plain: Int, painted: String) {
-            var plain = segments.map(\.plain).joined(separator: " · ")
-            var painted = segments.map(\.painted).joined(separator: " · ")
+            let shown = segments + (focusSegment.map { [$0] } ?? [])
+            var plain = shown.map(\.plain).joined(separator: " · ")
+            var painted = shown.map(\.painted).joined(separator: " · ")
             for flag in flags {
                 // LIMIT sits at the right edge of the bars, where the eye already is.
                 let gap = flag.plain == "LIMIT" ? max(1, tableWidth - flag.plain.count - plain.count) : 1
@@ -209,6 +236,7 @@ enum Watch {
         }
         while compose().plain > cols, segments.count > 1 { segments.removeLast() }
         while compose().plain > cols, !flags.isEmpty { flags.removeLast() }
+        if compose().plain > cols { focusSegment = nil }
         if compose().plain > cols {
             let cut = String(device.prefix(cols))
             return (cut.count, Paint.ink(.bold, cut))
@@ -242,19 +270,33 @@ enum Watch {
         return .typing(text)
     }
 
+    /// The line `l` sends over the meter socket; `nil` asks the daemon to stop soloing.
+    static func soloRequest(_ range: HzRange?) -> String {
+        guard let range else { return #"{"solo":null}"# }
+        func number(_ v: Double) -> String { v.rounded() == v && abs(v) < 1e15 ? String(Int(v)) : String(v) }
+        return #"{"solo":{"low":\#(number(range.low)),"high":\#(number(range.high))}}"#
+    }
+
+    static func outsideNote(_ instrument: Instrument) -> String { "outside \(instrument.name) — Esc to unfocus" }
+    static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
+
     /// Redraws on every frame the source delivers; the key and the terminal size are checked
     /// between frames, which at 30 frames a second is quicker than a person notices.
     /// `edit` applies a band, preamp, preset or undo step; what it throws is shown in the footer
     /// for two seconds. `preset` names the current device's preset for the header; it is asked
     /// again after every edit and once a second, so a change from another terminal shows too.
+    /// `send` writes one request line to the daemon (solo on/off); a solo this loop turned on is
+    /// turned off again on the way out, and the daemon drops it anyway once the socket closes.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
-                    zones: ZoneMode = .off, hintDismissed: Bool = false, emit: (String) -> Void,
+                    zones: Bool = false, hintDismissed: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
                     preset: () -> Table.PresetMark? = { nil },
-                    dismissHint: () -> Void = {}) -> Int32 {
+                    dismissHint: () -> Void = {}, send: (String) throws -> Void = { _ in }) -> Int32 {
         emit(enter)
         var current = size()
-        var mode = zones
+        var strip = zones
+        var focus: Int?
+        var listening = false
         var dismissed = hintDismissed
         var hintLeft = dismissed ? 0 : hintFrames
         var flash: (band: Int, left: Int)?
@@ -262,16 +304,43 @@ enum Watch {
         var prompt: String?
         var mark = preset()
         var framesSinceMark = 0
-        var layout = WatchLayout.fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
+        var focused: Instrument? { focus.map { Instruments.all[$0] } }
+        func fit() -> WatchLayout {
+            .fit(cols: current.cols, rows: current.rows,
+                 zones: strip ? (focus == nil ? Instruments.all.count : 1) : 0, bracket: focus != nil)
+        }
+        var layout = fit()
+        func show(_ text: String) { note = (text, noteFrames) }
         func apply(_ action: WatchAction) {
+            if case .bandStep(let band, _) = action, let instrument = focused, !instrument.bands.contains(band) {
+                show(outsideNote(instrument))
+                return
+            }
             do {
                 try edit(action)
                 if case .bandStep(let band, _) = action { flash = (band, flashFrames) }
             } catch {
-                note = (String(describing: error).split(separator: "\n").first.map(String.init) ?? "", noteFrames)
+                show(String(describing: error).split(separator: "\n").first.map(String.init) ?? "")
             }
             mark = preset()
             framesSinceMark = 0
+        }
+        func request(_ range: HzRange?) -> Bool {
+            do {
+                try send(soloRequest(range))
+                return true
+            } catch {
+                show("listen: the daemon did not take the request")
+                return false
+            }
+        }
+        func refocus(_ index: Int?) {
+            focus = index
+            if listening {
+                // A failed send most likely means the socket is gone, and the daemon clears then.
+                listening = request(focused?.outerSpan) && focus != nil
+            }
+            layout = fit()
         }
         let eof = source.lines(maxLines: nil) { line in
             if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
@@ -279,14 +348,14 @@ enum Watch {
                 var clear = ""
                 if now != current {
                     current = now
-                    layout = .fit(cols: now.cols, rows: now.rows, zones: mode.zones.count)
+                    layout = fit()
                     // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
                     clear = "\u{1B}[2J"
                 }
                 framesSinceMark += 1
                 if framesSinceMark >= markFrames { mark = preset(); framesSinceMark = 0 }
-                let lines = frame(f, layout: layout, zones: mode.zones, hint: hintLeft > 0, flash: flash?.band,
-                                  note: note?.text, preset: mark, prompt: prompt)
+                let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0,
+                                  flash: flash?.band, note: note?.text, preset: mark, prompt: prompt)
                 emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
                 hintLeft = max(hintLeft - 1, 0)
                 flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
@@ -304,14 +373,15 @@ enum Watch {
                 }
                 return true
             }
-            // An arrow or function key arrives as one escape sequence; none of it is a command.
-            guard !keys.contains("\u{1B}") else { return true }
-            for action in keys.compactMap({ WatchKeys.action(for: String($0)) }) {
+            let count = Instruments.all.count
+            for action in WatchKeys.actions(for: keys) {
                 switch action {
-                case .quit: return false
+                case .quit:
+                    if listening { _ = request(nil) }
+                    return false
                 case .zones:
-                    mode = mode.next
-                    layout = .fit(cols: current.cols, rows: current.rows, zones: mode.zones.count)
+                    strip.toggle()
+                    layout = fit()
                 case .help: hintLeft = hintFrames
                 case .dismissHelp:
                     if !dismissed { dismissed = true; dismissHint() }
@@ -319,7 +389,18 @@ enum Watch {
                     // The rest of this read would otherwise act as commands after the prompt opened.
                     prompt = ""
                     return true
-                case .bandStep, .preamp, .cyclePreset, .undo, .savePreset:
+                case .focusNext: refocus(focus.map { ($0 + 1) % count } ?? 0)
+                case .focusPrevious: refocus(focus.map { ($0 + count - 1) % count } ?? count - 1)
+                case .unfocus:
+                    if focus != nil { refocus(nil) }
+                case .listen:
+                    guard let instrument = focused else { show(listenNeedsFocus); break }
+                    if listening {
+                        if request(nil) { listening = false }
+                    } else {
+                        listening = request(instrument.outerSpan)
+                    }
+                case .bandStep, .preamp, .cyclePreset, .previousPreset, .undo, .savePreset:
                     apply(action)
                 }
             }

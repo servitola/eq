@@ -422,14 +422,15 @@ enum CLI {
         let marker = hintOffMarker(ctx)
         let session = WatchSession(ctx)
         let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
-                                 zones: args.isEmpty ? .off : .compact,
+                                 zones: !args.isEmpty,
                                  hintDismissed: FileManager.default.fileExists(atPath: marker.path),
                                  emit: LiveTerminal.emit, readKey: LiveTerminal.readKey,
                                  edit: session.apply, preset: session.presetMark,
                                  dismissHint: {
                                      try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
                                      FileManager.default.createFile(atPath: marker.path, contents: nil)
-                                 })
+                                 },
+                                 send: client.send)
         LiveTerminal.leaveRaw()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
@@ -497,16 +498,18 @@ enum CLI {
                 profile.bands[band] = stepped(profile.bands[band], delta, Config.gainRange)
             case .preamp(let delta):
                 profile.preamp = stepped(profile.preamp, delta, Config.preampRange)
-            case .cyclePreset:
+            case .cyclePreset, .previousPreset:
                 _ = config.seedPresetsIfNeeded()
                 let names = (config.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
                 guard !names.isEmpty else { throw Note(description: "no presets — press s to save one") }
                 let at = profile.preset.flatMap { name in names.firstIndex { $0.lowercased() == name.lowercased() } }
-                let next = names[at.map { ($0 + 1) % names.count } ?? 0]
+                let step = action == .previousPreset ? names.count - 1 : 1
+                let next = names[at.map { ($0 + step) % names.count } ?? (action == .previousPreset ? names.count - 1 : 0)]
                 profile = config.presets![next]!
                 profile.name = before.name
                 profile.preset = next
-            case .undo, .savePreset, .startSave, .zones, .help, .dismissHelp, .quit:
+            case .undo, .savePreset, .startSave, .zones, .help, .dismissHelp, .quit,
+                 .focusNext, .focusPrevious, .unfocus, .listen:
                 return nil
             }
             return profile == before ? nil : profile

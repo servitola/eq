@@ -13,106 +13,112 @@ final class ZonesTests: XCTestCase {
                    limiting: false, gains: gains, preamp: -1.5, enabled: true)
     }
 
-    private func line(_ text: String) -> [Character] { Array(text) }
+    private func instrument(_ name: String) -> Instrument { Instruments.all.first { $0.name == name }! }
 
-    func testAllZonesUseValidAscendingBands() {
-        XCTAssertEqual(Zones.all.count, 10)
-        for zone in Zones.all {
-            XCTAssertFalse(zone.bands.isEmpty, zone.name)
-            XCTAssertTrue(zone.bands.allSatisfy { (0...9).contains($0) }, zone.name)
-            XCTAssertEqual(zone.bands, zone.bands.sorted(), zone.name)
-            XCTAssertEqual(zone.short.count, 3, zone.name)
-            XCTAssertLessThanOrEqual(zone.name.count, Zones.fullNameWidth, zone.name)
+    func testAxisPutsBandFrequenciesOnTheirBarCentresAndInterpolatesInOctaves() {
+        let layout = WatchLayout.fit(cols: 100, rows: 30)
+        for (i, f) in Config.bandFrequencies.enumerated() {
+            XCTAssertEqual(Strip.x(f, layout: layout), Double(layout.centre(i)), accuracy: 1e-9, "\(f)")
         }
-        XCTAssertEqual(Zones.compact.map(\.name), ["sub", "kick", "bass", "guitar", "voice", "cymbals", "air"])
+        let between = Strip.x((500.0 * 1000).squareRoot(), layout: layout)
+        XCTAssertEqual(between, Double(layout.centre(4) + layout.centre(5)) / 2, accuracy: 1e-9)
+        XCTAssertLessThan(Strip.x(20, layout: layout), Double(layout.centre(0)), "below 32 Hz the axis carries on left")
+        XCTAssertGreaterThan(Strip.x(20000, layout: layout), Double(layout.centre(9)))
     }
 
-    func testModeCycles() {
-        XCTAssertEqual(ZoneMode.off.next, .compact)
-        XCTAssertEqual(ZoneMode.compact.next, .all)
-        XCTAssertEqual(ZoneMode.all.next, .off)
+    func testSegmentsStayInsideTheTableWithAGapBetweenRanges() {
+        for cols in [20, 42, 60, 100, 200] {
+            let layout = WatchLayout.fit(cols: cols, rows: 30)
+            for instrument in Instruments.all {
+                let segments = Strip.segments(instrument, layout: layout)
+                for s in segments {
+                    XCTAssertGreaterThanOrEqual(s.lo, 0, "\(cols) \(instrument.name)")
+                    XCTAssertLessThan(s.hi, layout.tableWidth, "\(cols) \(instrument.name)")
+                    XCTAssertLessThanOrEqual(s.lo, s.hi)
+                }
+                for (a, b) in zip(segments, segments.dropFirst()) {
+                    XCTAssertGreaterThanOrEqual(b.lo, a.hi + 2, "\(cols) \(instrument.name): \(a) \(b)")
+                }
+            }
+        }
     }
 
-    func testVoiceSpanCoversOneKilohertzCentreNotTwoFifty() {
-        let layout = WatchLayout.fit(cols: 64, rows: 30, zones: 7)
-        let rows = Zones.render(Zones.compact, layout: layout, levels: silent, gains: flat)
-        XCTAssertEqual(rows.count, 7)
-        let start = Zones.placement(layout).start
-        let voice = line(rows[4])
-        XCTAssertTrue(rows[4].hasPrefix("vox "), rows[4])
-        XCTAssertEqual(voice[start + layout.centre(5)], "━")
-        XCTAssertEqual(voice[start + layout.centre(4)], "━")
-        XCTAssertEqual(voice[start + layout.centre(3)], " ")
-        XCTAssertEqual(voice.count, start + layout.centre(7) + 1, "the span ends at the 4 kHz bar centre")
+    func testVoiceDrawsEveryRangeAtOneHundredColumns() {
+        let layout = WatchLayout.fit(cols: 100, rows: 30)
+        let voice = Strip.segments(instrument("voice"), layout: layout)
+        XCTAssertEqual(voice.map(\.name), ["fundamental", "F1", "F2", "presence", "sibilance"])
+        XCTAssertEqual(voice.first?.lo, Int(Strip.x(85, layout: layout).rounded()))
+        XCTAssertEqual(voice.last?.hi, Int(Strip.x(9000, layout: layout).rounded()))
     }
 
-    func testWideLayoutUsesFullNamesInThePad() {
-        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 7)
-        XCTAssertEqual(Zones.placement(layout), .init(start: 10, nameWidth: 9, full: true))
-        let rows = Zones.render(Zones.compact, layout: layout, levels: silent, gains: flat)
-        XCTAssertEqual(rows.map { String($0.prefix(9)).trimmingCharacters(in: .whitespaces) },
-                       ["sub", "kick", "bass", "guitar", "voice", "cymbals", "air"])
-        let lines = Watch.frame(frame(), layout: layout, zones: Zones.compact)
-        XCTAssertEqual(lines[1 + layout.meterRows + 1], String(repeating: " ", count: 10) + Table.labelsRow(width: 8))
+    func testKickRowShowsTwoSpansWithTheirNames() {
+        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 8)
+        let row = Strip.row(instrument("kick"), layout: layout, levels: silent, gains: flat)
+        XCTAssertTrue(row.hasPrefix("  kick "), row)
+        let spans = row.dropFirst(Strip.placement(layout).start).split(separator: " ", omittingEmptySubsequences: true)
+        XCTAssertTrue(spans.allSatisfy { $0.allSatisfy { $0 == "━" } || !$0.contains("━") }, row)
+        XCTAssertEqual(Strip.segments(instrument("kick"), layout: layout).count, 2)
+        XCTAssertTrue(row.contains("━ thump ━"), row)
+        XCTAssertFalse(row.contains("beater"), "a name wider than its span is left out: \(row)")
+        XCTAssertLessThanOrEqual(row.count, 100)
     }
 
-    func testNarrowLayoutShiftsFrameForShortNames() {
-        let layout = WatchLayout.fit(cols: 50, rows: 20, zones: 7)
-        XCTAssertEqual(Zones.placement(layout), .init(start: 7, nameWidth: 4, full: false))
-        let lines = Watch.frame(frame(), layout: layout, zones: Zones.compact)
-        XCTAssertEqual(lines.count, 1 + 8 + 3 + 7)
-        XCTAssertEqual(Array(lines.suffix(7)).map { String($0.prefix(6)).trimmingCharacters(in: .whitespaces) },
-                       ["sub", "kck", "bas", "gtr", "vox", "cym", "air"])
-        XCTAssertEqual(lines[1 + 8 + 1], "       " + Table.labelsRow(width: 4, short: true))
-        for line in lines { XCTAssertLessThanOrEqual(line.count, 50, line) }
-        let plain = Watch.frame(frame(), layout: .fit(cols: 50, rows: 20))
-        XCTAssertEqual(plain[1 + 15 + 1], "     " + Table.labelsRow(width: 4, short: true), "without zones the frame stays centred")
+    func testNarrowLayoutUsesShortNamesAndShiftsTheFrame() {
+        let layout = WatchLayout.fit(cols: 60, rows: 20, zones: 8)
+        XCTAssertEqual(Strip.placement(layout), .init(start: 7, nameWidth: 4, full: false))
+        let lines = Watch.frame(frame(), layout: layout, strip: true)
+        let strip = Array(lines[(1 + layout.meterRows)..<(1 + layout.meterRows + layout.zoneRows)])
+        XCTAssertEqual(strip.map { String($0.prefix(6)).trimmingCharacters(in: .whitespaces) },
+                       Array(Instruments.all.map(\.short).prefix(layout.zoneRows)))
+        XCTAssertEqual(lines[1 + layout.meterRows + layout.zoneRows + 1], "       " + Table.labelsRow(width: 5, short: true))
+        for line in lines { XCTAssertLessThanOrEqual(line.count, 60, line) }
+        let plain = Watch.frame(frame(), layout: .fit(cols: 60, rows: 20))
+        XCTAssertTrue(plain[1].hasPrefix("     "), "without the strip the frame stays centred")
     }
 
-    func testTightLayoutKeepsBarsInsideTheWidth() {
-        let layout = WatchLayout.fit(cols: 42, rows: 20, zones: 10)
-        let lines = Watch.frame(frame(), layout: layout, zones: Zones.all)
-        for line in lines { XCTAssertLessThanOrEqual(line.count, 42, line) }
-        XCTAssertTrue(lines.last?.hasPrefix("air") ?? false, lines.last ?? "")
-    }
-
-    func testSnareDrawsTwoSegments() {
-        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 10)
-        let snare = line(Zones.render([Zones.all[6]], layout: layout, levels: silent, gains: flat)[0])
-        let start = Zones.placement(layout).start
-        XCTAssertEqual(snare[start + layout.centre(3)], "━")
-        XCTAssertEqual(snare[start + layout.centre(5)], " ")
-        XCTAssertEqual(snare[start + layout.centre(7)], "━")
-        let segments = String(snare).split(separator: " ").filter { $0.contains("━") }
-        XCTAssertEqual(segments.map(\.count), [3, 3], "a lone band covers its three-glyph bar")
+    func testStripSitsDirectlyAboveTheLiveRow() {
+        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 8)
+        let lines = Watch.frame(frame(), layout: layout, strip: true)
+        XCTAssertEqual(lines.count, 1 + layout.meterRows + 8 + 3)
+        XCTAssertTrue(lines[1 + layout.meterRows].hasPrefix("  kick"), lines[1 + layout.meterRows])
+        XCTAssertTrue(lines[layout.meterRows + 8].hasPrefix("  air"), lines[layout.meterRows + 8])
+        XCTAssertEqual(lines[1 + layout.meterRows + 8], String(repeating: " ", count: 10) + String(repeating: "     -20", count: 10))
     }
 
     func testLoudestBandLendsItsInk() {
         Paint.forced = true
-        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 7)
+        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 8)
         var levels = Array(repeating: -30.0, count: 10)
         levels[6] = -3
         var gains = flat
         gains[6] = 4
-        let voice = Zones.render([Zones.all[5]], layout: layout, levels: levels, gains: gains)[0]
+        let voice = Strip.row(instrument("voice"), layout: layout, levels: levels, gains: gains)
         XCTAssertTrue(voice.contains("\u{1B}[2mvoice"), voice)
         XCTAssertTrue(voice.contains("\u{1B}[92m━"), voice)
         XCTAssertTrue(voice.contains("\u{1B}[2m━"), voice)
-        let quiet = Zones.render([Zones.all[5]], layout: layout, levels: silent, gains: gains)[0]
+        let quiet = Strip.row(instrument("voice"), layout: layout, levels: silent, gains: gains)
         XCTAssertFalse(quiet.contains("\u{1B}[92m"), "silence leaves every span dim")
+        let focused = Strip.row(instrument("voice"), layout: layout, levels: silent, gains: gains, highlighted: true)
+        XCTAssertTrue(focused.contains("\u{1B}[1mvoice"), focused)
+        XCTAssertFalse(focused.contains("\u{1B}[2m━"), "a highlighted row drops the dim from its strokes")
     }
 
-    func testFitReservesZoneRows() {
-        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 7).meterRows, 18)
-        let short = WatchLayout.fit(cols: 100, rows: 14, zones: 7)
+    func testFitReservesStripAndBracketRows() {
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 8).meterRows, 17)
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 1, bracket: true).meterRows, 23)
+        let short = WatchLayout.fit(cols: 100, rows: 14, zones: 8, bracket: true)
         XCTAssertEqual(short.meterRows, 4)
-        XCTAssertEqual(short.zoneRows, 5)
-        XCTAssertEqual(Watch.frame(frame(), layout: short, zones: Zones.compact).count, 1 + 4 + 3 + 5)
-        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 8, zones: 7).zoneRows, 0)
+        XCTAssertEqual(short.bracketRows, 1)
+        XCTAssertEqual(short.zoneRows, 4)
+        let voice = Instruments.all.first { $0.name == "voice" }
+        XCTAssertEqual(Watch.frame(frame(), layout: short, strip: true, focus: voice).count, 1 + 1 + 4 + 1 + 3,
+                       "a focus shows one strip row however many are budgeted")
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 9, zones: 8, bracket: true).bracketRows, 0)
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 8, zones: 8).zoneRows, 0)
         XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30), WatchLayout.fit(cols: 100, rows: 30, zones: 0))
     }
 
-    func testRunCyclesZonesOnZ() throws {
+    func testRunTogglesTheStripOnZ() throws {
         struct Source: MeterSource {
             let lines: [String]
             func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
@@ -122,16 +128,14 @@ final class ZonesTests: XCTestCase {
         }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
         var emitted: [String] = []
-        var keys: [String?] = ["z", "z", "z", nil]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 4)), size: { (100, 30) },
+        var keys: [String?] = ["z", "z", nil]
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
                       emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() })
         let frames = emitted.filter { $0.contains("\u{1B}[H") }
-        XCTAssertEqual(frames.count, 4)
-        XCTAssertEqual(frames.map { $0.contains("cymbals") }, [false, true, true, false])
-        XCTAssertEqual(frames.map { $0.contains("sibilance") }, [false, false, true, false])
+        XCTAssertEqual(frames.map { $0.contains("cymbals") }, [false, true, false])
 
         emitted = []
-        _ = Watch.run(source: Source(lines: [line]), size: { (100, 30) }, zones: .compact,
+        _ = Watch.run(source: Source(lines: [line]), size: { (100, 30) }, zones: true,
                       emit: { emitted.append($0) }, readKey: { nil })
         XCTAssertTrue(emitted.contains { $0.contains("voice") })
     }

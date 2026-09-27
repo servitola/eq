@@ -9,19 +9,25 @@ enum Table {
 
     static let shortLabels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
 
+    /// With a `focus`, labels inside it drop the dim so the focused bands read first.
     static func labelsRow(width: Int = width, short: Bool = false, columns: Int = Config.bandLabels.count,
-                          bold: Int? = nil) -> String {
+                          bold: Int? = nil, focus: Set<Int>? = nil) -> String {
         let labels = (short ? shortLabels : Config.bandLabels).prefix(max(columns, 0)).map { $0.leftPadded(to: width) }
-        guard let bold, labels.indices.contains(bold) else { return Paint.ink(.dim, labels.joined()) }
-        func dim(_ part: ArraySlice<String>) -> String { part.isEmpty ? "" : Paint.ink(.dim, part.joined()) }
-        return dim(labels[..<bold]) + Paint.ink(.bold, labels[bold]) + dim(labels[(bold + 1)...])
+        var line = "", run = "", ink: Paint.Ink?
+        for (i, label) in labels.enumerated() {
+            let next: Paint.Ink? = i == bold ? .bold : (focus?.contains(i) == true ? nil : .dim)
+            if next != ink, !run.isEmpty { line += Paint.ink(ink, run, on: Paint.enabled); run = "" }
+            ink = next
+            run += label
+        }
+        return line + (run.isEmpty ? "" : Paint.ink(ink, run, on: Paint.enabled))
     }
 
     /// Below six columns "+12.0" plus a gap no longer fits, so the cell shows whole decibels.
-    static func gainsRow(_ bands: [Double], width: Int = width) -> String {
-        bands.map { value -> String in
+    static func gainsRow(_ bands: [Double], width: Int = width, dimmed: Set<Int> = []) -> String {
+        bands.enumerated().map { i, value -> String in
             let text = width >= self.width ? gain(value) : wholeGain(value)
-            return Paint.ink(Paint.gain(value), text.leftPadded(to: width))
+            return Paint.ink(dimmed.contains(i) ? .dim : Paint.gain(value), text.leftPadded(to: width))
         }.joined()
     }
 

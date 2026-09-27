@@ -3,9 +3,10 @@ import Foundation
 enum WatchAction: Equatable {
     case bandStep(Int, Double)
     case preamp(Double)
-    case cyclePreset, undo
+    case cyclePreset, previousPreset, undo
     case savePreset(String)
     case startSave, zones, help, dismissHelp, quit
+    case focusNext, focusPrevious, unfocus, listen
 }
 
 enum WatchKeys {
@@ -30,18 +31,54 @@ enum WatchKeys {
         case "h", "H", "?", "р", "Р": return .help
         case "x", "X", "ч", "Ч": return .dismissHelp
         case "q", "Q", "й", "Й", "\u{03}": return .quit
+        case "]", "\t", "ъ", "Ъ": return .focusNext
+        case "[", "х", "Х": return .focusPrevious
+        case "l", "L", "д", "Д": return .listen
+        case "\u{1B}": return .unfocus
         default: break
         }
         if let band = digits.firstIndex(of: c) { return .bandStep(band, step) }
         if let band = usShifted.firstIndex(of: c) ?? ruShifted.firstIndex(of: c) { return .bandStep(band, -step) }
         return nil
     }
+
+    /// Everything one read delivered. ↑/↓ arrive as `ESC [ A`/`B`, or `ESC O A`/`B` when the
+    /// terminal is in application-cursor mode; any other escape sequence is skipped whole, so its
+    /// tail never reads as letter commands. A bare `ESC` is the Esc key only when nothing follows
+    /// it in the same read — a sequence always arrives in one piece at these lengths.
+    static func actions(for keys: String) -> [WatchAction] {
+        let chars = Array(keys)
+        var result: [WatchAction] = []
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            i += 1
+            guard c == "\u{1B}" else {
+                if let action = action(for: String(c)) { result.append(action) }
+                continue
+            }
+            guard i < chars.count else { result.append(.unfocus); break }
+            let introducer = chars[i]
+            i += 1
+            guard introducer == "[" || introducer == "O" else { continue }
+            // CSI parameters and intermediates run until the final byte, @ through ~.
+            while i < chars.count, !(chars[i].asciiValue.map { (0x40...0x7E).contains($0) } ?? false) { i += 1 }
+            guard i < chars.count else { break }
+            switch chars[i] {
+            case "A": result.append(.previousPreset)
+            case "B": result.append(.cyclePreset)
+            default: break
+            }
+            i += 1
+        }
+        return result
+    }
 }
 
 enum HintBox {
     static let width = 29
-    private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "p preset", "u undo", "s save",
-                                          "z zones", "h help", "q quit"]
+    private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "p ↑↓ preset", "u undo", "s save",
+                                          "z zones", "[ ] focus", "l listen", "h help", "q quit"]
 
     /// Whole segments drop from the right to fit `width`, except `q quit`: the way out always shows.
     static func compact(width: Int) -> String {
@@ -55,9 +92,10 @@ enum HintBox {
         [("1…0", "band up   0.5 dB")],
         [("⇧1…0", "band down 0.5 dB")],
         [("+ −", "preamp")],
-        [("p", "preset  "), ("u", "undo")],
+        [("p ↑↓", "preset  "), ("u", "undo")],
         [("s", "save as preset")],
         [("z", "zones   "), ("h", "this hint")],
+        [("[ ]", "focus   "), ("l", "listen")],
         [("x", "hide this for good")],
         [("q", "quit")],
     ]

@@ -30,6 +30,10 @@ final class MeterClient {
             Darwin.close(sock)
             throw Error.notServing
         }
+        // A write after the daemon went away would otherwise raise SIGPIPE and kill the watch
+        // before it could put the terminal back.
+        var on: Int32 = 1
+        setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         fd = sock
     }
 
@@ -54,6 +58,19 @@ final class MeterClient {
                 delivered += 1
                 if let maxLines, delivered >= maxLines { return false }
             }
+        }
+    }
+
+    /// One request line to the daemon; the newline is what frames it on the other side.
+    func send(_ line: String) throws {
+        guard fd >= 0 else { throw Error.notServing }
+        let bytes = Array(line.utf8) + (line.hasSuffix("\n") ? [] : [UInt8(ascii: "\n")])
+        var offset = 0
+        while offset < bytes.count {
+            let n = bytes[offset...].withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+            if n < 0, errno == EINTR { continue }
+            guard n > 0 else { throw Error.notServing }
+            offset += n
         }
     }
 
