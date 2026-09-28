@@ -118,11 +118,16 @@ enum LaunchAgent {
         case failed(String)
     }
 
+    /// The file `eq agent uninstall` leaves so later commands do not register the agent again.
+    static let optOutName = "agent-off"
+
     /// What a CLI command does about a daemon that is not running: register the bundled agent
-    /// when nothing else launches eq, otherwise leave launchd alone. Never throws: a command
-    /// must not fail because the daemon could not be started.
-    static func ensureRunning(_ agent: LaunchAgentControl, daemonAlive: Bool) -> Note? {
-        guard !daemonAlive, agent.loadedJob() == nil, !agent.legacyPlistExists() else { return nil }
+    /// when nothing else launches eq and the user has not turned it off, otherwise leave launchd
+    /// alone. A registration launchd no longer holds (`.enabled`, not loaded) is left too: that is
+    /// a job booted out on purpose, and a crashed daemon is KeepAlive's to restart. Never throws: a
+    /// command must not fail because the daemon could not be started.
+    static func ensureRunning(_ agent: LaunchAgentControl, daemonAlive: Bool, optedOut: Bool) -> Note? {
+        guard !daemonAlive, !optedOut, agent.loadedJob() == nil, !agent.legacyPlistExists() else { return nil }
         switch agent.serviceStatus {
         case .notRegistered:
             do {

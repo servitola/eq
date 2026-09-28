@@ -126,30 +126,30 @@ final class LaunchAgentTests: XCTestCase {
 
     func testRegistersWhenNothingRunsTheDaemon() {
         let agent = FakeAgent()
-        XCTAssertEqual(LaunchAgent.ensureRunning(agent, daemonAlive: false), .started)
+        XCTAssertEqual(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), .started)
         XCTAssertEqual(agent.calls, ["register"])
-        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false), "registered already: nothing to say twice")
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), "registered already: nothing to say twice")
         XCTAssertEqual(agent.calls, ["register"])
     }
 
     func testLeavesARunningDaemonAlone() {
         let agent = FakeAgent()
-        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: true))
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: true, optedOut: false))
         XCTAssertEqual(agent.calls, [])
     }
 
     func testNeverStacksASecondDaemonOnTheLegacyPlist() {
         let agent = FakeAgent.legacyRunning()
-        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false))
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false))
         agent.job = nil
-        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false), "an unloaded legacy plist is still the user's choice")
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), "an unloaded legacy plist is still the user's choice")
         XCTAssertEqual(agent.calls, [])
     }
 
     func testWaitingForApprovalIsAHintNotARetry() {
         let agent = FakeAgent()
         agent.serviceStatus = .requiresApproval
-        XCTAssertEqual(LaunchAgent.ensureRunning(agent, daemonAlive: false), .needsApproval)
+        XCTAssertEqual(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), .needsApproval)
         XCTAssertEqual(agent.calls, [])
         XCTAssertTrue(LaunchAgent.text(.needsApproval, paint: false).contains("System Settings → General → Login Items"))
     }
@@ -157,15 +157,23 @@ final class LaunchAgentTests: XCTestCase {
     func testAFailedRegistrationIsANote() {
         let agent = FakeAgent()
         agent.registerError = NSError(domain: NSOSStatusErrorDomain, code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
-        XCTAssertEqual(LaunchAgent.ensureRunning(agent, daemonAlive: false), .failed("Operation not permitted (1)"))
+        XCTAssertEqual(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), .failed("Operation not permitted (1)"))
     }
 
     func testRegisteredButUnloadedOrMissingIsLeftToDoctor() {
         let agent = FakeAgent()
         agent.serviceStatus = .enabled
-        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false))
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false))
         agent.serviceStatus = .notFound
-        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false))
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false))
+        XCTAssertEqual(agent.calls, [])
+    }
+
+    func testAnOptOutKeepsItOff() {
+        let agent = FakeAgent()
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: true))
+        agent.serviceStatus = .requiresApproval
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: true))
         XCTAssertEqual(agent.calls, [])
     }
 
@@ -345,6 +353,29 @@ final class AgentCLITests: XCTestCase {
         agent.serviceStatus = .enabled
         XCTAssertTrue(run(["agent", "uninstall"]).output.contains("removed the login item"))
         XCTAssertEqual(run(["agent", "bogus"]).exitCode, 2)
+    }
+
+    private var optOutMarker: URL { context.cacheDirectory.deletingLastPathComponent().appendingPathComponent("agent-off") }
+
+    func testUninstallKeepsItOffUntilInstall() {
+        agent.serviceStatus = .enabled
+        agent.job = LoadedJob(managedByServiceManagement: true, path: nil, pid: 42)
+        XCTAssertTrue(run(["agent", "uninstall"]).output.contains("stays off until eq agent install"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: optOutMarker.path))
+        run([])
+        XCTAssertEqual(agent.calls, ["unregister"])
+        XCTAssertEqual(warnings, [])
+        XCTAssertEqual(run(["agent", "install"]).exitCode, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: optOutMarker.path))
+        XCTAssertEqual(agent.calls, ["unregister", "register"])
+    }
+
+    func testUninstallForAnUpgradeLeavesAutoStartOn() {
+        agent.serviceStatus = .enabled
+        XCTAssertEqual(run(["agent", "uninstall", "--for-upgrade"]).exitCode, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: optOutMarker.path))
+        run([])
+        XCTAssertEqual(agent.calls, ["unregister", "register"])
     }
 
     func testAgentStaysOutOfHelpAndCompletions() {

@@ -22,6 +22,12 @@ struct CLIContext {
     var checksDaemon = false
     var warn: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
 
+    /// `~/.cache/eq` (or EQ_CACHE): eq's own markers live here, beside the downloads, and not in
+    /// the config directory, which a fresh Mac does not have until a change needs it.
+    var stateDirectory: URL { cacheDirectory.deletingLastPathComponent() }
+
+    var agentOptOutMarker: URL { stateDirectory.appendingPathComponent(LaunchAgent.optOutName) }
+
     static func live() -> CLIContext {
         CLIContext(
             store: ConfigStore(url: ConfigStore.defaultURL),
@@ -161,7 +167,8 @@ enum CLI {
               !args.contains("--help"), !args.contains("-h") else { return }
         let live = Status.read(from: ctx.statusURL).flatMap { $0.isAlive() ? $0 : nil }
         let paint = Paint.enabled(fd: 2)
-        if let note = LaunchAgent.ensureRunning(agent, daemonAlive: live != nil) { ctx.warn(LaunchAgent.text(note, paint: paint)) }
+        if let note = LaunchAgent.ensureRunning(agent, daemonAlive: live != nil,
+                                                  optedOut: FileManager.default.fileExists(atPath: ctx.agentOptOutMarker.path)) { ctx.warn(LaunchAgent.text(note, paint: paint)) }
         if live?.state == .noPermission, !["status", "doctor"].contains(command) {
             ctx.warn(Paint.ink(.yellow, "eq is not equalising: no System Audio Recording permission — \(permissionHint)", on: paint))
         }

@@ -26,7 +26,9 @@ its entries under a dated version.
 
 - `eq agent install [--replace-legacy]|uninstall|status`, hidden, for the cask and for
   troubleshooting; `status` reports the SMAppService state (`notRegistered`, `enabled`,
-  `requiresApproval`, `notFound`).
+  `requiresApproval`, `notFound`). `uninstall` keeps the daemon off (marker
+  `~/.cache/eq/agent-off`) until `install`; the cask's own uninstall step, which also runs on
+  upgrade, does not.
 
 ## 2026.09.28.1 — 2026-09-28
 
