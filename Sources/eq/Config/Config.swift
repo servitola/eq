@@ -201,6 +201,16 @@ struct Experimental: Codable, Equatable {
     }
 }
 
+/// Which path carries the EQ: a process tap in the daemon, or the HAL plug-in in Driver/.
+enum AudioMode: String, Codable, CaseIterable {
+    case tap, driver
+}
+
+struct DriverOptions: Codable, Equatable {
+    /// The decision-4 experiment: keep the EQ device hidden while it is the default output.
+    var hideWhileDefault: Bool? = nil
+}
+
 enum ProfileSource: String, Codable {
     case device
     case `default`
@@ -262,8 +272,13 @@ struct Config: Codable, Equatable {
     /// In order: the first rule whose app plays wins, unless several play at once.
     var apps: [AppRule]? = nil
     var experimental: Experimental? = nil
+    /// nil reads as tap, so a config from before driver mode means what it always meant.
+    var mode: AudioMode? = nil
+    var driver: DriverOptions? = nil
 
     var followsApps: Bool { experimental?.apps == true }
+    var audioMode: AudioMode { mode ?? .tap }
+    var hidesWhileDefault: Bool { driver?.hideWhileDefault == true }
 
     mutating func setFollowsApps(_ on: Bool) {
         experimental = on ? Experimental(apps: true) : nil

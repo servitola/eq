@@ -168,3 +168,34 @@ final class AppRulesConfigTests: XCTestCase {
         XCTAssertFalse(AppRule(app: "com.google.Chrome", preset: "x").matches("com.google.Chrome.canary"))
     }
 }
+
+final class ConfigModeTests: XCTestCase {
+    func testMissingModeIsTap() throws {
+        let data = try JSONEncoder().encode(Config.initial(builtInUID: nil, builtInName: nil))
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("\"mode\""))
+        let config = try JSONDecoder().decode(Config.self, from: data)
+        XCTAssertNil(config.mode)
+        XCTAssertEqual(config.audioMode, .tap)
+        XCTAssertFalse(config.hidesWhileDefault)
+    }
+
+    func testModeAndDriverOptionsRoundTrip() throws {
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.mode = .driver
+        config.driver = DriverOptions(hideWhileDefault: true)
+        let data = try JSONEncoder().encode(config)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["mode"] as? String, "driver")
+        XCTAssertEqual((json["driver"] as? [String: Any])?["hideWhileDefault"] as? Bool, true)
+        let back = try JSONDecoder().decode(Config.self, from: data)
+        XCTAssertEqual(back, config)
+        XCTAssertEqual(back.audioMode, .driver)
+        XCTAssertTrue(back.hidesWhileDefault)
+    }
+
+    func testUnknownModeIsRejected() throws {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(Config.initial(builtInUID: nil, builtInName: nil))) as? [String: Any])
+        json["mode"] = "aggregate"
+        XCTAssertThrowsError(try JSONDecoder().decode(Config.self, from: JSONSerialization.data(withJSONObject: json)))
+    }
+}
