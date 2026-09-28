@@ -118,7 +118,13 @@ enum LaunchAgent {
     }
 
     static func legacyInUse(_ agent: LaunchAgentControl) -> Bool {
-        agent.loadedJob(legacyLabel) != nil || agent.legacyPlistExists()
+        agent.legacyPlistExists() || agent.loadedJob(legacyLabel) != nil
+    }
+
+    /// EQ_LAUNCHER comes from the bundled plist. The CLI never registers it beside the legacy job,
+    /// but a registration from before the legacy plist came back still starts at login.
+    static func bundledDaemonYields(environment: [String: String], agent: LaunchAgentControl) -> Bool {
+        environment["EQ_LAUNCHER"] == "bundled" && legacyInUse(agent)
     }
 
     /// The file `eq agent uninstall` leaves so later commands do not register the agent again.

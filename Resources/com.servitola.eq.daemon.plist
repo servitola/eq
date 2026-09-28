@@ -6,7 +6,8 @@
   refuses a label a legacy agent once had (see LaunchAgent.label). BundleProgram is relative
   to EQ.app. KeepAlive because a crashed EQ means
   unequalised audio until someone notices. EQ_LOG: launchd expands no ~ in StandardOutPath,
-  so the daemon opens ~/Library/Logs/eq.log itself.
+  so the daemon opens ~/Library/Logs/eq.log itself. EQ_LAUNCHER=bundled makes it step aside
+  while the legacy agent is in use.
 -->
 <plist version="1.0">
 <dict>
@@ -33,6 +34,8 @@
 	<dict>
 		<key>EQ_LOG</key>
 		<string>~/Library/Logs/eq.log</string>
+		<key>EQ_LAUNCHER</key>
+		<string>bundled</string>
 	</dict>
 </dict>
 </plist>

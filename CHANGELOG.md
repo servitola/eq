@@ -12,6 +12,10 @@ its entries under a dated version.
   bundled job is now `com.servitola.eq.daemon`. eq still never registers it while the legacy
   job is loaded or its plist is in `~/Library/LaunchAgents`, and `eq agent status` names the
   loaded job's label. Restart hints read `launchctl kickstart -k gui/$UID/com.servitola.eq.daemon`.
+- A second eq daemon never starts a second tap: the daemon takes a lock,
+  `~/.cache/eq/daemon.lock`, and one that finds it held, or finds itself the bundled daemon
+  while the legacy agent is in use, logs why and exits a minute later. Before, only a fresh
+  `status.json` kept a second one off.
 
 ## 2026.09.28.2 — 2026-09-28
 

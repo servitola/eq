@@ -17,6 +17,9 @@ enum DaemonPolicy {
     // A missed wake notification would otherwise leave the daemon silently stopped forever;
     // the watchdog timer itself ticking is proof the process is alive to fall back on.
     static let wakeFallbackTimeout: TimeInterval = 120
+    // KeepAlive restarts an exited daemon after ThrottleInterval (5 s); a refused one waits
+    // first, so a lasting conflict costs a log line a minute, not twelve.
+    static let refusedExitDelay: TimeInterval = 60
 
     static func shouldWriteStatus(changed: Bool, sinceLastWrite: TimeInterval) -> Bool {
         changed || sinceLastWrite >= heartbeat
@@ -101,6 +104,8 @@ final class Daemon {
     // Our own aggregate create/destroy fires the devices listener; cleared only when a rebuild succeeds, and failures retry on a timer, so a self-fired Devices event can never restart the cycle.
     private var rebuilding = false
     private var signalSources: [DispatchSourceSignal] = []
+    // Held open for the process's life: closing it would release the lock.
+    private var lock: Int32?
     private var meterServer: MeterServer?
     // The daemon's copy survives engine stops, which clear the processor's; applyProfile re-applies it.
     private var solo: SoloRange?
@@ -141,9 +146,10 @@ final class Daemon {
     }
 
     func run() -> Never {
-        if let other = Status.read(from: statusURL), other.isAlive(), other.pid != getpid() {
-            Log.write("another eq daemon is running (pid \(other.pid)) — exiting")
-            exit(1)
+        if let reason = refusal() {
+            Log.write("\(reason) — exiting")
+            Thread.sleep(forTimeInterval: DaemonPolicy.refusedExitDelay)
+            exit(0)
         }
         // A status file carrying `version` tells doctor SIGUSR1 is safe; the handler must exist before that file does.
         installSignalHandlers()
@@ -166,6 +172,23 @@ final class Daemon {
         rebuild(attempt: 1)
         RunLoop.main.run()
         exit(0)
+    }
+
+    /// The status check catches a daemon from before the lock existed.
+    private func refusal() -> String? {
+        if LaunchAgent.bundledDaemonYields(environment: ProcessInfo.processInfo.environment, agent: LiveLaunchAgent()) {
+            return "the legacy \(LaunchAgent.legacyLabel) agent is in use; the bundled daemon stays off"
+        }
+        if let other = Status.read(from: statusURL), other.isAlive(), other.pid != getpid() {
+            return "another eq daemon is running (pid \(other.pid))"
+        }
+        let lockURL = DaemonLock.url(beside: statusURL)
+        switch DaemonLock.acquire(lockURL) {
+        case .acquired(let fd): lock = fd
+        case .held(let pid): return "another eq daemon holds \(lockURL.path)" + (pid.map { " (pid \($0))" } ?? "")
+        case .failed(let why): Log.write("\(why); running without the single-instance lock")
+        }
+        return nil
     }
 
     /// Every client socket also sets SO_NOSIGPIPE; this covers one where that failed or was never set.
