@@ -100,6 +100,10 @@ enum DryRun {
         let target = try CLI.useTarget(args, ctx)
         let config = try CLI.loadConfig(ctx)
         let current = try CLI.currentDevice(ctx)
+        guard current.uid != target.uid else {
+            let lines = [Paint.ink(.yellow, "dry run") + ": " + Paint.ink(.bold, target.name) + " is already the output", table(config, target)]
+            return Output(lines.joined(separator: "\n"), Report(before: AnyEncodable(report(config, current)), after: AnyEncodable(report(config, target))))
+        }
         let lines = [
             Paint.ink(.yellow, "dry run") + ": output not switched",
             "output " + Paint.ink(.bold, current.name) + " → " + Paint.ink(.bold, target.name),

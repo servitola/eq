@@ -269,6 +269,14 @@ final class CLIShapeTests: XCTestCase {
         XCTAssertFalse(offline.output.contains("eq-dry-run"), offline.output)
     }
 
+    func testDryRunOfDeviceUseOnTheCurrentOutput() {
+        run("init")
+        let result = run("device", "use", "macbook", "--dry-run")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertTrue(result.output.contains("MacBook Pro Speakers is already the output"), result.output)
+        XCTAssertFalse(result.output.contains("→"), result.output)
+    }
+
     // MARK: - device use
 
     private func addProfile(_ uid: String, _ name: String) throws {
