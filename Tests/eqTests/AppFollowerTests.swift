@@ -283,6 +283,39 @@ final class AppFollowerTests: XCTestCase {
         XCTAssertEqual(changes.count, 2)
     }
 
+    func testRenamingThePlayingPresetFollowsItAtOnce() {
+        follower.configure(config())
+        source.play(1, "com.spotify.client")
+        settle()
+        var renamed = config()
+        let favourite = renamed.presets?.removeValue(forKey: "favourite")
+        renamed.presets?["fav"] = favourite
+        renamed.apps = [AppRule(app: "com.spotify.client", preset: "fav"), AppRule(app: "com.google.Chrome", preset: "flat")]
+        follower.configure(renamed)
+        let fav = AppMatch(app: "com.spotify.client", name: "Spotify", preset: "fav")
+        XCTAssertEqual(follower.overlay, fav, "no wait with the old name playing nothing")
+        XCTAssertEqual(changes.count, 2)
+        XCTAssertEqual(changes.last?.new, fav)
+        settle()
+        XCTAssertEqual(changes.count, 2)
+    }
+
+    func testRemovingThePlayingPresetEndsTheOverlayAtOnce() {
+        follower.configure(config())
+        source.play(1, "com.spotify.client")
+        settle()
+        var removed = config()
+        removed.presets?.removeValue(forKey: "favourite")
+        follower.configure(removed)
+        XCTAssertNil(follower.overlay)
+        XCTAssertNil(follower.status?.overlay)
+        XCTAssertEqual(changes.count, 2)
+        XCTAssertNil(changes.last?.new)
+        XCTAssertEqual(changes.last?.previous, spotifyMatch)
+        settle()
+        XCTAssertEqual(changes.count, 2)
+    }
+
     func testARuleChangeTakesEffectAndAListenerFailureIsReported() {
         follower.configure(config())
         source.play(1, "com.spotify.client")

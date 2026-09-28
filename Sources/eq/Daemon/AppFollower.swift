@@ -141,6 +141,13 @@ final class AppFollower {
             listening = source.start { [weak self] in self?.quiet.trigger() }
             if !listening { Log.write("apps: cannot listen for playing apps") }
         }
+        // `eq preset rename` renames the rules along with the preset, so the overlay's rule names
+        // the new one; a removed preset leaves the rule matching nothing. Either way it is settled
+        // now, since until then the overlay would play the device's curve under a stale name.
+        if let overlay, config.preset(named: overlay.preset) == nil {
+            generation += 1
+            settle(AppResolver.candidates(rules: rules, playing: [PlayingApp(id: overlay.app, name: overlay.name)], config: config).first)
+        }
         quiet.trigger()
     }
 
