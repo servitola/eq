@@ -102,18 +102,15 @@ final class EQProcessor {
     }
 
     private func resetDynamics() {
-        resetCompressor()
-        resetColour()
-    }
-
-    private func resetCompressor() {
         dynamicsState = DynamicsState()
         compressorReductionDB = 0
-        detectorStates.update(repeating: BiquadState(), count: 2 * TapFormat.maxChannels)
+        resetDetector()
+        dcStates.update(repeating: 0, count: 2 * TapFormat.maxChannels)
     }
 
-    private func resetColour() {
-        dcStates.update(repeating: 0, count: 2 * TapFormat.maxChannels)
+    private func resetDetector() {
+        dynamicsState.meanSquare = 0
+        detectorStates.update(repeating: BiquadState(), count: 2 * TapFormat.maxChannels)
     }
 
     static func clampSolo(low: Double, high: Double, sampleRate: Double) -> SoloRange? {
@@ -185,7 +182,7 @@ final class EQProcessor {
             snap.limiterEnabled = limiterEnabled
             snap.limiterCeilingLinear = Float(pow(10, limiterCeilingDB / 20))
             snap.bypassed = bypassed && solo == nil
-            snap.dynamics = bypassed ? DynamicsCoefficients() : DynamicsCoefficients.make(dynamics, sampleRate: sampleRate)
+            snap.dynamics = DynamicsCoefficients.make(bypassed ? nil : dynamics, sampleRate: sampleRate)
             return snap
         }()
         os_unfair_lock_lock(&lock)
@@ -236,9 +233,11 @@ final class EQProcessor {
             }
             os_unfair_lock_unlock(&lock)
         }
-        // A stage switched off leaves its memory behind; clear it so switching back on starts fresh.
-        if swapped, !snapshot.dynamics.compressor { resetCompressor() }
-        if swapped, snapshot.dynamics.colour != .tube { resetColour() }
+        // A compressor switched off glides its gain out but has no more use for its detector, so
+        // switching back on starts listening afresh. Bypass is a jump anyway, and after it nothing
+        // should still be gliding out of what played before.
+        if swapped, snapshot.bypassed { resetDynamics() }
+        if swapped, !snapshot.dynamics.compressor { resetDetector() }
         if snapshot.bypassed { return }
 
         // Copied out rather than read through `snapshot` inside the closure below: that closure
@@ -249,7 +248,7 @@ final class EQProcessor {
         let limiterEnabled = snapshot.limiterEnabled
         let limiterCeilingLinear = snapshot.limiterCeilingLinear
         let dynamics = snapshot.dynamics
-        let shaping = dynamics.isActive
+        let shaping = dynamics.isActive || !dynamicsState.isIdle
         var dynamicsState = self.dynamicsState
         let detectorStates = self.detectorStates
         let dcStates = self.dcStates
@@ -309,7 +308,7 @@ final class EQProcessor {
         if shaping {
             for index in 0..<(2 * shapedChannels) { detectorStates[index].flushDenormals() }
             for index in 0..<(2 * shapedChannels) where abs(dcStates[index]) < Float.leastNormalMagnitude { dcStates[index] = 0 }
-            dynamicsState.flushTails()
+            dynamicsState.flushTails(compressing: dynamics.compressor)
             self.dynamicsState = dynamicsState
             compressorReductionDB = dynamicsState.reductionDB
         }

@@ -18,6 +18,8 @@ its entries under a dated version.
   music; `night` (4:1 from −30 dBFS) brings quiet dialogue up and explosions down.
 - `eq color tape|tube <amount>` and `eq color off`: saturation after the compressor, as loud as
   before. `tape` is a symmetric soft clip, `tube` adds even harmonics.
+- Switching the compressor or the colour on, off, or to another mode, kind or amount glides
+  over about 10 ms, without a click or a jump in level.
 - Both are stored per profile as `dynamics`, travel with presets, undo, history and eq's own JSON
   export, and are dropped by `eq flat`. `eq` shows a `dynamics:` line. Other export formats warn
   and export the EQ alone.

@@ -210,6 +210,95 @@ final class DynamicsTests: XCTestCase {
         }
     }
 
+    // MARK: - Switching
+
+    private static let rates = [16000.0, 44100, 48000, 96000, 192000]
+
+    /// A second of `from`, then `to`, applied between two 64-frame callbacks as the daemon would.
+    private func switching(_ from: Dynamics?, _ to: Dynamics?, rate: Double, frequency: Double, peakDB: Double = -6)
+        -> (input: [Float], output: [Float], at: Int) {
+        let processor = EQProcessor()
+        processor.configure(sampleRate: rate)
+        var profile = Profile.flat
+        profile.dynamics = from
+        processor.apply(profile: profile, enabled: true)
+        let amplitude = pow(10, peakDB / 20)
+        let input = (0..<Int(2 * rate)).map { Float(amplitude * sin(2 * Double.pi * frequency * Double($0) / rate)) }
+        var at = 0
+        let output = run(processor, input, block: 64) { done in
+            guard at == 0, done >= Int(rate) else { return }
+            at = done
+            profile.dynamics = to
+            processor.apply(profile: profile, enabled: true)
+        }
+        return (input, output, at)
+    }
+
+    private func name(_ dynamics: Dynamics?) -> String {
+        dynamics.map { Table.dynamics($0) }.flatMap { $0.isEmpty ? nil : $0 } ?? "off"
+    }
+
+    /// Switching the compressor on, off or to the other mode glides the gain there: no sample-to-sample
+    /// step a listener hears as a click, and no swell above where it was or where it settles.
+    func testSwitchingTheCompressorGlides() {
+        let modes: [Dynamics?] = [nil, Dynamics(comp: .gentle), Dynamics(comp: .night)]
+        for rate in Self.rates {
+            for from in modes {
+                for to in modes where to != from {
+                    let (input, output, at) = switching(from, to, rate: rate, frequency: 1000)
+                    let peak = input.map(abs).max()!
+                    let gains = input.indices.map { n -> Double? in
+                        abs(input[n]) > peak / 2 ? 20 * log10(Double(output[n] / input[n])) : nil
+                    }
+                    func mean(_ range: Range<Int>) -> Double {
+                        let values = gains[range].compactMap { $0 }
+                        return values.reduce(0, +) / Double(values.count)
+                    }
+                    let tenth = Int(rate / 10)
+                    let before = mean((at - tenth)..<at), after = mean((input.count - tenth)..<input.count)
+                    // Near a zero crossing out/in says nothing, so a step over such a gap counts per sample.
+                    let measured = gains.indices.dropFirst(at - 1).compactMap { n in gains[n].map { (n, $0) } }
+                    let transition = measured.map(\.1)
+                    let step = zip(measured, measured.dropFirst()).map { abs($1.1 - $0.1) / Double($1.0 - $0.0) }.max()!
+                    let label = "\(name(from)) → \(name(to)) at \(rate) Hz"
+                    print(String(format: "\(label): largest step %.3f dB, peak %+.2f dB over the higher settled gain", step, transition.max()! - max(before, after)))
+                    XCTAssertLessThan(step, 0.5, label)
+                    XCTAssertLessThan(transition.max()!, max(before, after) + 1, label)
+                }
+            }
+        }
+    }
+
+    /// The same for the colour: its drive glides, so neither the curve nor the tube's DC arrives as a step.
+    func testSwitchingTheColourGlides() {
+        let tube = Dynamics(color: .init(kind: .tube, amount: 1))
+        let cases: [(Dynamics?, Dynamics?)] = [
+            (nil, tube), (tube, nil), (Dynamics(color: .init(kind: .tube, amount: 0.2)), tube),
+            (Dynamics(color: .init(kind: .tape, amount: 1)), tube), (tube, Dynamics(comp: .night, color: .init(kind: .tape, amount: 1))),
+        ]
+        for rate in Self.rates {
+            for (from, to) in cases {
+                let (_, output, at) = switching(from, to, rate: rate, frequency: 200)
+                let steps = zip(output, output.dropFirst()).map { abs($1 - $0) }
+                let tenth = Int(rate / 10)
+                let steady = max(steps[(at - tenth)..<(at - 1)].max()!, steps[(steps.count - tenth)...].max()!)
+                let label = "\(name(from)) → \(name(to)) at \(rate) Hz"
+                print(String(format: "\(label): largest step %.2f × steady", steps[(at - 1)...].max()! / steady))
+                XCTAssertLessThan(steps[(at - 1)...].max()!, 1.1 * steady, label)
+            }
+        }
+    }
+
+    /// Once a stage switched off has glided out it stops running: the output is the plain curve's, bit for bit.
+    func testASwitchedOffStageStopsOnceItHasGlidedOut() {
+        for from in [Dynamics(comp: .night), Dynamics(color: .init(kind: .tube, amount: 1)), Dynamics(comp: .gentle, color: .init(kind: .tape, amount: 1))] {
+            let (input, output, at) = switching(from, nil, rate: rate, frequency: 1000)
+            let plain = run(processor(nil), input)
+            let settled = at + Int(rate / 2)
+            XCTAssertEqual(Array(output[settled...]), Array(plain[settled...]), "\(from)")
+        }
+    }
+
     // MARK: - Safety
 
     func testOffIsBitIdenticalAndBypassDropsTheStage() {

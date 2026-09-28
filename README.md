@@ -240,10 +240,15 @@ only what is louder or quieter moves.
 
 `eq color tape|tube <amount>` shapes the waveform. `tape` is a symmetric soft clip,
 `tanh(k·x)/k`, which adds odd harmonics only; `tube` biases the same curve off centre, which
-adds even harmonics too, with a DC blocker at 5 Hz behind it. The drive `k` is twice the amount,
+adds even harmonics too, with a DC blocker at 5 Hz on what the curve adds. The drive `k` is twice the amount,
 and dividing by it keeps a quiet signal exactly as loud; at −12 dBFS the level moves less than
 1 dB at any amount. At −12 dBFS and amount 1, tape measures 2 % THD, tube 11 %; at 0.3, 0.2 %
 and 1.1 %. `eq color tape 0` removes it like `off`.
+
+Switching either one on or off, or changing the mode, the kind or the amount, glides instead of
+jumping: the compressor's gain over 10 ms, or over its attack when that is longer, so switching
+it on never swells before it compresses, and the colour's drive over 10 ms, so the curve and the
+tube's DC come in without a click. A stage switched off stops running once it has glided out.
 
 There is no oversampling, so the harmonics of high notes fold back below Nyquist. The drive is
 capped at amount 1 to keep that low: at 48 kHz a 10 kHz tone at −12 dBFS folds its 3rd harmonic
