@@ -1,12 +1,15 @@
 // EQDriver: an output-only virtual device that plays its mix on a real output device from inside the
 // plug-in. Derived from briankendall/proxy-audio-device v1.1.0b1 (Unlicense): the object model, the
 // rule that HAL client calls run on a separate serial queue, the target lookup and the choice of a
-// default target. The clock servo and timeline checks live in Core/.
+// default target. The clock servo and timeline checks live in Core/; the EQ is EQCore, the daemon's
+// own DSP, compiled in from Sources/EQCore.
 
 #include "Core/ChangeRequest.h"
 #include "Core/ChannelMap.h"
+#include "Core/ClientCheck.h"
 #include "Core/Clock.h"
 #include "Core/DeviceMatch.h"
+#include "Core/EngineSettings.h"
 #include "Core/Latency.h"
 #include "Core/Pipeline.h"
 #include "Core/TargetMachine.h"
@@ -24,6 +27,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -49,9 +53,24 @@ constexpr const char *kModelUID = "com.servitola.eq.model";
 constexpr AudioObjectPropertySelector kPropertyTarget = 'eqTg';
 constexpr AudioObjectPropertySelector kPropertyHidden = 'eqHd';
 constexpr AudioObjectPropertySelector kPropertyHealth = 'eqHl';
+constexpr AudioObjectPropertySelector kPropertySettings = 'eqSt';
+constexpr AudioObjectPropertySelector kPropertyMeter = 'eqMt';
 constexpr UInt64 kChangeApplyPending = 1;
 constexpr Float32 kVolumeMinDB = -64.0f;
 constexpr UInt32 kMaxTargetFrames = 8192;
+// Config.bandFrequencies, so that `eq watch` reads the same bands in either mode.
+constexpr double kMeterFrequencies[] = {32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+constexpr int32_t kMeterBands = int32_t(sizeof(kMeterFrequencies) / sizeof(kMeterFrequencies[0]));
+
+#define EQ_STRING_(x) #x
+#define EQ_STRING(x) EQ_STRING_(x)
+#ifdef EQ_CLIENT_TEAM
+constexpr const char *kClientRequirement = "identifier \"com.servitola.eq\" and anchor apple generic and "
+                                           "certificate leaf[subject.OU] = \"" EQ_STRING(EQ_CLIENT_TEAM) "\"";
+#else
+// An ad-hoc build has no team to pin, so anything signed ad hoc as com.servitola.eq passes.
+constexpr const char *kClientRequirement = "identifier \"com.servitola.eq\"";
+#endif
 
 os_log_t logger() {
     static os_log_t log = os_log_create(kBundleID, "driver");
@@ -136,12 +155,13 @@ struct TargetIO {
     AudioDeviceIOProcID proc = nullptr;
     Reader reader;
     ChannelMap map;
-    std::vector<float> scratch;
+    std::vector<float> scratch, left, right;
     TargetTiming timing;
     std::vector<AudioObjectPropertyElement> volumeElements, muteElements;
 
     TargetIO(Driver *d, AudioObjectID id, Pipeline &p, uint32_t cushion)
-        : driver(d), device(id), reader(p, cushion), scratch(size_t(kMaxTargetFrames) * Pipeline::kChannels) {}
+        : driver(d), device(id), reader(p, cushion), scratch(size_t(kMaxTargetFrames) * Pipeline::kChannels),
+          left(kMaxTargetFrames), right(kMaxTargetFrames) {}
 };
 
 class Driver : TargetExecutor {
@@ -175,6 +195,11 @@ class Driver : TargetExecutor {
             os_log(logger(), "kill file present: hidden, no IO");
             return noErr;
         }
+        meterWindow_ = uint64_t(ticksPerSecond_);
+        engine_ = static_cast<eqc_engine *>(std::aligned_alloc(16, (eqc_engine_size() + 15) / 16 * 16));
+        if (!engine_) throw std::bad_alloc();
+        eqc_engine_init(engine_, kMeterFrequencies, kMeterBands);
+        settings_ = std::make_unique<EngineSettings>(engine_);
         queue_ = dispatch_queue_create(kBundleID, dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
                                                                                            QOS_CLASS_USER_INITIATED, 0));
         timer_ = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue_);
@@ -241,10 +266,15 @@ class Driver : TargetExecutor {
         return guarded("target IOProc", OSStatus(kAudioHardwareUnspecifiedError), [&] { return render(out, outTime, context); });
     }
 
+    // The EQ runs here and not in WriteMix: this is the one place every frame the target plays
+    // passes exactly once, silence and underruns included, so the limiter and the meter see what
+    // is heard; and the engine can be configured for the target's rate in build(), before its
+    // IOProc exists, instead of racing a running IO thread.
     static OSStatus render(AudioBufferList *out, const AudioTimeStamp *outTime, void *context) {
         auto *io = static_cast<TargetIO *>(context);
         Driver &d = *io->driver;
-        d.lastCallback_.store(mach_absolute_time(), std::memory_order_relaxed);
+        uint64_t now = mach_absolute_time();
+        d.lastCallback_.store(now, std::memory_order_relaxed);
         if (!out || out->mNumberBuffers == 0 || !outTime) return noErr;
         const AudioBuffer &first = out->mBuffers[0];
         uint32_t frames = first.mNumberChannels ? first.mDataByteSize / (first.mNumberChannels * sizeof(float)) : 0;
@@ -257,13 +287,23 @@ class Driver : TargetExecutor {
         cycle.rateValid = outTime->mFlags & kAudioTimeStampRateScalarValid;
         cycle.frames = frames;
         io->reader.render(cycle, io->scratch.data());
+        // An IOProc whose destroy failed may still run beside its successor; only the owner may
+        // touch the engine.
+        if (d.engineOwner_.load(std::memory_order_acquire) == io) {
+            uint64_t read = d.meterReadAt_.load(std::memory_order_relaxed);
+            processStereo(d.engine_, io->scratch.data(), io->left.data(), io->right.data(), frames,
+                          read && now - read < d.meterWindow_);
+        } else {
+            std::fill_n(io->left.data(), frames, 0.0f);
+            std::fill_n(io->right.data(), frames, 0.0f);
+        }
         float gain = 1.0f;
         if (io->volumeElements.empty()) {
             float s = d.volume_.load(std::memory_order_relaxed);
             gain = s * s;
         }
         if (io->muteElements.empty() && d.mute_.load(std::memory_order_relaxed)) gain = 0.0f;
-        scatter(io->scratch.data(), frames, io->map, out, gain, gain);
+        scatter(io->left.data(), io->right.data(), frames, io->map, out, gain, gain);
         return noErr;
     }
 
@@ -312,7 +352,7 @@ class Driver : TargetExecutor {
         switch (object) {
         case kObjectDevice:
             return a.mSelector == kAudioDevicePropertyNominalSampleRate || a.mSelector == kPropertyTarget ||
-                   a.mSelector == kPropertyHidden;
+                   a.mSelector == kPropertyHidden || a.mSelector == kPropertySettings;
         case kObjectStream:
             return a.mSelector == kAudioStreamPropertyVirtualFormat || a.mSelector == kAudioStreamPropertyPhysicalFormat;
         case kObjectVolume:
@@ -323,7 +363,8 @@ class Driver : TargetExecutor {
         }
     }
 
-    OSStatus setProperty(AudioObjectID object, const AudioObjectPropertyAddress &a, UInt32 size, const void *data) {
+    OSStatus setProperty(AudioObjectID object, const AudioObjectPropertyAddress &a, UInt32 size, const void *data,
+                         pid_t client) {
         if (!data) return kAudioHardwareIllegalOperationError;
         if (object == kObjectDevice) {
             switch (a.mSelector) {
@@ -334,6 +375,7 @@ class Driver : TargetExecutor {
                                                                                   : kAudioDeviceUnsupportedFormatError;
             case kPropertyTarget: return setTarget(size, data);
             case kPropertyHidden: return setHidden(size, data);
+            case kPropertySettings: return setSettings(size, data, client);
             }
         } else if (object == kObjectStream) {
             if (size != sizeof(AudioStreamBasicDescription)) return kAudioHardwareBadPropertySizeError;
@@ -466,6 +508,61 @@ class Driver : TargetExecutor {
         return noErr;
     }
 
+    OSStatus setSettings(UInt32 size, const void *data, pid_t client) {
+        if (killed_) return kAudioHardwareNotRunningError;
+        if (size != sizeof(CFPropertyListRef)) return kAudioHardwareBadPropertySizeError;
+        CFPropertyListRef v = *static_cast<const CFPropertyListRef *>(data);
+        if (!v || CFGetTypeID(v) != CFDataGetTypeID()) return kAudioHardwareIllegalOperationError;
+        lastWriter_ = client;
+        if (!clientCheck_.allowed(client)) {
+            ++settingsRejected_;
+            setSettingsError("pid " + std::to_string(client) + " does not satisfy " + clientCheck_.requirement());
+            return kAudioDevicePermissionsError;
+        }
+        auto record = static_cast<CFDataRef>(v);
+        TargetSettings t;
+        char uid[EQC_BLOB_UID_CAPACITY];
+        eqc_blob_status status = eqc_blob_decode(CFDataGetBytePtr(record), size_t(CFDataGetLength(record)), &t.settings,
+                                                 uid, &t.serial);
+        if (status == EQC_BLOB_OK && uid == std::string(kDeviceUID)) status = EQC_BLOB_BAD_UID;
+        if (status != EQC_BLOB_OK) {
+            ++settingsRejected_;
+            setSettingsError(std::string("settings refused: ") + eqc_blob_status_text(status));
+            return kAudioHardwareIllegalOperationError;
+        }
+        ++settingsWrites_;
+        setSettingsError("");
+        std::string target = uid;
+        async(^{
+            if (settings_->accept(storage_, t, target)) publishSettings();
+        });
+        return noErr;
+    }
+
+    void setSettingsError(const std::string &message) {
+        std::lock_guard<std::mutex> lock(stringsMutex_);
+        settingsError_ = message;
+    }
+
+    // Queue only.
+    void publishSettings() {
+        std::vector<uint8_t> record = settings_->record();
+        {
+            std::lock_guard<std::mutex> lock(stringsMutex_);
+            record_ = std::move(record);
+        }
+        eqActive_ = settings_->active();
+        settingsSerial_ = settings_->serial();
+        notify(kObjectDevice, kPropertySettings);
+    }
+
+    CFDataRef copyMeter() {
+        meterReadAt_.store(mach_absolute_time(), std::memory_order_relaxed);
+        eqc_meter_frame frame;
+        eqc_meter_frame_read(&frame, engine_, kMeterFrequencies, kMeterBands);
+        return CFDataCreate(nullptr, reinterpret_cast<const UInt8 *>(&frame), sizeof(frame));
+    }
+
     OSStatus setHidden(UInt32 size, const void *data) {
         if (size != sizeof(CFPropertyListRef)) return kAudioHardwareBadPropertySizeError;
         CFPropertyListRef v = *static_cast<const CFPropertyListRef *>(data);
@@ -506,6 +603,7 @@ class Driver : TargetExecutor {
             put("targetName", makeString(targetName_));
             put("lastError", makeString(lastError_));
             integer("lastStatus", lastStatus_);
+            put("settingsError", makeString(settingsError_));
         }
         uint64_t last = lastCallback_.load(std::memory_order_relaxed);
         double age = last ? double(mach_absolute_time() - last) / ticksPerSecond_ : -1;
@@ -529,6 +627,13 @@ class Driver : TargetExecutor {
         boolean("hardwareVolume", hardwareVolume_);
         boolean("hidden", hidden());
         boolean("killed", killed_);
+        boolean("eqActive", eqActive_);
+        integer("settingsVersion", EQC_BLOB_VERSION);
+        integer("settingsSerial", int64_t(settingsSerial_.load()));
+        integer("settingsWrites", int64_t(settingsWrites_.load()));
+        integer("settingsRejected", int64_t(settingsRejected_.load()));
+        integer("lastWriterPID", lastWriter_.load());
+        put("writerRequirement", makeString(clientCheck_.requirement()));
         return d;
     }
 
@@ -630,6 +735,8 @@ class Driver : TargetExecutor {
                 {kPropertyTarget, kAudioServerPlugInCustomPropertyDataTypeCFString, kAudioServerPlugInCustomPropertyDataTypeNone},
                 {kPropertyHidden, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
                 {kPropertyHealth, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
+                {kPropertySettings, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
+                {kPropertyMeter, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
             });
         case kPropertyTarget:
             return r.cf([this] {
@@ -638,6 +745,12 @@ class Driver : TargetExecutor {
             });
         case kPropertyHidden: return r.cf([this] { return CFRetain(hiddenPref_ ? kCFBooleanTrue : kCFBooleanFalse); });
         case kPropertyHealth: return r.cf([this] { return copyHealth(); });
+        case kPropertySettings:
+            return r.cf([this] {
+                std::lock_guard<std::mutex> lock(stringsMutex_);
+                return CFDataCreate(nullptr, record_.data(), CFIndex(record_.size()));
+            });
+        case kPropertyMeter: return r.cf([this] { return copyMeter(); });
         default: return kAudioHardwareUnknownPropertyError;
         }
     }
@@ -833,6 +946,7 @@ class Driver : TargetExecutor {
         }
 
         TargetOutcome out = machine_->step(f, *this);
+        if (settings_->follow(storage_, uid)) publishSettings();
         // One configuration change for both: each one stops every client's IO for a moment.
         if (rate || (wantedLatency_ && *wantedLatency_ != latency_)) requestConfiguration(rate, wantedLatency_);
         {
@@ -934,12 +1048,19 @@ class Driver : TargetExecutor {
         io->timing = timing;
         detectVolume(*io, pair);
 
+        // No IOProc runs now, so the engine can change rate.
+        Float64 rate = 0;
+        hal::get(device, hal::address(kAudioDevicePropertyNominalSampleRate), rate);
+        eqc_configure(engine_, rate > 0 ? rate : sampleRate_.load(), Pipeline::kChannels);
+        if (settings_->follow(storage_, resolvedUID_)) publishSettings();
+
         OSStatus err = AudioDeviceCreateIOProcID(device, &targetIOProc, io.get(), &io->proc);
         if (err != noErr || !io->proc) {
             setError("AudioDeviceCreateIOProcID failed", err);
             return false;
         }
         io_ = io.release();
+        engineOwner_.store(io_, std::memory_order_release);
         listen(true);
 
         std::string name = hal::stringProperty(device, kAudioObjectPropertyName);
@@ -967,6 +1088,7 @@ class Driver : TargetExecutor {
 
     void teardown() override {
         if (!io_) return;
+        engineOwner_.store(nullptr, std::memory_order_release);
         listen(false);
         AudioDeviceStop(io_->device, io_->proc);
         OSStatus err = AudioDeviceDestroyIOProcID(io_->device, io_->proc);
@@ -1155,8 +1277,40 @@ class Driver : TargetExecutor {
     ChangeRequest change_;
 
     std::mutex stringsMutex_;
-    std::string targetUID_, targetName_, lastError_;
+    std::string targetUID_, targetName_, lastError_, settingsError_;
     OSStatus lastStatus_ = noErr;
+    std::vector<uint8_t> record_;
+
+    struct HostStorage : SettingsStorage {
+        Driver &d;
+        explicit HostStorage(Driver &driver) : d(driver) {}
+        std::vector<uint8_t> read(const std::string &key) override {
+            CFPropertyListRef v = d.stored(key.c_str());
+            std::vector<uint8_t> bytes;
+            if (v && CFGetTypeID(v) == CFDataGetTypeID()) {
+                auto data = static_cast<CFDataRef>(v);
+                bytes.assign(CFDataGetBytePtr(data), CFDataGetBytePtr(data) + CFDataGetLength(data));
+            }
+            if (v) CFRelease(v);
+            return bytes;
+        }
+        void write(const std::string &key, const std::vector<uint8_t> &bytes) override {
+            CFDataRef v = CFDataCreate(nullptr, bytes.data(), CFIndex(bytes.size()));
+            d.store(key.c_str(), v);
+            CFRelease(v);
+        }
+    };
+
+    // The engine: allocated at load, rendered only by the IOProc that owns it, published to only
+    // from the queue.
+    eqc_engine *engine_ = nullptr;
+    std::atomic<TargetIO *> engineOwner_{nullptr};
+    std::atomic<uint64_t> meterReadAt_{0};
+    uint64_t meterWindow_ = 0;
+    ClientCheck clientCheck_{kClientRequirement};
+    std::atomic<pid_t> lastWriter_{0};
+    std::atomic<bool> eqActive_{false};
+    std::atomic<uint64_t> settingsSerial_{0}, settingsWrites_{0}, settingsRejected_{0};
 
     // Written on the queue, read by the health property.
     std::atomic<bool> targetAvailable_{false}, ioRunning_{false}, hardwareVolume_{false};
@@ -1164,6 +1318,8 @@ class Driver : TargetExecutor {
     std::atomic<uint32_t> cushion_{0};
 
     // Queue only.
+    std::unique_ptr<EngineSettings> settings_;
+    HostStorage storage_{*this};
     std::unique_ptr<TargetMachine> machine_;
     TargetIO *io_ = nullptr;
     bool rebuildRequested_ = false;
@@ -1280,7 +1436,7 @@ OSStatus getPropertyData(AudioServerPlugInDriverRef d, AudioObjectID object, pid
     });
 }
 
-OSStatus setPropertyData(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t, const AudioObjectPropertyAddress *a,
+OSStatus setPropertyData(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t client, const AudioObjectPropertyAddress *a,
                          UInt32, const void *, UInt32 size, const void *data) {
     return guarded("SetPropertyData", kThrew, [&]() -> OSStatus {
         if (!isDriver(d)) return kAudioHardwareBadObjectError;
@@ -1289,7 +1445,7 @@ OSStatus setPropertyData(AudioServerPlugInDriverRef d, AudioObjectID object, pid
         OSStatus err = isPropertySettable(d, object, 0, a, &can);
         if (err != noErr) return err;
         if (!can) return kAudioHardwareUnsupportedOperationError;
-        return Driver::shared().setProperty(object, *a, size, data);
+        return Driver::shared().setProperty(object, *a, size, data, client);
     });
 }
 

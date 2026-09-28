@@ -1,7 +1,9 @@
 #include "../Source/Core/ChangeRequest.h"
 #include "../Source/Core/ChannelMap.h"
+#include "../Source/Core/ClientCheck.h"
 #include "../Source/Core/Clock.h"
 #include "../Source/Core/DeviceMatch.h"
+#include "../Source/Core/EngineSettings.h"
 #include "../Source/Core/FrameRing.h"
 #include "../Source/Core/Latency.h"
 #include "../Source/Core/Pipeline.h"
@@ -11,10 +13,16 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <map>
 #include <random>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <signal.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using namespace eqd;
 
@@ -243,36 +251,35 @@ static AudioBufferList *bufferList(std::vector<std::vector<float>> &storage, con
 }
 
 TEST(channel_map_handles_interleaved_split_wide_and_mono_targets) {
-    const float stereo[] = {1, -1, 2, -2, 3, -3};
+    const float left[] = {1, 2, 3}, right[] = {-1, -2, -3};
     std::vector<std::vector<float>> s;
 
     AudioBufferList *inter = bufferList(s, {2}, 3);
-    scatter(stereo, 3, makeChannelMap({2}, 1, 2), inter, 1, 1);
+    scatter(left, right, 3, makeChannelMap({2}, 1, 2), inter, 1, 1);
     CHECK(s[0] == (std::vector<float>{1, -1, 2, -2, 3, -3}));
     free(inter);
 
     AudioBufferList *split = bufferList(s, {1, 1}, 3);
-    scatter(stereo, 3, makeChannelMap({1, 1}, 1, 2), split, 0.5f, 1);
+    scatter(left, right, 3, makeChannelMap({1, 1}, 1, 2), split, 0.5f, 1);
     CHECK(s[0] == (std::vector<float>{0.5f, 1, 1.5f}) && s[1] == (std::vector<float>{-1, -2, -3}));
     free(split);
 
     AudioBufferList *wide = bufferList(s, {8}, 2);
-    scatter(stereo, 2, makeChannelMap({8}, 3, 4), wide, 1, 1);
+    scatter(left, right, 2, makeChannelMap({8}, 3, 4), wide, 1, 1);
     CHECK(s[0][2] == 1 && s[0][3] == -1 && s[0][8 + 2] == 2 && s[0][8 + 3] == -2 && s[0][0] == 0 && s[0][7] == 0);
     free(wide);
 
     AudioBufferList *twoStreams = bufferList(s, {2, 6}, 1);
     ChannelMap m = makeChannelMap({2, 6}, 3, 4);
     CHECK(m.left.buffer == 1 && m.left.offset == 0 && m.right.offset == 1);
-    scatter(stereo, 1, m, twoStreams, 1, 1);
+    scatter(left, right, 1, m, twoStreams, 1, 1);
     CHECK(s[0][0] == 0 && s[1][0] == 1 && s[1][1] == -1);
     free(twoStreams);
 
-    const float lr[] = {1, 3};
     AudioBufferList *mono = bufferList(s, {1}, 1);
     ChannelMap mm = makeChannelMap({1}, 1, 2);
     CHECK(mm.valid && mm.mono);
-    scatter(lr, 1, mm, mono, 1, 1);
+    scatter(left + 2, left, 1, mm, mono, 1, 1);
     CHECK(s[0][0] == 2);
     free(mono);
 
@@ -652,6 +659,399 @@ TEST(pipeline_plays_to_the_last_frame_then_stays_silent_until_clients_return) {
     c.hostTime = uint64_t(tpf * (10000 + 4096));
     reader.render(c, out.data());
     CHECK(std::fabs(out[0] - rampValue(4096 - 1000)) <= 1);
+}
+
+// MARK: Settings record
+
+static eqc_settings sampleSettings() {
+    eqc_settings s{};
+    s.bandCount = 3;
+    s.bands[0] = {EQC_PEAK, 1000, 6, 1.41, true};
+    s.bands[1] = {EQC_LOW_SHELF, 80, 4, 0.7, true};
+    s.bands[2] = {EQC_HIGH_PASS, 20, 0, 0.5, false};
+    s.preampDB = -6;
+    s.limiterEnabled = true;
+    s.limiterCeilingDB = -1;
+    s.compressor = EQC_COMPRESSOR_GENTLE;
+    s.colour = EQC_COLOUR_TUBE;
+    s.colourAmount = 0.4;
+    return s;
+}
+
+static std::vector<uint8_t> record(const eqc_settings &s, const char *uid, uint64_t serial) {
+    eqc_blob blob;
+    if (!eqc_blob_encode(&blob, &s, uid, serial)) return {};
+    auto *raw = reinterpret_cast<const uint8_t *>(&blob);
+    return std::vector<uint8_t>(raw, raw + sizeof(blob));
+}
+
+static eqc_blob_status decode(const std::vector<uint8_t> &bytes, eqc_settings *s = nullptr) {
+    eqc_settings scratch;
+    char uid[EQC_BLOB_UID_CAPACITY];
+    uint64_t serial;
+    return eqc_blob_decode(bytes.data(), bytes.size(), s ? s : &scratch, uid, &serial);
+}
+
+template <typename T>
+static void poke(std::vector<uint8_t> &bytes, size_t offset, T value) {
+    std::memcpy(bytes.data() + offset, &value, sizeof(T));
+}
+
+// Everything a decoded record may hold: what EQCore then designs filters from is never NaN, never
+// infinite and never absurd.
+static bool sane(const eqc_settings &s) {
+    auto in = [](double x, double lo, double hi) { return std::isfinite(x) && x >= lo && x <= hi; };
+    if (s.bandCount < 0 || s.bandCount > EQC_MAX_BANDS) return false;
+    for (int i = 0; i < s.bandCount; ++i) {
+        const eqc_band &b = s.bands[i];
+        if (b.type < EQC_PEAK || b.type > EQC_BAND_PASS || !in(b.frequency, 1, 1e5) || !in(b.gainDB, -60, 60) ||
+            !in(b.q, 0.01, 100))
+            return false;
+    }
+    return in(s.preampDB, -60, 24) && in(s.outputGainDB, -60, 24) && in(s.limiterCeilingDB, -60, 0) &&
+           in(s.colourAmount, 0, 1) && s.compressor >= EQC_COMPRESSOR_OFF && s.compressor <= EQC_COMPRESSOR_NIGHT &&
+           s.colour >= EQC_COLOUR_OFF && s.colour <= EQC_COLOUR_TUBE && in(s.soloLow, 0, 1e5) && in(s.soloHigh, 0, 1e5);
+}
+
+TEST(settings_record_round_trips) {
+    eqc_settings in = sampleSettings();
+    std::vector<uint8_t> bytes = record(in, "BE-RCA:output", 42);
+    CHECK(bytes.size() == sizeof(eqc_blob));
+    eqc_settings out;
+    char uid[EQC_BLOB_UID_CAPACITY];
+    uint64_t serial = 0;
+    CHECK(eqc_blob_decode(bytes.data(), bytes.size(), &out, uid, &serial) == EQC_BLOB_OK);
+    CHECK(std::string(uid) == "BE-RCA:output" && serial == 42);
+    CHECK(out.bandCount == 3 && out.bands[1].type == EQC_LOW_SHELF && out.bands[1].frequency == 80 &&
+          out.bands[1].gainDB == 4 && out.bands[1].q == 0.7 && out.bands[1].enabled && !out.bands[2].enabled);
+    CHECK(out.preampDB == -6 && out.limiterEnabled && out.limiterCeilingDB == -1 &&
+          out.compressor == EQC_COMPRESSOR_GENTLE && out.colour == EQC_COLOUR_TUBE && out.colourAmount == 0.4 &&
+          !out.solo && !out.bypassed);
+    CHECK(record(out, uid, serial) == bytes);
+    CHECK(!eqc_blob_encode(reinterpret_cast<eqc_blob *>(bytes.data()), &in, "", 1));
+    CHECK(!eqc_blob_encode(reinterpret_cast<eqc_blob *>(bytes.data()), &in, std::string(256, 'x').c_str(), 1));
+}
+
+TEST(settings_record_refuses_wrong_sizes_magic_and_version) {
+    std::vector<uint8_t> good = record(sampleSettings(), "uid", 1);
+    for (size_t n : {size_t(0), size_t(1), size_t(4), sizeof(eqc_blob) / 2, sizeof(eqc_blob) - 1}) {
+        std::vector<uint8_t> cut(good.begin(), good.begin() + long(n));
+        CHECK(decode(cut) == EQC_BLOB_BAD_SIZE);
+    }
+    std::vector<uint8_t> longer = good;
+    longer.push_back(0);
+    CHECK(decode(longer) == EQC_BLOB_BAD_SIZE);
+    std::vector<uint8_t> b = good;
+    poke<uint32_t>(b, offsetof(eqc_blob, magic), 0x12345678);
+    CHECK(decode(b) == EQC_BLOB_BAD_MAGIC);
+    b = good;
+    poke<uint16_t>(b, offsetof(eqc_blob, version), EQC_BLOB_VERSION + 1);
+    CHECK(decode(b) == EQC_BLOB_BAD_VERSION);
+    b = good;
+    poke<uint32_t>(b, offsetof(eqc_blob, size), sizeof(eqc_blob) + 8);
+    CHECK(decode(b) == EQC_BLOB_BAD_SIZE);
+}
+
+TEST(settings_record_refuses_a_bad_uid) {
+    std::vector<uint8_t> good = record(sampleSettings(), "uid", 1);
+    size_t at = offsetof(eqc_blob, targetUID);
+    std::vector<uint8_t> b = good;
+    b[at] = 0;
+    CHECK(decode(b) == EQC_BLOB_BAD_UID);
+    b = good;
+    std::fill(b.begin() + long(at), b.begin() + long(at + EQC_BLOB_UID_CAPACITY), uint8_t('a'));
+    CHECK(decode(b) == EQC_BLOB_BAD_UID);
+    b = good;
+    b[at + 1] = '\n';
+    CHECK(decode(b) == EQC_BLOB_BAD_UID);
+    b = good;
+    b[at + 10] = 'x';
+    CHECK(decode(b) == EQC_BLOB_BAD_UID);
+}
+
+TEST(settings_record_refuses_non_finite_and_out_of_range_values) {
+    std::vector<uint8_t> good = record(sampleSettings(), "uid", 1);
+    size_t doubles[] = {offsetof(eqc_blob, preampDB), offsetof(eqc_blob, outputGainDB), offsetof(eqc_blob, limiterCeilingDB),
+                        offsetof(eqc_blob, colourAmount), offsetof(eqc_blob, soloLow), offsetof(eqc_blob, soloHigh),
+                        offsetof(eqc_blob, bands) + offsetof(eqc_blob_band, frequency),
+                        offsetof(eqc_blob, bands) + offsetof(eqc_blob_band, gainDB),
+                        offsetof(eqc_blob, bands) + offsetof(eqc_blob_band, q),
+                        offsetof(eqc_blob, bands) + 63 * sizeof(eqc_blob_band) + offsetof(eqc_blob_band, q)};
+    for (size_t at : doubles)
+        for (double bad : {double(NAN), double(INFINITY), -double(INFINITY)}) {
+            std::vector<uint8_t> b = good;
+            poke<double>(b, at, bad);
+            CHECK(decode(b) == EQC_BLOB_NOT_FINITE);
+        }
+
+    struct Case { size_t at; double value; };
+    size_t band = offsetof(eqc_blob, bands);
+    for (Case c : {Case{offsetof(eqc_blob, preampDB), 25}, Case{offsetof(eqc_blob, preampDB), -61},
+                   Case{offsetof(eqc_blob, outputGainDB), 30}, Case{offsetof(eqc_blob, limiterCeilingDB), 0.5},
+                   Case{offsetof(eqc_blob, colourAmount), 1.01}, Case{offsetof(eqc_blob, colourAmount), -0.1},
+                   Case{offsetof(eqc_blob, soloHigh), 2e5}, Case{band + offsetof(eqc_blob_band, frequency), 0.5},
+                   Case{band + offsetof(eqc_blob_band, frequency), 2e5}, Case{band + offsetof(eqc_blob_band, gainDB), 61},
+                   Case{band + offsetof(eqc_blob_band, q), 0.001}, Case{band + offsetof(eqc_blob_band, q), 101}}) {
+        std::vector<uint8_t> b = good;
+        poke<double>(b, c.at, c.value);
+        CHECK(decode(b) == EQC_BLOB_OUT_OF_RANGE);
+    }
+    struct Flag { size_t at; uint32_t value; };
+    for (Flag f : {Flag{offsetof(eqc_blob, bandCount), EQC_MAX_BANDS + 1}, Flag{offsetof(eqc_blob, limiterEnabled), 2},
+                   Flag{offsetof(eqc_blob, bypassed), 7}, Flag{offsetof(eqc_blob, solo), 2},
+                   Flag{offsetof(eqc_blob, compressor), 3}, Flag{offsetof(eqc_blob, colour), 3},
+                   Flag{offsetof(eqc_blob, reserved2), 1}, Flag{band + offsetof(eqc_blob_band, type), 7},
+                   Flag{band + offsetof(eqc_blob_band, enabled), 2},
+                   Flag{band + 10 * sizeof(eqc_blob_band) + offsetof(eqc_blob_band, type), 1}}) {
+        std::vector<uint8_t> b = good;
+        poke<uint32_t>(b, f.at, f.value);
+        CHECK(decode(b) == EQC_BLOB_OUT_OF_RANGE);
+    }
+    std::vector<uint8_t> b = good;
+    poke<uint16_t>(b, offsetof(eqc_blob, reserved), 1);
+    CHECK(decode(b) == EQC_BLOB_OUT_OF_RANGE);
+}
+
+// Random bytes and random corruption of a good record: the decoder never reads out of bounds
+// (address sanitizer) and whatever it accepts is sane.
+TEST(settings_record_survives_fuzzing) {
+    std::mt19937_64 rng(7);
+    std::vector<uint8_t> good = record(sampleSettings(), "BE-RCA", 3);
+    int accepted = 0, rejected = 0;
+    for (int i = 0; i < 200000; ++i) {
+        std::vector<uint8_t> b;
+        switch (i % 4) {
+        case 0:
+            b.resize(rng() % 2 ? sizeof(eqc_blob) : rng() % (2 * sizeof(eqc_blob)));
+            for (auto &x : b) x = uint8_t(rng());
+            break;
+        case 1:
+        case 2: {
+            b = good;
+            int flips = 1 + int(rng() % 4);
+            for (int k = 0; k < flips; ++k) b[rng() % b.size()] ^= uint8_t(1u << (rng() % 8));
+            break;
+        }
+        default: {
+            b = good;
+            size_t at = (rng() % (sizeof(eqc_blob) / 8)) * 8;
+            double values[] = {NAN, INFINITY, 1e300, -1e300, 0, -0.0, 1e-320, 5, 1e5, 100};
+            poke<double>(b, at, values[rng() % 10]);
+            break;
+        }
+        }
+        eqc_settings s;
+        if (decode(b, &s) == EQC_BLOB_OK) {
+            ++accepted;
+            CHECK(sane(s));
+        } else {
+            ++rejected;
+        }
+    }
+    std::printf("  %d accepted, %d refused\n", accepted, rejected);
+    CHECK(accepted > 1000 && rejected > 100000);
+}
+
+// MARK: Settings per target
+
+struct MapStorage : SettingsStorage {
+    std::map<std::string, std::vector<uint8_t>> values;
+    std::vector<uint8_t> read(const std::string &key) override {
+        auto it = values.find(key);
+        return it == values.end() ? std::vector<uint8_t>{} : it->second;
+    }
+    void write(const std::string &key, const std::vector<uint8_t> &bytes) override { values[key] = bytes; }
+};
+
+struct TestEngine {
+    eqc_engine *engine;
+    explicit TestEngine(double rate = 48000) {
+        engine = static_cast<eqc_engine *>(std::aligned_alloc(16, (eqc_engine_size() + 15) / 16 * 16));
+        const double meter[] = {32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+        eqc_engine_init(engine, meter, 10);
+        eqc_configure(engine, rate, 2);
+    }
+    ~TestEngine() { std::free(engine); }
+    TestEngine(const TestEngine &) = delete;
+    TestEngine &operator=(const TestEngine &) = delete;
+};
+
+static std::vector<float> noise(uint32_t frames, uint64_t seed) {
+    std::mt19937_64 rng(seed);
+    std::uniform_real_distribution<float> d(-0.5f, 0.5f);
+    std::vector<float> v(size_t(frames) * 2);
+    for (auto &x : v) x = d(rng);
+    return v;
+}
+
+// What the plug-in plays for `stereo` against EQCore called directly with `settings` (nullptr for
+// none) on the same channels, `chunk` frames at a time.
+static bool playsAs(eqc_engine *engine, const eqc_settings *settings, uint32_t frames, uint32_t chunk, uint64_t seed) {
+    // What an earlier curve left in the limiter and the compressor is not what is compared here.
+    eqc_reset_render_state(engine);
+    std::vector<float> stereo = noise(frames, seed);
+    std::vector<float> left(frames), right(frames);
+    processStereo(engine, stereo.data(), left.data(), right.data(), frames, true);
+
+    TestEngine reference;
+    if (settings) eqc_update(reference.engine, settings, nullptr);
+    eqc_set_metering(reference.engine, true);
+    std::vector<float> l(frames), r(frames);
+    for (uint32_t i = 0; i < frames; ++i) {
+        l[i] = stereo[2 * i];
+        r[i] = stereo[2 * i + 1];
+    }
+    for (uint32_t at = 0; at < frames; at += chunk) {
+        float *channels[2] = {l.data() + at, r.data() + at};
+        eqc_process(reference.engine, channels, 2, int32_t(std::min(chunk, frames - at)));
+    }
+    return std::memcmp(left.data(), l.data(), frames * sizeof(float)) == 0 &&
+           std::memcmp(right.data(), r.data(), frames * sizeof(float)) == 0;
+}
+
+TEST(plugin_processing_is_eqcore_to_the_bit) {
+    eqc_settings s = sampleSettings();
+    for (uint32_t frames : {1u, 512u, 4096u}) {
+        TestEngine e;
+        eqc_update(e.engine, &s, nullptr);
+        CHECK(playsAs(e.engine, &s, frames, frames, frames));
+    }
+    TestEngine e;
+    eqc_update(e.engine, &s, nullptr);
+    CHECK(playsAs(e.engine, &s, 8192, EQC_METER_CAPACITY, 9));
+    eqc_meter_frame frame;
+    const double meter[] = {32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+    eqc_meter_frame_read(&frame, e.engine, meter, 10);
+    CHECK(frame.bandCount == 10 && frame.peakDB > -20 && frame.outputDB[5] > EQC_METER_FLOOR_DB);
+    eqc_meter_frame decoded;
+    CHECK(eqc_meter_frame_decode(&frame, sizeof(frame), &decoded) && decoded.peakDB == frame.peakDB);
+    CHECK(!eqc_meter_frame_decode(&frame, sizeof(frame) - 1, &decoded));
+    eqc_meter_frame_read(&frame, nullptr, meter, 10);
+    CHECK(frame.peakDB == EQC_METER_FLOOR_DB && frame.inputDB[9] == EQC_METER_FLOOR_DB);
+}
+
+TEST(each_target_keeps_its_own_curve) {
+    MapStorage storage;
+    TestEngine e;
+    EngineSettings settings(e.engine);
+    eqc_settings a = sampleSettings(), b = sampleSettings();
+    b.bands[0].gainDB = -9;
+    b.compressor = EQC_COMPRESSOR_NIGHT;
+    b.solo = true;
+    b.soloLow = 300;
+    b.soloHigh = 3000;
+
+    CHECK(settings.follow(storage, "speaker"));
+    CHECK(!settings.active() && settings.record().empty());
+    CHECK(playsAs(e.engine, nullptr, 512, 512, 1));
+
+    CHECK(settings.accept(storage, {a, 1}, "speaker"));
+    CHECK(settings.active() && settings.serial() == 1);
+    CHECK(playsAs(e.engine, &a, 512, 512, 2));
+    CHECK(!settings.accept(storage, {b, 2}, "headphones"));
+    CHECK(settings.serial() == 1);
+
+    CHECK(settings.follow(storage, "headphones"));
+    CHECK(!settings.follow(storage, "headphones"));
+    CHECK(settings.active() && settings.serial() == 2);
+    eqc_settings stored = b;
+    stored.solo = false;
+    CHECK(playsAs(e.engine, &stored, 512, 512, 3));
+
+    CHECK(settings.follow(storage, "hdmi"));
+    CHECK(!settings.active());
+    CHECK(playsAs(e.engine, nullptr, 512, 512, 4));
+
+    TestEngine reloaded;
+    EngineSettings again(reloaded.engine);
+    again.follow(storage, "speaker");
+    CHECK(again.active() && again.serial() == 1 && again.record() == record(a, "speaker", 1));
+    CHECK(playsAs(reloaded.engine, &a, 512, 512, 5));
+
+    CHECK(storage.values.size() == 2);
+    storage.values[EngineSettings::key("speaker")][offsetof(eqc_blob, preampDB) + 7] = 0x7f;
+    storage.values[EngineSettings::key("hdmi")] = storage.values[EngineSettings::key("headphones")];
+    CHECK(!EngineSettings::recall(storage, "speaker"));
+    CHECK(!EngineSettings::recall(storage, "hdmi"));
+    CHECK(!EngineSettings::recall(storage, ""));
+}
+
+// MARK: Who may write the settings
+
+static std::string selfIdentifier() {
+    SecCodeRef self = nullptr;
+    CFDictionaryRef info = nullptr;
+    std::string id;
+    if (SecCodeCopySelf(kSecCSDefaultFlags, &self) == errSecSuccess) {
+        SecStaticCodeRef code = nullptr;
+        if (SecCodeCopyStaticCode(self, kSecCSDefaultFlags, &code) == errSecSuccess) {
+            if (SecCodeCopySigningInformation(code, kSecCSDefaultFlags, &info) == errSecSuccess && info) {
+                auto v = static_cast<CFStringRef>(CFDictionaryGetValue(info, kSecCodeInfoIdentifier));
+                char buffer[256];
+                if (v && CFStringGetCString(v, buffer, sizeof(buffer), kCFStringEncodingUTF8)) id = buffer;
+                CFRelease(info);
+            }
+            CFRelease(code);
+        }
+        CFRelease(self);
+    }
+    return id;
+}
+
+TEST(only_a_process_meeting_the_requirement_may_write) {
+    std::string me = selfIdentifier();
+    CHECK(!me.empty());
+    ClientCheck mine("identifier \"" + me + "\"");
+    CHECK(mine.allowed(getpid()));
+    CHECK(mine.allowed(getpid()));
+    CHECK(!mine.allowed(0) && !mine.allowed(-1) && !mine.allowed(1) && !mine.allowed(99999999));
+    CHECK(!ClientCheck("identifier \"com.servitola.eq\"").allowed(getpid()));
+    CHECK(!ClientCheck("not a requirement (").allowed(getpid()));
+
+    // Another user's process, as eq is to the helper running as _coreaudiod.
+    pid_t other = 0;
+    {
+        int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+        size_t size = 0;
+        sysctl(name, 4, nullptr, &size, nullptr, 0);
+        std::vector<kinfo_proc> all(size / sizeof(kinfo_proc) + 16);
+        size = all.size() * sizeof(kinfo_proc);
+        if (sysctl(name, 4, all.data(), &size, nullptr, 0) == 0)
+            for (size_t i = 0; i < size / sizeof(kinfo_proc); ++i)
+                if (std::string(all[i].kp_proc.p_comm) == "coreaudiod" && all[i].kp_eproc.e_ucred.cr_uid != getuid())
+                    other = all[i].kp_proc.p_pid;
+    }
+    if (other) {
+        CHECK(ClientCheck("identifier \"com.apple.audio.coreaudiod\" and anchor apple").allowed(other));
+        CHECK(!ClientCheck("identifier \"com.servitola.eq\" and anchor apple").allowed(other));
+    } else {
+        std::printf("  no coreaudiod under another user; skipping the cross-user check\n");
+    }
+
+    // The real thing: EQ.app's eq, started suspended so it never runs, against the requirement a
+    // Developer ID build of the plug-in compiles in.
+    const char *eq = "/Applications/EQ.app/Contents/MacOS/eq";
+    if (access(eq, X_OK) != 0) {
+        std::printf("  no %s; skipping the Developer ID check\n", eq);
+        return;
+    }
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
+    pid_t pid = 0;
+    char *argv[] = {const_cast<char *>(eq), const_cast<char *>("--version"), nullptr};
+    CHECK(posix_spawn(&pid, eq, nullptr, &attr, argv, nullptr) == 0);
+    posix_spawnattr_destroy(&attr);
+    if (pid <= 0) return;
+    CHECK(ClientCheck("identifier \"com.servitola.eq\" and anchor apple generic and certificate leaf[subject.OU] = "
+                      "\"NZNV266K59\"")
+              .allowed(pid));
+    CHECK(!ClientCheck("identifier \"com.servitola.eq\" and anchor apple generic and certificate leaf[subject.OU] = "
+                       "\"AAAAAAAAAA\"")
+               .allowed(pid));
+    kill(pid, SIGKILL);
+    int status = 0;
+    waitpid(pid, &status, 0);
 }
 
 int main() {

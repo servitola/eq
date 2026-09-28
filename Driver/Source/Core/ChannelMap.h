@@ -53,10 +53,10 @@ inline ChannelMap makeChannelMap(const std::vector<uint32_t> &channelsPerBuffer,
     return map;
 }
 
-// Writes interleaved stereo into the target's buffers, silence on every other channel. A mono
-// target gets the average of left and right.
-inline void scatter(const float *stereo, uint32_t frames, const ChannelMap &map, AudioBufferList *out, float gainLeft,
-                    float gainRight) {
+// Writes left and right into the target's buffers, silence on every other channel. A mono target
+// gets their average.
+inline void scatter(const float *left, const float *right, uint32_t frames, const ChannelMap &map, AudioBufferList *out,
+                    float gainLeft, float gainRight) {
     for (uint32_t b = 0; b < out->mNumberBuffers; ++b)
         if (out->mBuffers[b].mData) std::memset(out->mBuffers[b].mData, 0, out->mBuffers[b].mDataByteSize);
     if (!map.valid) return;
@@ -73,12 +73,12 @@ inline void scatter(const float *stereo, uint32_t frames, const ChannelMap &map,
     float *rp = static_cast<float *>(r.mData) + map.right.offset;
     if (map.mono) {
         for (uint32_t i = 0; i < frames; ++i)
-            lp[size_t(i) * l.mNumberChannels] = 0.5f * (stereo[2 * i] * gainLeft + stereo[2 * i + 1] * gainRight);
+            lp[size_t(i) * l.mNumberChannels] = 0.5f * (left[i] * gainLeft + right[i] * gainRight);
         return;
     }
     for (uint32_t i = 0; i < frames; ++i) {
-        lp[size_t(i) * l.mNumberChannels] = stereo[2 * i] * gainLeft;
-        rp[size_t(i) * r.mNumberChannels] = stereo[2 * i + 1] * gainRight;
+        lp[size_t(i) * l.mNumberChannels] = left[i] * gainLeft;
+        rp[size_t(i) * r.mNumberChannels] = right[i] * gainRight;
     }
 }
 

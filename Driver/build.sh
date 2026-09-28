@@ -18,14 +18,27 @@ version=${APP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v/
 [[ -n $version ]] || version=0.0.0-dev
 build=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 
-flags=(-std=c++17 -O2 -g -Wall -Wextra -Werror -fvisibility=hidden -fvisibility-inlines-hidden
-       -arch arm64 -arch x86_64 -mmacosx-version-min=14.4)
+common=(-O2 -g -Wall -Wextra -Werror -fvisibility=hidden -arch arm64 -arch x86_64 -mmacosx-version-min=14.4
+        -I../Sources/EQCore/include)
+flags=(-std=c++17 -fvisibility-inlines-hidden $common)
+# Writes to the settings property are taken only from eq signed by the same team as the plug-in:
+# the certificate's OU, which the "(...)" in a Development identity's name is not.
+if [[ $identity != - ]]; then
+  team=$(security find-certificate -c "$identity" -p | openssl x509 -noout -subject -nameopt multiline |
+    awk -F' = ' '/organizationalUnitName/ {print $2}')
+  [[ $team =~ ^[A-Z0-9]+$ ]] || { echo "no team ID in the certificate for $identity" >&2; exit 1; }
+  flags+=(-DEQ_CLIENT_TEAM=$team)
+fi
 
 bundle=build/EQDriver.driver
-rm -rf "$bundle"
-mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-xcrun clang++ $flags -bundle Source/Driver.cpp -o "$bundle/Contents/MacOS/EQDriver" \
-  -framework CoreAudio -framework CoreFoundation -framework IOKit
+rm -rf "$bundle" build/obj
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" build/obj
+# EQCore is the daemon's own file, so both modes run the same DSP.
+for core in EQCore EQDriverProtocol; do
+  xcrun clang -std=c11 $common -c ../Sources/EQCore/$core.c -o build/obj/$core.o
+done
+xcrun clang++ $flags -bundle Source/Driver.cpp build/obj/EQCore.o build/obj/EQDriverProtocol.o \
+  -o "$bundle/Contents/MacOS/EQDriver" -framework CoreAudio -framework CoreFoundation -framework IOKit -framework Security
 rm -rf build/EQDriver.dSYM
 mv "$bundle/Contents/MacOS/EQDriver.dSYM" build/
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" Info.plist > "$bundle/Contents/Info.plist"

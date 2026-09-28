@@ -9,12 +9,16 @@
 //                                             with Perform run inside Request, on another thread
 //                                             while Request waits, after Request returned, or
 //                                             never for the first request, which must be re-sent.
-//                                             self: the stored target is this device's own UID
+//                                             self: the stored target is this device's own UID.
+//                                             Also writes settings records from this process and
+//                                             from pid 1, and reads the meter
 //   host-harness <bundle> --killed            kill file present
 
 #include "../Source/HAL.h"
+#include "EQDriverProtocol.h"
 
 #include <CoreAudio/AudioServerPlugIn.h>
+#include <Security/Security.h>
 #include <dispatch/dispatch.h>
 #include <mach/mach_init.h>
 #include <mach/mach_time.h>
@@ -171,7 +175,7 @@ static void checkPropertySurface() {
         {1, {'bcls', 'clas', 'stdv', 'lmak', 'ownd', 'dev#', 'box#', 'rsrc'}},
         {2, {'bcls', 'clas', 'stdv', 'lnam', 'lmak', 'ownd', 'uid ', 'muid', 'tran', 'akin', 'clkd', 'livn', 'goin',
              'dflt', 'sflt', 'ltnc', 'saft', 'stm#', 'ctrl', 'nsrt', 'nsr#', 'hidn', 'dch2', 'srnd', 'ring', 'cust',
-             'eqTg', 'eqHd', 'eqHl'}},
+             'eqTg', 'eqHd', 'eqHl', 'eqSt', 'eqMt'}},
         {3, {'bcls', 'clas', 'stdv', 'ownd', 'sact', 'sdir', 'term', 'schn', 'ltnc', 'sfmt', 'pft ', 'sfma', 'pfta'}},
         {4, {'bcls', 'clas', 'stdv', 'cscp', 'celm', 'lcsv', 'lcdv', 'lcdr'}},
         {5, {'bcls', 'clas', 'stdv', 'cscp', 'celm', 'bcvl'}},
@@ -197,7 +201,8 @@ static void checkPropertySurface() {
             }
             if (size == sizeof(CFTypeRef) && (selector == 'lnam' || selector == 'lmak' || selector == 'uid ' ||
                                               selector == 'muid' || selector == 'rsrc' || selector == 'eqTg' ||
-                                              selector == 'eqHd' || selector == 'eqHl')) {
+                                              selector == 'eqHd' || selector == 'eqHl' || selector == 'eqSt' ||
+                                              selector == 'eqMt')) {
                 CFTypeRef object;
                 std::memcpy(&object, data.data(), sizeof(object));
                 if (object) CFRelease(object);
@@ -231,6 +236,87 @@ static AudioObjectID translate(CFStringRef uid) {
     return id;
 }
 
+static OSStatus writeSettings(pid_t writer, CFTypeRef value) {
+    AudioObjectPropertyAddress a = {'eqSt', kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    return vt()->SetPropertyData(driver, 2, writer, &a, 0, nullptr, sizeof(value), &value);
+}
+
+static CFDataRef recordFor(const std::string &uid, uint64_t serial) {
+    eqc_settings s{};
+    s.bandCount = 1;
+    s.bands[0] = {EQC_PEAK, 1000, 6, 1.41, true};
+    s.limiterEnabled = true;
+    s.limiterCeilingDB = -1;
+    eqc_blob blob;
+    if (!eqc_blob_encode(&blob, &s, uid.c_str(), serial)) return CFDataCreate(nullptr, nullptr, 0);
+    return CFDataCreate(nullptr, reinterpret_cast<const UInt8 *>(&blob), sizeof(blob));
+}
+
+// Whether this process meets the requirement the plug-in reports: test.sh signs the harness ad hoc
+// as com.servitola.eq, which an ad-hoc plug-in accepts and a Developer ID one must refuse.
+static bool meets(const std::string &requirement) {
+    CFStringRef text = CFStringCreateWithCString(nullptr, requirement.c_str(), kCFStringEncodingUTF8);
+    SecRequirementRef r = nullptr;
+    SecCodeRef self = nullptr;
+    bool ok = SecRequirementCreateWithString(text, kSecCSDefaultFlags, &r) == errSecSuccess &&
+              SecCodeCopySelf(kSecCSDefaultFlags, &self) == errSecSuccess &&
+              SecCodeCheckValidity(self, kSecCSDefaultFlags, r) == errSecSuccess;
+    if (self) CFRelease(self);
+    if (r) CFRelease(r);
+    CFRelease(text);
+    return ok;
+}
+
+static void checkSettings(const std::string &targetUID) {
+    CFDictionaryRef h = health();
+    std::string requirement = text(h, "writerRequirement");
+    CHECK(number(h, "eqActive") == 0 && number(h, "settingsVersion") == EQC_BLOB_VERSION);
+    CFRelease(h);
+    bool trusted = meets(requirement);
+    std::printf("  writers must meet: %s; this harness %s\n", requirement.c_str(), trusted ? "does" : "does not");
+
+    CFDataRef good = recordFor(targetUID, 7);
+    CHECK(writeSettings(1, good) == kAudioDevicePermissionsError);
+    CHECK(writeSettings(0, good) == kAudioDevicePermissionsError);
+    OSStatus err = writeSettings(getpid(), good);
+    CHECK(err == (trusted ? noErr : kAudioDevicePermissionsError));
+    if (trusted) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        h = health();
+        CHECK(number(h, "eqActive") == 1 && number(h, "settingsSerial") == 7 && number(h, "lastWriterPID") == getpid());
+        CFRelease(h);
+        CFStringRef key = CFStringCreateWithCString(nullptr, ("settings." + targetUID).c_str(), kCFStringEncodingUTF8);
+        CFTypeRef stored = CFDictionaryGetValue(storage, key);
+        CFRelease(key);
+        CHECK(stored && CFEqual(stored, good));
+        CFDataRef playing = nullptr;
+        get(2, 'eqSt', playing);
+        CHECK(playing && CFEqual(playing, good));
+        if (playing) CFRelease(playing);
+
+        UInt8 junk[16] = {1, 2, 3};
+        CFDataRef garbage = CFDataCreate(nullptr, junk, sizeof(junk));
+        CHECK(writeSettings(getpid(), garbage) == kAudioHardwareIllegalOperationError);
+        CFRelease(garbage);
+        CHECK(writeSettings(getpid(), CFSTR("settings")) == kAudioHardwareIllegalOperationError);
+        CFDataRef self = recordFor("com.servitola.eq.device", 8);
+        CHECK(writeSettings(getpid(), self) == kAudioHardwareIllegalOperationError);
+        CFRelease(self);
+        h = health();
+        CHECK(number(h, "settingsWrites") == 1 && number(h, "settingsRejected") == 4 && number(h, "settingsSerial") == 7);
+        std::printf("  settings: \"%s\"\n", text(h, "settingsError").c_str());
+        CFRelease(h);
+    }
+    CFRelease(good);
+
+    CFDataRef meter = nullptr;
+    get(2, 'eqMt', meter);
+    eqc_meter_frame frame;
+    CHECK(meter && eqc_meter_frame_decode(CFDataGetBytePtr(meter), size_t(CFDataGetLength(meter)), &frame) &&
+          frame.bandCount == 10 && frame.frequencies[9] == 16000);
+    if (meter) CFRelease(meter);
+}
+
 static int idle() {
     CHECK(translate(CFSTR("com.servitola.eq.device")) == 2);
     CHECK(translate(CFSTR("com.servitola.eq.devic")) == kAudioObjectUnknown);
@@ -259,6 +345,7 @@ static int idle() {
     CHECK(speakersRate <= 0 || rate == speakersRate);
     CHECK(number(h, "ioRunning") == 0 && number(h, "clients") == 0);
     CFRelease(h);
+    checkSettings(targetUID);
 
     std::printf("\nhost harness (idle): %s\n", failures ? "FAILED" : "ok");
     return failures ? 1 : 0;
