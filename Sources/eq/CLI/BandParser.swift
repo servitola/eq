@@ -25,6 +25,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case noRedo
     case unreadableBackup(Int)
     case noSuchFilter(String, Int)
+    case exportRefused(String)
+    case exportFailed(String)
 
     var description: String {
         switch self {
@@ -60,6 +62,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
                 : "backup eq.json.\(index) is unreadable — see eq history"
         case .noSuchFilter(let token, let count):
             return count == 0 ? "no filter \"\(token)\" — this curve has no filters" : "no filter \"\(token)\" — pick 1…\(count), see `eq filter`"
+        case .exportRefused(let why): return "not exported: \(why)"
+        case .exportFailed(let why): return "export failed: \(why)"
         }
     }
 }

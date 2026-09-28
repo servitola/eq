@@ -64,6 +64,7 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq import "HD 600" --source opra` | take the correction from OPRA instead of AutoEq |
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands and filters |
+| `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq filter` | the parametric filters, numbered, with where each came from |
 | `eq filter add peak 3k -2 2` | add a filter by hand: type, frequency, gain, optional Q |
 | `eq filter set 2 gain=-3 q=4`, `eq filter rm 2\|all` | change or remove filters by number |
@@ -380,6 +381,21 @@ does not parse is skipped with a warning naming its line. A total preamp outside
 refuses the import. The preamp is the file's own: AutoEq's `.txt` files carry the peak of the
 whole cascade, 0.1 dB less cautious than the README tables beside them, and eq does not
 recompute it.
+
+### Export
+
+`eq export` writes the curve in effect on the current output (or `--device DEVICE`) for another
+tool, to stdout or with `--out FILE`. `--out` writes a hidden file beside `FILE` and renames it
+into place, so nothing ever sees half a file, and refuses a file that already exists unless
+`--force` is given. `--json` wraps the result in a report with the device and format.
+
+| `--format` | what you get |
+| --- | --- |
+| `apo` (default) | Equalizer APO `config.txt`: a comment naming eq, the device and the date, `Preamp:`, then one `Filter N: ON …` per band (a `PK` at each of the ten centres, Q 1.41), filter and bass/treble/tilt shelf — the same list eq runs. Shelves are written `LSC`/`HSC … Q` and passes `LPQ`/`HPQ`, the spellings APO reads as exactly the filter eq plays. Peace, REW and SoundSource's headphone EQ read the same file, and `eq import` reads it back to the same filters. |
+| `graphiceq` | AutoEq's `GraphicEQ.txt`: the whole response, preamp included, at AutoEq's 127 fixed frequencies (20–19871 Hz), the only grid Wavelet accepts. |
+| `eqmac` | an eqMac preset: the ten band gains and the preamp. eqMac holds nothing else, so a curve with filters or bass/treble/tilt is refused with a note saying which. |
+| `camilla` | CamillaDSP YAML: a `filters:` block (a `Gain` filter for the preamp, one `Biquad` per band and filter) and a `pipeline:` running them on channels 0 and 1, to merge into a config. |
+| `json` | eq's own profile, as it sits in `eq.json`. |
 
 ## How it works
 

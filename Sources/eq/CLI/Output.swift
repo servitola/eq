@@ -101,6 +101,8 @@ extension CLIError {
         case .noRedo: return "noRedo"
         case .unreadableBackup: return "unreadableBackup"
         case .noSuchFilter: return "noSuchFilter"
+        case .exportRefused: return "exportRefused"
+        case .exportFailed: return "exportFailed"
         }
     }
 }

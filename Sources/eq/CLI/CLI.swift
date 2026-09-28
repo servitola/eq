@@ -105,6 +105,7 @@ enum CLI {
         case "copy": return try copy(rest, ctx)
         case "import": return try importCommand(rest, ctx)
         case "filter": return try filter(rest, ctx)
+        case "export": return try export(rest, ctx)
         case "bass", "treble", "tilt": return try preference(command, rest, ctx)
         case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)

@@ -16,6 +16,11 @@ its entries under a dated version.
 - AutoEq's `FixedBandEQ.txt` sets the ten bands instead of adding ten filters.
 - REW's text export (with its header and `ON None` slots) and squig.link's (CRLF, `Channel:
   L`/`R`) import. The README has a new Formats section listing what imports.
+- `eq export` writes the curve for another tool: Equalizer APO text by default (also read by
+  Peace, REW and SoundSource), `--format graphiceq` (AutoEq's 127-point grid, for Wavelet),
+  `eqmac` (ten bands and preamp; refused when the curve has more), `camilla` (CamillaDSP
+  `filters:` and `pipeline:` YAML) or `json` (eq's own profile). `--device` picks the device,
+  `--out FILE` writes atomically and never replaces a file without `--force`, `--json` reports.
 
 ### Changed
 
