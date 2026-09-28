@@ -9,7 +9,7 @@ let package = Package(
         .target(name: "EQCore", path: "Sources/EQCore"),
         .executableTarget(
             name: "eq",
-            dependencies: ["EQAtomics"],
+            dependencies: ["EQAtomics", "EQCore"],
             path: "Sources/eq",
             swiftSettings: [.unsafeFlags(["-warnings-as-errors"])]
         ),
