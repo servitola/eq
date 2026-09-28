@@ -120,8 +120,8 @@ final class ProcessTapEngine {
 
     private(set) var state: State = .stopped
     private(set) var targetDeviceID: AudioObjectID = 0
-    private(set) var ioBufferFrames: Int = 256
-    var requestedIOBufferFrames: Int = 256
+    private(set) var ioBufferFrames: Int = 128
+    var requestedIOBufferFrames: Int = 128
 
     /// Written on the audio thread, read racily by the status writer; a torn read is harmless.
     private(set) var framesProcessed: UInt64 = 0
