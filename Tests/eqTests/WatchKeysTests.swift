@@ -198,19 +198,19 @@ final class WatchKeysTests: XCTestCase {
     func testPCyclesPresetsAlphabeticallyAndWraps() throws {
         let ctx = try context()
         let session = CLI.WatchSession(ctx)
-        XCTAssertNil(session.presetMark())
+        XCTAssertNil(session.header().preset)
         try session.apply(.cyclePreset)
         XCTAssertEqual(try profile(ctx).preset, "favourite")
         XCTAssertEqual(try profile(ctx).bands, Config.screenshotCurve)
         try session.apply(.cyclePreset)
         XCTAssertEqual(try profile(ctx).preset, "flat")
         XCTAssertEqual(try profile(ctx).bands, Array(repeating: 0, count: 10))
-        XCTAssertEqual(session.presetMark()?.name, "flat")
-        XCTAssertEqual(session.presetMark()?.modified, false)
+        XCTAssertEqual(session.header().preset?.name, "flat")
+        XCTAssertEqual(session.header().preset?.modified, false)
         try session.apply(.cyclePreset)
         XCTAssertEqual(try profile(ctx).preset, "favourite")
         try session.apply(.bandStep(0, 0.5))
-        XCTAssertEqual(session.presetMark()?.modified, true)
+        XCTAssertEqual(session.header().preset?.modified, true)
     }
 
     func testUndoWalksBackToTheSessionStart() throws {
@@ -287,7 +287,7 @@ final class WatchKeysTests: XCTestCase {
         let config = try ctx.store.load()
         XCTAssertEqual(config.presets?["club mix"]?.bands, try profile(ctx).bands)
         XCTAssertEqual(try profile(ctx).preset, "club mix")
-        XCTAssertEqual(session.presetMark()?.name, "club mix")
+        XCTAssertEqual(session.header().preset?.name, "club mix")
         XCTAssertThrowsError(try session.apply(.savePreset("bad/name"))) { XCTAssertEqual($0 as? CLIError, .badPresetName("bad/name")) }
     }
 
@@ -343,7 +343,7 @@ final class WatchKeysTests: XCTestCase {
         var keys: [String?] = [nil, "1"]
         _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) }, hintDismissed: true,
                       emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                      edit: { _ in modified = true }, preset: { ("favourite", modified) })
+                      edit: { _ in modified = true }, header: { Watch.Header(preset: ("favourite", modified)) })
         XCTAssertTrue(frames(emitted)[0].contains("preamp -1.5 dB · favourite · peak"), frames(emitted)[0])
         XCTAssertTrue(frames(emitted)[2].contains("preamp -1.5 dB · favourite* · peak"), frames(emitted)[2])
     }

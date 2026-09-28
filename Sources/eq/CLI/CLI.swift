@@ -500,7 +500,7 @@ enum CLI {
                                  zones: !args.isEmpty,
                                  hintDismissed: FileManager.default.fileExists(atPath: marker.path),
                                  emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
-                                 edit: session.apply, preset: session.presetMark, preference: session.preference, knobs: session.knobs,
+                                 edit: session.apply, header: session.header,
                                  dismissHint: {
                                      try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
                                      FileManager.default.createFile(atPath: marker.path, contents: nil)
@@ -534,19 +534,10 @@ enum CLI {
 
         init(_ ctx: CLIContext) { self.ctx = ctx }
 
-        func preference() -> Preference? {
-            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
-            return config.profile(forDeviceUID: target.uid).profile.preference
-        }
-
-        func knobs() -> [String: Double]? {
-            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
-            return config.profile(forDeviceUID: target.uid).profile.instruments
-        }
-
-        func presetMark() -> Table.PresetMark? {
-            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
-            return CLI.presetMark(config.profile(forDeviceUID: target.uid).profile, config)
+        func header() -> Watch.Header {
+            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return Watch.Header() }
+            let profile = config.profile(forDeviceUID: target.uid).profile
+            return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments)
         }
 
         func apply(_ action: WatchAction) throws {

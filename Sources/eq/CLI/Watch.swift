@@ -299,19 +299,24 @@ enum Watch {
     static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
     static func cannotListen(_ instrument: Instrument) -> String { "can't listen to \(instrument.name) at this rate" }
 
+    /// What the header shows of the current device's profile beside the meters.
+    struct Header {
+        var preset: Table.PresetMark?
+        var preference: Preference?
+        var knobs: [String: Double]?
+    }
+
     /// Redraws on every frame the source delivers, and after keys that arrive between frames; a
     /// line that is no frame (the client's wake-up for input) only reads keys. The terminal size
     /// is checked on every draw. `edit` applies a band, preamp, preset, knob or undo step; what it
-    /// throws is shown in the footer for two seconds. `preset` names the current device's preset
-    /// for the header; it and the layers are asked again after every edit and once a second, so a
-    /// change from another terminal shows too. `send` writes one request line to the daemon (solo
-    /// on/off); a solo this loop turned on is turned off again on the way out, and the daemon
-    /// drops it anyway once the socket closes.
+    /// throws is shown in the footer for two seconds. `header` is asked again after every edit and
+    /// once a second, so a change from another terminal shows too. `send` writes one request line
+    /// to the daemon (solo on/off); a solo this loop turned on is turned off again on the way out,
+    /// and the daemon drops it anyway once the socket closes.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
                     zones: Bool = false, hintDismissed: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
-                    preset: () -> Table.PresetMark? = { nil }, preference: () -> Preference? = { nil },
-                    knobs: () -> [String: Double]? = { nil },
+                    header: () -> Header = { Header() },
                     dismissHint: () -> Void = {}, send: (String) throws -> Void = { _ in }) -> Int32 {
         emit(enter)
         var current = size()
@@ -323,9 +328,7 @@ enum Watch {
         var flash: (band: Int, left: Int)?
         var note: (text: String, left: Int)?
         var prompt: String?
-        var mark = preset()
-        var layer = preference()
-        var turned = knobs()
+        var shown = header()
         var framesSinceMark = 0
         var last: MeterFrame?
         var requestedAt: Double?
@@ -337,9 +340,7 @@ enum Watch {
         var layout = fit()
         func show(_ text: String) { note = (text, noteFrames) }
         func refresh() {
-            mark = preset()
-            layer = preference()
-            turned = knobs()
+            shown = header()
             framesSinceMark = 0
         }
         func apply(_ action: WatchAction) {
@@ -393,7 +394,8 @@ enum Watch {
                 clear = "\u{1B}[2J"
             }
             let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0, flash: flash?.band,
-                              note: note?.text, preset: mark, preference: layer, knobs: turned, prompt: prompt)
+                              note: note?.text, preset: shown.preset, preference: shown.preference, knobs: shown.knobs,
+                              prompt: prompt)
             emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
         }
         /// False to quit.

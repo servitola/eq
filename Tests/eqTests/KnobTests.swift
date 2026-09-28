@@ -239,7 +239,7 @@ final class KnobTests: XCTestCase {
         try session.apply(.boost("voice", 0.5))
         try session.apply(.boost("voice", 0.5))
         XCTAssertEqual(try knobs(), ["voice": 1])
-        XCTAssertEqual(session.knobs(), ["voice": 1])
+        XCTAssertEqual(session.header().knobs, ["voice": 1])
         try session.apply(.boost("voice", -0.5))
         try session.apply(.boost("voice", -0.5))
         XCTAssertNil(try knobs(), "stepping back to 0 removes the knob")
@@ -276,7 +276,7 @@ final class KnobTests: XCTestCase {
                           edits.append(action)
                           if case .boost(_, let delta) = action { knob += delta }
                       },
-                      knobs: { knob == 0 ? nil : ["kick": knob] })
+                      header: { Watch.Header(knobs: knob == 0 ? nil : ["kick": knob]) })
         XCTAssertEqual(edits, [.boost("kick", 0.5), .boost("kick", -0.5), .boost("kick", -0.5)])
         XCTAssertTrue(drawn[1].contains(Watch.listenNeedsFocus), drawn[1])
         XCTAssertTrue(drawn[2].contains("kick +0.0"), "the focused knob shows at 0: \(drawn[2])")

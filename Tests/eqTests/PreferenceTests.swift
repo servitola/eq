@@ -172,7 +172,7 @@ final class PreferenceTests: XCTestCase {
         try session.apply(.bass(0.5))
         try session.apply(.treble(-0.5))
         XCTAssertEqual(try layer(), Preference(bass: 1, treble: -0.5))
-        XCTAssertEqual(session.preference(), Preference(bass: 1, treble: -0.5))
+        XCTAssertEqual(session.header().preference, Preference(bass: 1, treble: -0.5))
         try session.apply(.undo)
         try session.apply(.undo)
         try session.apply(.undo)
