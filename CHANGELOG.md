@@ -3,6 +3,12 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## 2026.09.28.8 — 2026-09-28
+
+### Added
+
+- `eq comp none` turns the compressor off, like `eq comp off`; the mode is read in any case.
+
 ## 2026.09.28.7 — 2026-09-28
 
 ### Added
