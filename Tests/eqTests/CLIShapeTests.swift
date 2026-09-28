@@ -141,7 +141,7 @@ final class CLIShapeTests: XCTestCase {
         try "Preamp: -2 dB\nFilter 1: ON PK Fc 100 Hz Gain -3 dB Q 1\n".write(to: file, atomically: true, encoding: .utf8)
         let commands: [[String]] = [
             ["set", "1khz", "+5"], ["preamp", "-1"], ["flat"], ["bass", "+3"], ["treble", "-2"], ["tilt", "0.5"],
-            ["boost", "voice", "+3"], ["on"], ["off"], ["copy", "--to", "JBL"], ["device", "copy", "--device", "JBL"],
+            ["boost", "voice", "+3"], ["comp", "night"], ["color", "tube", "0.5"], ["color", "off"], ["on"], ["off"], ["copy", "--to", "JBL"], ["device", "copy", "--device", "JBL"],
             ["filter", "add", "peak", "3k", "-2"], ["filter", "set", "1", "gain=-4"], ["filter", "rm", "all"],
             ["preset", "save", "night"], ["preset", "use", "flat"], ["preset", "rm", "favourite"],
             ["preset", "rename", "favourite", "fav"], ["import", file.path], ["import", "--clear"],

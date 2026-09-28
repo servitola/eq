@@ -43,18 +43,19 @@ enum Exporter {
         }
     }
 
-    /// Both layers go out even when empty, so importing the file back clears what was set since;
+    /// Every layer goes out even when empty, so importing the file back clears what was set since;
     /// `eq.json` itself leaves them out.
     private struct OwnJSON: Encodable {
         let profile: Profile
 
-        private enum Layer: String, CodingKey { case preference, instruments }
+        private enum Layer: String, CodingKey { case preference, instruments, dynamics }
 
         func encode(to encoder: Encoder) throws {
             try profile.encode(to: encoder)
             var c = encoder.container(keyedBy: Layer.self)
             if profile.preference == nil { try c.encode(Preference(), forKey: .preference) }
             if profile.instruments == nil { try c.encode([String: Double](), forKey: .instruments) }
+            if profile.dynamics == nil { try c.encode(Dynamics(), forKey: .dynamics) }
         }
     }
 

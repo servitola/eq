@@ -135,6 +135,8 @@ enum CLI {
         case "export": return try export(rest, ctx)
         case "bass", "treble", "tilt": return try preference(command, rest, ctx)
         case "boost": return try boost(rest, ctx)
+        case "comp": return try comp(rest, ctx)
+        case "color": return try color(rest, ctx)
         case "completions": return try Completions.command(rest)
         case "man": return try ManPage.command(rest)
         case "__complete": return Completions.list(rest, ctx)
@@ -399,6 +401,7 @@ enum CLI {
         profile.preamp = result.preamp
         if let preference = result.preference { profile.preference = preference.isFlat ? nil : preference }
         if let instruments = result.instruments { profile.instruments = instruments.isEmpty ? nil : instruments }
+        if let dynamics = result.dynamics { profile.dynamics = dynamics.isOff ? nil : dynamics }
         profile.imported = "\(origin) · \(ctx.today())"
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
@@ -733,7 +736,7 @@ enum CLI {
         if let old = config.preset(named: name) { config.presets?[old.name] = nil }
         config.presets?[name] = Profile(name: nil, preamp: profile.preamp, bands: profile.bands,
                                         filters: profile.filters, imported: profile.imported, preference: profile.preference,
-                                        instruments: profile.instruments)
+                                        instruments: profile.instruments, dynamics: profile.dynamics)
         profile.preset = name
         config.setProfile(profile, forDeviceUID: target.uid)
     }
@@ -904,6 +907,7 @@ enum CLI {
                 if !profile.filters.isEmpty { line += Paint.ink(.cyan, "  +\(profile.filters.count) filters") }
                 if let layer = profile.preference, !layer.isFlat { line += "  pref " + Table.preference(layer) }
                 if !profile.knobs.isEmpty { line += "  boost " + Table.knobs(profile) }
+                if let layer = profile.dynamics, !layer.isOff { line += "  " + Table.dynamics(layer) }
                 if !config.enabled { line += "  " + Paint.ink(.yellow, "off") }
                 if let mark = presetMark(profile, config) { line += "  " + Table.presetLabel(mark) }
             } else if config == nil {

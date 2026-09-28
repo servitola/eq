@@ -2,7 +2,7 @@ import Foundation
 
 /// eq's own profile, the shape `eq export --format json` and `eq.json` both write: ten `bands`,
 /// a `preamp`, `filters` with their type, frequency, gain and Q, the bass/treble/tilt
-/// `preference` layer and the `instruments` knobs. Unlike every borrowed format, this one is read
+/// `preference` layer, the `instruments` knobs and the `dynamics`. Unlike every borrowed format, this one is read
 /// back to exactly the numbers eq wrote, not fitted or reduced. A layer the file carries, even
 /// flat or `{}`, replaces the device's; one it leaves out (a file from before that layer, or
 /// `eq.json`, which omits empty ones) keeps it.
@@ -71,7 +71,25 @@ enum EQJSONFormat: EQFormat {
             }
         }
 
+        var dynamics: Dynamics?
+        if let layer = root["dynamics"] as? [String: Any] {
+            dynamics = Dynamics()
+            if let raw = layer["comp"] {
+                if let mode = (raw as? String).flatMap(Dynamics.Compressor.init(rawValue:)) { dynamics?.comp = mode }
+                else { warnings.append("dynamics comp: skipped, eq has no such mode") }
+            }
+            if let raw = layer["color"] {
+                let entry = raw as? [String: Any]
+                if let kind = (entry?["kind"] as? String).flatMap(Dynamics.ColourKind.init(rawValue:)),
+                   let amount = ImportCheck.number(entry?["amount"]), Dynamics.amountRange.contains(amount) {
+                    if amount > 0 { dynamics?.color = .init(kind: kind, amount: amount) }
+                } else {
+                    warnings.append("dynamics color: skipped, needs a kind of tape or tube and an amount of 0…1")
+                }
+            }
+        }
+
         return ImportResult(filters: filters, bands: bands, preamp: preamp, format: "eq's own profile", warnings: warnings,
-                            preference: preference, instruments: instruments)
+                            preference: preference, instruments: instruments, dynamics: dynamics)
     }
 }

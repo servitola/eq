@@ -35,12 +35,4 @@ struct Dynamics: Codable, Equatable {
     }
 
     var isOff: Bool { comp == nil && color == nil }
-
-    /// "comp gentle  color tape 0.3", naming only the parts that are on.
-    var summary: String {
-        var parts: [String] = []
-        if let comp { parts.append("comp \(comp.rawValue)") }
-        if let color { parts.append("color \(color.kind.rawValue) \(String(format: "%g", color.amount))") }
-        return parts.joined(separator: "  ")
-    }
 }

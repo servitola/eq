@@ -13,6 +13,8 @@ struct ImportResult: Equatable {
     var preference: Preference? = nil
     /// Likewise only eq's own JSON, empty to clear; nil keeps the device's instrument knobs.
     var instruments: [String: Double]? = nil
+    /// Likewise only eq's own JSON, with both parts off to clear; nil keeps the device's.
+    var dynamics: Dynamics? = nil
 }
 
 enum ImportError: Error, Equatable, CustomStringConvertible {
