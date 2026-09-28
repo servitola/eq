@@ -154,8 +154,8 @@ enum APOFormat: EQFormat {
         let takesGain = type == .peak || isShelf
         let gain = takesGain ? gainValue : 0
         guard let gain else { return .skipped("no gain") }
-        guard Config.filterFrequencyRange.contains(fc) else { return .skipped(outside("frequency", fc, "Hz", Config.filterFrequencyRange)) }
-        guard Config.filterGainRange.contains(gain) else { return .skipped(outside("gain", gain, "dB", Config.filterGainRange)) }
+        guard Config.filterFrequencyRange.contains(fc) else { return .skipped(ImportCheck.outside("frequency", fc, "Hz", Config.filterFrequencyRange)) }
+        guard Config.filterGainRange.contains(gain) else { return .skipped(ImportCheck.outside("gain", gain, "dB", Config.filterGainRange)) }
 
         // APO reads 0 as "not given" for Q, bandwidth and slope alike.
         let q = qValue.flatMap { $0 == 0 ? nil : $0 }
@@ -188,7 +188,7 @@ enum APOFormat: EQFormat {
                 let factor = pow(10, abs(gain) / 80 / cornerS)
                 frequency = type == .lowShelf ? fc * factor : fc / factor
                 guard Config.filterFrequencyRange.contains(frequency) else {
-                    return .skipped(outside("centre frequency", frequency, "Hz", Config.filterFrequencyRange))
+                    return .skipped(ImportCheck.outside("centre frequency", frequency, "Hz", Config.filterFrequencyRange))
                 }
             }
         } else if let q {
@@ -203,14 +203,7 @@ enum APOFormat: EQFormat {
             default: resolvedQ = 0.5.squareRoot()
             }
         }
-        guard resolvedQ.isFinite, Config.filterQRange.contains(resolvedQ) else {
-            return .skipped(outside("Q", resolvedQ, "", Config.filterQRange))
-        }
-        let result = Filter(type: type, frequency: frequency, gain: gain, q: resolvedQ)
-        guard Config.firstUnstableFilter([result], sampleRate: Config.stabilityCheckRate) == nil else {
-            return .skipped("it would be unstable at \(Int(Config.stabilityCheckRate / 1000)) kHz")
-        }
-        return .filter(result)
+        return ImportCheck.filter(type, frequency: frequency, gain: gain, q: resolvedQ)
     }
 
     /// REW writes `1.911` for 1911 Hz in some locales; APO multiplies any Fc with exactly three
@@ -227,11 +220,6 @@ enum APOFormat: EQFormat {
     static func qFromBandwidth(_ bw: Double, frequency: Double, sampleRate: Double = Config.stabilityCheckRate) -> Double {
         let w0 = 2 * Double.pi * frequency / sampleRate
         return 1 / (2 * sinh(log(2) / 2 * bw * w0 / sin(w0)))
-    }
-
-    private static func outside(_ what: String, _ value: Double, _ unit: String, _ range: ClosedRange<Double>) -> String {
-        let suffix = unit.isEmpty ? "" : " \(unit)"
-        return String(format: "%@ %g%@ is outside %g–%g%@", what, value, suffix, range.lowerBound, range.upperBound, suffix)
     }
 
     // MARK: - GraphicEQ
