@@ -167,9 +167,9 @@ enum CLI {
         let existed = ctx.store.exists()
         var config = try ctx.store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
         if config.seedPresetsIfNeeded() { try ctx.store.save(config, as: .bookkeeping) }
-        let path = Paint.ink(.dim, ctx.store.url.path)
+        let path = Paint.ink(.dim, ctx.store.displayPath)
         let text = existed ? "config already exists: \(path)" : Paint.ink(.green, "wrote") + " \(path)"
-        return Output(text, InitReport(path: ctx.store.url.path, created: !existed))
+        return Output(text, InitReport(path: ctx.store.displayPath, created: !existed))
     }
 
     private static func set(_ args: [String], _ ctx: CLIContext) throws -> Output {
@@ -760,7 +760,7 @@ enum CLI {
 
     private static func undo(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty || args == ["--list"] else { throw CLIError.usage("eq undo [--list]") }
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
         if args == ["--list"] { return try history([], ctx) }
         let note = try ctx.store.reconcileHistory()
         let target = ctx.store.historyPosition() + 1
@@ -774,7 +774,7 @@ enum CLI {
 
     private static func redo(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq redo") }
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
         let note = try ctx.store.reconcileHistory()
         let target = max(ctx.store.historyPosition() - 1, 0)
         do {
@@ -814,7 +814,7 @@ enum CLI {
     /// currently sit. `eq undo --list` is an alias kept for muscle memory.
     private static func history(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq history") }
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
         // Without it a hand edit mid-undo and a stash left by an interrupted step are missing from the list.
         let note = try ctx.store.reconcileHistory()
         let position = ctx.store.historyPosition()
@@ -876,7 +876,7 @@ enum CLI {
     typealias Target = (uid: String, name: String)
 
     static func loadConfig(_ ctx: CLIContext) throws -> Config {
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.url.path) — run `eq init` first") }
+        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
         return try ctx.store.load()
     }
 

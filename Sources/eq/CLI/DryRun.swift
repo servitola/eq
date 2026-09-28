@@ -27,10 +27,13 @@ enum DryRun {
         try files.createDirectory(at: sandbox, withIntermediateDirectories: true)
         defer { try? files.removeItem(at: sandbox) }
         var copy = ctx
-        copy.store = ConfigStore(url: sandbox.appendingPathComponent(ctx.store.url.lastPathComponent))
+        copy.store = ConfigStore(url: sandbox.appendingPathComponent(ctx.store.url.lastPathComponent), displayPath: ctx.store.displayPath)
         try mirror(ctx.store, into: sandbox)
         if args.first == "import" { copy.cacheDirectory = try mirror(cache: ctx, into: sandbox) }
-        _ = try dispatch(args, copy)
+        do { _ = try dispatch(args, copy) } catch CLIError.network(let message) {
+            let real = ctx.cacheDirectory.deletingLastPathComponent().path
+            throw CLIError.network(message.replacingOccurrences(of: copy.cacheDirectory.deletingLastPathComponent().path, with: real))
+        }
         let before = ctx.store.exists() ? try ctx.store.load() : nil
         let after = copy.store.exists() ? try copy.store.load() : nil
         return compare(before, after, ctx)

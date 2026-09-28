@@ -3,6 +3,8 @@ import Foundation
 
 struct ConfigStore {
     let url: URL
+    /// The path messages name: a dry run's sandbox copy still speaks of the real file.
+    var displayPath: String
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_CONFIG"], !override.isEmpty {
@@ -12,8 +14,9 @@ struct ConfigStore {
             .appendingPathComponent(".config/eq/eq.json")
     }
 
-    init(url: URL) {
+    init(url: URL, displayPath: String? = nil) {
         self.url = url
+        self.displayPath = displayPath ?? url.path
     }
 
     func exists() -> Bool {

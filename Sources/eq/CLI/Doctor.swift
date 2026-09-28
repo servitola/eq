@@ -24,7 +24,7 @@ struct DoctorProbes {
         DoctorProbes(
             osVersion: { ProcessInfo.processInfo.operatingSystemVersion },
             loadConfig: {
-                guard store.exists() else { throw CLIError.usage("no config at \(store.url.path) — run `eq init` first") }
+                guard store.exists() else { throw CLIError.usage("no config at \(store.displayPath) — run `eq init` first") }
                 return try store.load()
             },
             readStatus: { Status.read(from: statusURL) },

@@ -257,6 +257,18 @@ final class CLIShapeTests: XCTestCase {
         XCTAssertEqual(try tree(cacheRoot), seeded)
     }
 
+    func testDryRunErrorsNameTheRealConfig() {
+        let result = run("set", "1khz", "-3", "--dry-run")
+        XCTAssertNotEqual(result.exitCode, 0)
+        XCTAssertTrue(result.output.contains("no config at \(context.store.url.path)"), result.output)
+        XCTAssertFalse(result.output.contains("eq-dry-run"), result.output)
+        run("init")
+        let offline = run("import", "hd 600", "--dry-run")
+        XCTAssertEqual(offline.exitCode, 1, offline.output)
+        XCTAssertTrue(offline.output.contains(context.cacheDirectory.appendingPathComponent("INDEX.md").path), offline.output)
+        XCTAssertFalse(offline.output.contains("eq-dry-run"), offline.output)
+    }
+
     func testDryRunIsRefusedWhereNothingIsWritten() {
         run("init")
         for args in [["devices"], ["device", "list"], ["export"], ["watch"], ["status"], ["import", "--search", "hd600"], ["preset", "show", "flat"], ["history"]] {
