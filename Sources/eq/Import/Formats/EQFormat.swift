@@ -8,6 +8,8 @@ struct ImportResult: Equatable {
     var preamp: Double
     var format: String
     var warnings: [String]
+    /// Only eq's own JSON format sets this; every other format leaves an existing preference layer alone.
+    var preference: Preference? = nil
 }
 
 enum ImportError: Error, Equatable, CustomStringConvertible {
@@ -52,7 +54,9 @@ extension EQFormat {
 
 enum EQFormats {
     /// Tried in order; the first whose sniff accepts the data and whose parse succeeds wins.
-    static let all: [any EQFormat.Type] = [EqMacFormat.self, PowerampFormat.self, EasyEffectsFormat.self, PeaceFormat.self, CamillaDSPFormat.self, APOFormat.self]
+    static let all: [any EQFormat.Type] = [
+        EqMacFormat.self, EQJSONFormat.self, PowerampFormat.self, EasyEffectsFormat.self, PeaceFormat.self, CamillaDSPFormat.self, APOFormat.self,
+    ]
 
     static func parse(_ data: Data, filename: String? = nil, context: ImportContext = .detached) throws -> ImportResult {
         let text = ImportText.decode(data)

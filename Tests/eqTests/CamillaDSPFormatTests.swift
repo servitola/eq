@@ -157,6 +157,7 @@ final class FormatSniffTests: XCTestCase {
         ("Sony WH-1000XM4 FixedBandEQ.txt", APOFormat.self), ("REW Generic filters.txt", APOFormat.self),
         ("APO config reference example.txt", APOFormat.self), ("SoundSource Sample-Profile.txt", APOFormat.self),
         ("eqMac Advanced presets.json", EqMacFormat.self), ("eqMac Expert presets.json", EqMacFormat.self),
+        ("eq profile.json", EQJSONFormat.self),
         ("Poweramp PA-CEQ 3.0.json", PowerampFormat.self), ("EasyEffects Perfect EQ.json", EasyEffectsFormat.self),
         ("Peace Bass Boost 2.peace", PeaceFormat.self), ("Peace Equalizer 15 Band with HPF and LPF.peace", PeaceFormat.self),
         ("Peace Tilt filter 10 dB down.peace", PeaceFormat.self), ("Peace Chu Moy Crossfeed Simulation (by commands).peace", PeaceFormat.self),

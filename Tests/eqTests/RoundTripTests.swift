@@ -46,7 +46,7 @@ final class RoundTripTests: XCTestCase {
     }
 
     private func profile(_ result: ImportResult) -> Profile {
-        Profile(name: nil, preamp: result.preamp, bands: result.bands ?? Profile.flat.bands, filters: result.filters)
+        Profile(name: nil, preamp: result.preamp, bands: result.bands ?? Profile.flat.bands, filters: result.filters, preference: result.preference)
     }
 
     private func worstDifference(_ a: Profile, _ b: Profile) -> (dB: Double, at: Double) {
@@ -82,6 +82,22 @@ final class RoundTripTests: XCTestCase {
             let back = try JSONDecoder().decode(Profile.self, from: Data(text.utf8))
             let worst = worstDifference(original, back)
             XCTAssertLessThanOrEqual(worst.dB, 0.05, "\(name): \(worst.dB) dB at \(worst.at) Hz")
+        }
+    }
+
+    /// eq's own JSON is not fitted or reduced like a borrowed format: it round-trips exactly,
+    /// bands, preamp, filters and the preference layer alike, through `eq import` itself.
+    func testJSONRoundTripsThroughEQImportExactly() throws {
+        for (name, original) in Self.profiles {
+            let back = try roundTrip(original, .json)
+            XCTAssertEqual(back.format, "eq's own profile", name)
+            XCTAssertEqual(back.warnings, [], name)
+            XCTAssertEqual(back.bands, original.bands, name)
+            XCTAssertEqual(back.preamp, original.preamp, name)
+            XCTAssertEqual(back.filters.count, original.filters.count, name)
+            XCTAssertTrue(zip(back.filters, original.filters).allSatisfy { $0.sounds(like: $1) }, name)
+            XCTAssertEqual(back.preference ?? Preference(), original.preference ?? Preference(), name)
+            XCTAssertEqual(response(profile(back)), response(original), name)
         }
     }
 

@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import eq
 
@@ -322,6 +323,30 @@ final class CLITests: XCTestCase {
         let result = runCLI("import", file.path)
         XCTAssertNotEqual(result.exitCode, 0)
         XCTAssertTrue(result.output.contains("not imported: \(file.path): preamp -40 dB is outside -30…12 dB"), result.output)
+    }
+
+    /// The same guard `Include:` applies to a nested file applies to the path the user types
+    /// directly, so `eq import /dev/zero` is refused instead of reading forever.
+    func testImportRefusesADeviceFileOrFIFOWithoutReadingIt() throws {
+        _ = runCLI("init")
+        let fifo = dir.appendingPathComponent("fifo")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+        let result = runCLI("import", fifo.path)
+        XCTAssertNotEqual(result.exitCode, 0)
+        XCTAssertTrue(result.output.contains("not imported: \(fifo.path) is not a regular file"), result.output)
+
+        let device = runCLI("import", "/dev/zero")
+        XCTAssertNotEqual(device.exitCode, 0)
+        XCTAssertTrue(device.output.contains("not imported: /dev/zero is not a regular file"), device.output)
+    }
+
+    func testImportRefusesAFileLargerThanOneMegabyte() throws {
+        _ = runCLI("init")
+        let big = dir.appendingPathComponent("big.txt")
+        try Data(count: (1 << 20) + 1).write(to: big)
+        let result = runCLI("import", big.path)
+        XCTAssertNotEqual(result.exitCode, 0)
+        XCTAssertTrue(result.output.contains("not imported: \(big.path) is larger than 1 MB"), result.output)
     }
 
     func testImportKeepBands() throws {

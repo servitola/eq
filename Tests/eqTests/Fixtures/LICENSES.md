@@ -12,6 +12,7 @@ Every file here is test input only.
 | `opra-malformed.jsonl` | Written for eq's tests in OPRA's shape; the vendor `acme` is invented | eq's MIT |
 | `golden-full.json`, `golden-peak1k.json` | Impulse responses rendered by eq's own engine | eq's MIT |
 | `eqMac Advanced presets.json` | Written for eq's tests in the shape eqMac exports (`/presets/export` in [bitgapp/eqMac](https://github.com/bitgapp/eqMac) 1.3.2: an array of `{id, name, isDefault, gains: {global, bands}}`) and [autoEqMac](https://github.com/indiependente/autoEqMac) writes; no real export is published. Gains are AutoEq's Sony WH-1000XM4 FixedBandEQ (MIT) and eqMac's built-in "Bass Booster" | eq's MIT; eqMac is Apache-2.0 (GitHub), autoEqMac MIT |
+| `eq profile.json` | Written for eq's tests in the shape `eq export --format json` writes | eq's MIT |
 | `eqMac Expert presets.json` | Written for eq's tests in the Expert-equaliser shape [ncnetsec/eqmac-backup](https://github.com/ncnetsec/eqmac-backup) reads from eqMac's preferences (`global`, `bands[{frequency, gain, bandwidth, type, bypass}]`); frequencies and gains from AutoEq's Sony WH-1000XM4 ParametricEQ (MIT), bandwidths invented | eq's MIT |
 | `Poweramp PA-CEQ 3.0.json` | [Bronya-Rand/PA-CEQ](https://github.com/Bronya-Rand/PA-CEQ), `PA-CEQ 3.0-3.01/PA-CEQ 3.0 [7_29_21 1_33 AM].json`, a Poweramp export | GPL-3.0 (the repository, checked 2026-09-28) |
 | `EasyEffects Perfect EQ.json` | [JackHack96/EasyEffects-Presets](https://github.com/JackHack96/EasyEffects-Presets), `Perfect EQ.json` | MIT (the repository, checked 2026-09-28) |

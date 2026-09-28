@@ -29,6 +29,9 @@ its entries under a dated version.
   pipeline (a step's `channel: n` of CamillaDSP 2 or `channels:` list of 3 and later), with a
   warning when channel 1 differs. SoundSource's sample Headphone EQ profile is
   a test fixture now; it was already APO text.
+- `eq import` reads back eq's own JSON profile (what `eq export --format json` and `eq.json`
+  write): the ten bands, the preamp, every filter and, when it is not flat, the bass/treble/tilt
+  preference layer — exactly, not fitted or reduced like a borrowed format.
 
 ### Changed
 
@@ -44,6 +47,8 @@ its entries under a dated version.
   on average (2.4 dB before), and an exported ten-band curve reads back within 0.5 dB.
 - A relative `Include:` no longer leaves the imported file's folder, and only a regular file of
   up to 1 MB is included, so a downloaded config cannot point eq at `/dev/zero` or out of its folder.
+- The same guard applies to the file `eq import` is given directly, so `eq import /dev/zero` is
+  refused instead of reading forever.
 
 ## 2026.09.27.9 — 2026-09-27
 

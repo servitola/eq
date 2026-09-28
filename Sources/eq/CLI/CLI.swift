@@ -304,6 +304,7 @@ enum CLI {
             profile.bands = keepBands ? profile.bands : Profile.flat.bands
         }
         profile.preamp = result.preamp
+        if let preference = result.preference { profile.preference = preference }
         profile.imported = "\(origin) · \(ctx.today())"
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
@@ -337,6 +338,9 @@ enum CLI {
         }
         if isFile {
             let file = URL(fileURLWithPath: query)
+            if let reason = ImportCheck.regularFile(at: file.path, maxBytes: APOFormat.maxIncludeBytes) {
+                throw CLIError.importRefused(reason)
+            }
             let data: Data
             do { data = try Data(contentsOf: file) }
             catch { throw CLIError.importUnrecognized("\(query): \(error)") }

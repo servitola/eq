@@ -385,6 +385,9 @@ backend of its own site, with no stated terms.
   whose Quality is the order, and its GraphicEQ mode) and reads them as above, so speaker groups
   work like `Channel:`. Commands from Peace's command window are read too. Peace's effects
   (routing, crossfeed, bass and treble, …) are named in a warning and not imported.
+- **eq's own JSON profile**, what `eq export --format json` and `eq.json` write: the ten bands,
+  the preamp, every filter with its type, and the bass/treble/tilt preference layer when it is
+  not flat. Read back exactly, not fitted or reduced.
 - **CamillaDSP** config (YAML). The `pipeline:` decides what imports: the filters channel 0
   runs, in order, with a warning when channel 1 runs something else; `Gain` filters on it add
   up to the preamp (`scale: linear` too); a step's channels are read in both CamillaDSP 2's
@@ -404,11 +407,13 @@ headphone name. A relative path must stay inside the imported file's folder (`..
 leading out of it is refused), so a downloaded config cannot reach into the rest of your home
 folder; an absolute path is followed as written. Only a regular file up to 1 MB is read. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`/`Else:`, `Delay:` and
 `Convolution:` have no meaning for eq; each is named once in a warning and the filters around
-it are imported. All-pass and `IIR` filters are skipped with a warning.
+it are imported. All-pass and `IIR` filters are skipped with a warning. The same regular-file,
+1 MB guard applies to a path named directly on the command line, so `eq import /dev/zero`
+is refused instead of reading forever.
 
-A file is recognised by its content in this order: eqMac, Poweramp and EasyEffects JSON by
-their keys, a `.peace` by its `[Frequencies]`-style sections, a CamillaDSP config by a top-level
-`filters:` beside `pipeline:` or a `Biquad`, and anything with an APO `Filter:`, `Preamp:`,
+A file is recognised by its content in this order: eqMac, eq's own JSON, Poweramp and
+EasyEffects JSON by their keys, a `.peace` by its `[Frequencies]`-style sections, a CamillaDSP
+config by a top-level `filters:` beside `pipeline:` or a `Biquad`, and anything with an APO `Filter:`, `Preamp:`,
 `GraphicEQ:` or `Include:` line as APO text.
 
 Every number is checked before it becomes a filter: a frequency outside 10–24000 Hz, a gain
@@ -431,7 +436,7 @@ into place, so nothing ever sees half a file, and refuses a file that already ex
 | `graphiceq` | AutoEq's `GraphicEQ.txt`: the whole response, preamp included, at AutoEq's 127 fixed frequencies (20–19871 Hz), the only grid Wavelet accepts. |
 | `eqmac` | an eqMac preset: the ten band gains and the preamp. eqMac holds nothing else, so a curve with filters or bass/treble/tilt is refused with a note saying which. |
 | `camilla` | CamillaDSP YAML: a `filters:` block (a `Gain` filter for the preamp, one `Biquad` per band and filter) and a `pipeline:` step running them on `channels: [0, 1]`, to merge into a config. That is CamillaDSP 3 and 4's syntax; for 2.x, split the step into `channel: 0` and `channel: 1`. |
-| `json` | eq's own profile, as it sits in `eq.json`. |
+| `json` | eq's own profile, as it sits in `eq.json`. `eq import` reads this back exactly. |
 
 ## How it works
 

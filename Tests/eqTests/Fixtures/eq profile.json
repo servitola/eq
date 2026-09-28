@@ -1,0 +1,11 @@
+{
+  "bands" : [-4.3, -1.8, -5.8, -1.4, 0.5, -0.6, 6, -0.8, 1, -2.2],
+  "filters" : [
+    {"frequency" : 143.7, "gain" : -5.2, "origin" : "import", "q" : 1.1, "type" : "peak"},
+    {"frequency" : 105, "gain" : 4.2, "origin" : "import", "q" : 0.7, "type" : "lowShelf"}
+  ],
+  "imported" : "AutoEq oratory1990 · Sony WH-1000XM4 · 2026-09-28",
+  "name" : "JBL Big",
+  "preamp" : -5.8,
+  "preference" : {"bass" : 3, "treble" : -1.5, "tilt" : 0.3}
+}

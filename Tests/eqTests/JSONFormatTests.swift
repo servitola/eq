@@ -123,8 +123,61 @@ final class JSONFormatTests: XCTestCase {
 
     func testHostileJSONNeverTraps() {
         for json in [#"[{"preamp":1e999,"parametric":true,"bands":[]}]"#, #"[{"parametric":true,"bands":[{"type":1e300,"frequency":1,"gain":1}]}]"#,
-                     #"[{"gains":{"bands":[]}}]"#, #"[]"#, #"{"bands":[{"channels":0}]}"#, String(repeating: "[", count: 100_000)] {
+                     #"[{"gains":{"bands":[]}}]"#, #"[]"#, #"{"bands":[{"channels":0}]}"#, String(repeating: "[", count: 100_000),
+                     #"{"bands":[1,2,3,4,5,6,7,8,9,1e999],"preamp":0,"filters":[1,"x",{}],"preference":{"bass":"y"}}"#,
+                     #"{"bands":[0,0,0,0,0,0,0,0,0,0],"preamp":0,"filters":[{"type":"peak","frequency":1e300,"gain":1,"q":1}]}"#] {
             _ = try? parse(json)
         }
+    }
+
+    // MARK: - eq's own JSON
+
+    func testEqOwnProfileFixtureImportsExactly() throws {
+        let r = try EQFormats.parse(try formatFixture("eq profile.json"))
+        XCTAssertEqual(r.format, "eq's own profile")
+        XCTAssertEqual(r.bands, [-4.3, -1.8, -5.8, -1.4, 0.5, -0.6, 6, -0.8, 1, -2.2])
+        XCTAssertEqual(r.preamp, -5.8)
+        XCTAssertEqual(r.filters, [
+            Filter(type: .peak, frequency: 143.7, gain: -5.2, q: 1.1),
+            Filter(type: .lowShelf, frequency: 105, gain: 4.2, q: 0.7),
+        ])
+        XCTAssertEqual(r.preference, Preference(bass: 3, treble: -1.5, tilt: 0.3))
+        XCTAssertEqual(r.warnings, [])
+    }
+
+    func testEqOwnJSONZeroesABandBeyondTheRangeAndDropsBadPreference() throws {
+        let r = try parse(#"{"bands":[1,99,3,4,5,6,7,8,9,10],"preamp":-3,"preference":{"bass":99,"treble":0,"tilt":0}}"#)
+        XCTAssertEqual(r.bands, [1, 0, 3, 4, 5, 6, 7, 8, 9, 10])
+        XCTAssertTrue(r.warnings.contains { $0.contains("band 2 (64 Hz)") })
+        XCTAssertNil(r.preference)
+        XCTAssertTrue(r.warnings.contains("preference is out of range; dropped"))
+    }
+
+    func testEqOwnJSONRefusesAPreampOutsideTheRange() throws {
+        XCTAssertThrowsError(try parse(#"{"bands":[0,0,0,0,0,0,0,0,0,0],"preamp":-40}"#)) {
+            XCTAssertEqual($0 as? ImportError, .preampOutOfRange(-40))
+        }
+    }
+
+    func testEqOwnJSONNeverStoresAFlatPreference() throws {
+        let r = try parse(#"{"bands":[0,0,0,0,0,0,0,0,0,0],"preamp":0,"preference":{"bass":0,"treble":0,"tilt":0}}"#)
+        XCTAssertNil(r.preference)
+    }
+
+    func testEqOwnJSONSkipsUnusableFiltersWithAWarning() throws {
+        let r = try parse(#"""
+        {"bands":[0,0,0,0,0,0,0,0,0,0],"preamp":0,"filters":[
+          {"type":"peak","frequency":1000,"gain":3,"q":1.4},
+          {"type":"sawtooth","frequency":1000,"gain":3,"q":1},
+          {"type":"peak","gain":3,"q":1},
+          {"type":"peak","frequency":100000,"gain":3,"q":1},
+          "not an object"
+        ]}
+        """#)
+        XCTAssertEqual(r.filters, [Filter(type: .peak, frequency: 1000, gain: 3, q: 1.4)])
+        XCTAssertEqual(r.warnings.count, 4)
+        XCTAssertTrue(r.warnings.contains { $0.contains("unknown filter type") })
+        XCTAssertTrue(r.warnings.contains { $0.contains("no frequency") })
+        XCTAssertTrue(r.warnings.contains { $0.contains("not an object") })
     }
 }

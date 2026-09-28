@@ -18,6 +18,15 @@ enum ImportCheck {
         return d.isFinite ? d : nil
     }
 
+    /// nil when the path is fine to open (including when nothing exists there yet, so the caller's
+    /// own read attempt names that failure); otherwise why it is refused, naming the path.
+    static func regularFile(at path: String, maxBytes: Int) -> String? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        if attributes[.type] as? FileAttributeType != .typeRegular { return "\(path) is not a regular file" }
+        if let size = attributes[.size] as? Int, size > maxBytes { return "\(path) is larger than \(maxBytes >> 20) MB" }
+        return nil
+    }
+
     static func flag(_ value: Any?) -> Bool? {
         guard let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
         return n.boolValue

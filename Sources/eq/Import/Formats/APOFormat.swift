@@ -481,12 +481,8 @@ enum APOFormat: EQFormat {
                 warn(place, "not following Include: \(path), it leads outside the imported file's folder"); return
             }
             guard !stack.contains(target.path) else { warn(place, "not following Include: \(path), it includes itself"); return }
-            let attributes = try? FileManager.default.attributesOfItem(atPath: target.path)
-            if let attributes, attributes[.type] as? FileAttributeType != .typeRegular {
-                warn(place, "not following Include: \(path), \(target.path) is not a regular file"); return
-            }
-            if let size = attributes?[.size] as? Int, size > maxIncludeBytes {
-                warn(place, "not following Include: \(path), \(target.path) is larger than \(maxIncludeBytes >> 20) MB"); return
+            if let reason = ImportCheck.regularFile(at: target.path, maxBytes: maxIncludeBytes) {
+                warn(place, "not following Include: \(path), \(reason)"); return
             }
             guard let data = try? Data(contentsOf: target), let text = ImportText.decode(data) else {
                 warn(place, "not following Include: \(path), cannot read \(target.path)"); return
