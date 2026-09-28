@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Build EQDriver.driver into Driver/build.
+# Build EQDriver.driver and the probe into Driver/build.
 #   Driver/build.sh           Developer ID, hardened runtime, secure timestamp
 #   Driver/build.sh --adhoc   ad-hoc signature, for a quick local build
 set -euo pipefail
@@ -31,9 +31,12 @@ mv "$bundle/Contents/MacOS/EQDriver.dSYM" build/
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" Info.plist > "$bundle/Contents/Info.plist"
 plutil -lint -s "$bundle/Contents/Info.plist"
 
+xcrun clang -std=c17 -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=14.4 \
+  Probe/probe.c -o build/probe -framework CoreAudio -framework CoreFoundation
 
 sign=(codesign --force --sign "$identity")
 [[ $identity == - ]] || sign+=(--options runtime --timestamp)
 $sign --identifier com.servitola.eq.driver "$bundle"
-codesign --verify --strict "$bundle"
-echo "built $bundle ($version, build $build, identity: $identity)"
+$sign --identifier com.servitola.eq.probe build/probe
+codesign --verify --strict "$bundle" build/probe
+echo "built $bundle and build/probe ($version, build $build, identity: $identity)"
