@@ -413,6 +413,20 @@ final class DriverSessionTests: XCTestCase {
         XCTAssertEqual(system.current, DriverControl.deviceUID)
     }
 
+    /// Decision 4: a hidden device that macOS will not take as the default is shown again, not left out of the path.
+    func testHiddenDeviceThatCannotBeDefaultIsShown() throws {
+        make(hideWhileDefault: true)
+        try session.start()
+        clock.advance(DriverSession.hiddenCheckDelay)
+        XCTAssertEqual(session.hiddenDefault, .kept)
+        system.pick(FakeAudioSystem.headphones)
+        journal.clear()
+        system.refusesFirst = 10
+        clock.advance(1)
+        XCTAssertEqual(session.hiddenDefault, .dropped)
+        XCTAssertEqual(journal.all, ["target USB-DAC", "push USB-DAC", "hidden false", "default \(DriverControl.deviceUID)"])
+    }
+
     /// Decision 4, dropped: macOS moves the default off the hidden device. That move is not the
     /// user's pick, so eq neither retargets nor tries hiding again; it shows the device and takes the default back.
     func testHiddenWhileDefaultDropped() throws {

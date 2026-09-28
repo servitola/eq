@@ -261,7 +261,14 @@ final class DriverSession {
             if device.uid != target?.uid { try switcher.within("pointing the EQ device at \(device.name)") { try port.setTarget(device.uid) } }
             target = device
             write(port, device.uid)
-            try switcher.makeDefault(DriverControl.deviceUID, "the EQ device")
+            do {
+                try switcher.makeDefault(DriverControl.deviceUID, "the EQ device")
+            } catch where hideWhileDefault && hiddenDefault != .dropped {
+                hiddenDefault = .dropped
+                env.log("driver: macOS will not make the hidden EQ device the default output — showing it again")
+                try switcher.within("showing the EQ device") { try port.setHidden(false) }
+                try switcher.makeDefault(DriverControl.deviceUID, "the EQ device")
+            }
             env.log("follow: \(device.name) picked — the EQ device plays on it and is the default output again")
             onTarget(device)
             hideIfAsked()
