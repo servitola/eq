@@ -140,7 +140,8 @@ struct DynamicsState {
 }
 
 extension DynamicsCoefficients {
-    /// One frame across every channel, in place: the stereo-linked gain, then the colour.
+    /// One frame across every channel, in place: one gain for all, set by the loudest channel so
+    /// the centre of 5.1 alone reads as loud as the same signal on both sides of stereo; then the colour.
     /// Returns the frame's largest magnitude for the limiter behind it. `detector` and `dc` hold
     /// `2 * channelCount` entries each.
     @inline(__always)
@@ -151,9 +152,8 @@ extension DynamicsCoefficients {
             var power: Float = 0
             for ch in 0..<channelCount {
                 let filtered = detector[2 * ch + 1].process(detector[2 * ch].process(channels[ch][frame], self.detector), self.detector)
-                power += filtered * filtered
+                power = max(power, filtered * filtered)
             }
-            power /= Float(channelCount)
             state.meanSquare = detectorSmoothing * state.meanSquare + (1 - detectorSmoothing) * power
             let level = 10 * log10(state.meanSquare + 1e-12)
             let target = Self.reduction(level: level, threshold: threshold, knee: knee, slope: slope)

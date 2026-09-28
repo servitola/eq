@@ -229,7 +229,8 @@ runs nothing, stays in the file, is logged once by the daemon and flagged by `eq
 `eq comp` or `eq color` replaces it.
 
 `eq comp gentle|night|off` is a feed-forward compressor, linked across channels so the stereo
-image stays put. Its detector listens through a 100 Hz high-pass (24 dB per octave), so bass
+image stays put: the loudest channel sets one gain for all, so dialogue on the centre of 5.1
+alone is compressed as it would be on both sides of stereo. Its detector listens through a 100 Hz high-pass (24 dB per octave), so bass
 does not pump the gain: a 40 Hz tone at −10 dBFS is not compressed at all, the same level at
 1 kHz is. It measures RMS over 2.5 ms and smooths the gain in dB with the attack and release
 below, over a soft knee. Makeup gain is automatic: it gives back exactly what the compressor

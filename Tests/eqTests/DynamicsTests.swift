@@ -90,6 +90,31 @@ final class DynamicsTests: XCTestCase {
         }
     }
 
+    /// Linked by the loudest channel: dialogue on the centre of 5.1 alone is compressed as if it
+    /// played on both sides of stereo, where averaging over six channels read it 7.8 dB low.
+    func testTheLoudestChannelDrivesTheDetector() {
+        let input = sine(1000, peakDB: -10, seconds: 1)
+        for mode in Dynamics.Compressor.allCases {
+            let stereo = processor(Dynamics(comp: mode))
+            _ = run(stereo, input)
+            let surround = processor(Dynamics(comp: mode))
+            surround.configure(sampleRate: rate, channels: 6)
+            let channels = (0..<6).map { _ in UnsafeMutablePointer<Float>.allocate(capacity: 512) }
+            defer { channels.forEach { $0.deallocate() } }
+            var start = 0
+            while start < input.count {
+                let n = min(512, input.count - start)
+                for (index, channel) in channels.enumerated() {
+                    for i in 0..<n { channel[i] = index == 2 ? input[start + i] : 0 }
+                }
+                surround.process(channels: channels, frameCount: n)
+                start += n
+            }
+            XCTAssertLessThan(stereo.compressorReductionDB, -2, "\(mode)")
+            XCTAssertEqual(surround.compressorReductionDB, stereo.compressorReductionDB, accuracy: 0.01, "\(mode)")
+        }
+    }
+
     /// The time from a step to 63 % of the reduction's change: the attack or release time constant.
     private func stepTimes(_ mode: Dynamics.Compressor) -> (attack: Double, release: Double) {
         let quiet = sine(1000, peakDB: -50, seconds: 1)
