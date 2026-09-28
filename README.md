@@ -280,8 +280,8 @@ included, Backspace deletes, and a bad name shows its error in the same line for
 
 On start a small box in the top-right corner lists the keys. It hides after 8 seconds or on
 any key; `h` brings it back. `x` hides it and writes the empty marker
-`~/.config/eq/watch-hint-off`, after which it no longer appears on start (delete the file to
-get it back). A terminal narrower than twice the box shows one dim line at the bottom instead,
+`~/.cache/eq/watch-hint-off`, after which it no longer appears on start (delete the file to
+get it back; one left in `~/.config/eq` by an older version still counts). A terminal narrower than twice the box shows one dim line at the bottom instead,
 which leaves out whole keys rather than cut one in half, and always keeps `q quit`.
 
 ### Instruments

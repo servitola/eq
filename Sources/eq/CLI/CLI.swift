@@ -584,18 +584,14 @@ enum CLI {
         do { try client.connect() } catch { throw CLIError.noMeter }
         client.input = 0
         LiveTerminal.enterRaw()
-        let marker = hintOffMarker(ctx)
         let session = WatchSession(ctx)
         var keys = KeyBuffer()
         let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
                                  zones: !args.isEmpty,
-                                 hintDismissed: FileManager.default.fileExists(atPath: marker.path),
+                                 hintDismissed: hintDismissed(ctx),
                                  emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
                                  edit: session.apply, header: session.header,
-                                 dismissHint: {
-                                     try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
-                                     FileManager.default.createFile(atPath: marker.path, contents: nil)
-                                 },
+                                 dismissHint: { dismissHint(ctx) },
                                  send: client.send)
         LiveTerminal.leaveRaw()
         client.close()
@@ -605,8 +601,17 @@ enum CLI {
         return output
     }
 
-    static func hintOffMarker(_ ctx: CLIContext) -> URL {
-        ctx.store.url.deletingLastPathComponent().appendingPathComponent("watch-hint-off")
+    private static let hintOffName = "watch-hint-off"
+
+    /// Older versions left the marker beside eq.json; it still counts.
+    static func hintDismissed(_ ctx: CLIContext) -> Bool {
+        [ctx.stateDirectory, ctx.store.url.deletingLastPathComponent()]
+            .contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent(hintOffName).path) }
+    }
+
+    static func dismissHint(_ ctx: CLIContext) {
+        try? FileManager.default.createDirectory(at: ctx.stateDirectory, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: ctx.stateDirectory.appendingPathComponent(hintOffName).path, contents: nil)
     }
 
     static func watchEdit(_ action: WatchAction, _ ctx: CLIContext) throws {

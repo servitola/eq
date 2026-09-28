@@ -40,6 +40,30 @@ final class WatchKeysTests: XCTestCase {
         try ctx.store.load().profile(forDeviceUID: "SPK").profile
     }
 
+    func testHintMarkerMovedToTheCacheButTheOldOneStillCounts() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-hint-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctx = CLIContext(
+            store: ConfigStore(url: dir.appendingPathComponent("config/eq.json")),
+            statusURL: dir.appendingPathComponent("status.json"),
+            connectedDevices: { [] },
+            defaultOutput: { nil },
+            fetch: { _ in throw URLError(.notConnectedToInternet) },
+            cacheDirectory: dir.appendingPathComponent("cache/autoeq"),
+            today: { "2026-09-28" })
+        let old = dir.appendingPathComponent("config/watch-hint-off")
+        let new = dir.appendingPathComponent("cache/watch-hint-off")
+        XCTAssertFalse(CLI.hintDismissed(ctx))
+        try FileManager.default.createDirectory(at: old.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: old.path, contents: nil)
+        XCTAssertTrue(CLI.hintDismissed(ctx))
+        try FileManager.default.removeItem(at: old)
+        CLI.dismissHint(ctx)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: new.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
+        XCTAssertTrue(CLI.hintDismissed(ctx))
+    }
+
     func testDigitsRaiseTheirBand() {
         for (i, key) in "1234567890".enumerated() {
             XCTAssertEqual(WatchKeys.action(for: String(key)), .bandStep(i, 0.5), String(key))

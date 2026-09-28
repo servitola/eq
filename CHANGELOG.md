@@ -21,6 +21,8 @@ its entries under a dated version.
   `eq doctor` names the launcher in use, and `eq agent install --replace-legacy` switches.
 - While the daemon lacks System Audio Recording, every command says so on stderr and where to
   allow it; while the login item waits for approval, where that is.
+- `eq watch` keeps its hide-the-key-box marker in `~/.cache/eq/watch-hint-off`; one already in
+  `~/.config/eq` still counts.
 
 ### Added
 
