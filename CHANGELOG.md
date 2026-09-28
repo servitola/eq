@@ -5,6 +5,15 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- Instrument knobs: `eq boost voice +3` turns one instrument up or down with a single peak
+  filter on its character range (voice presence 2–5 kHz, kick thump 50–100 Hz, snare crack
+  4–6 kHz, …), −12…+12 dB, `0` removes it; `eq boost` lists every instrument's range and gain.
+  They are stored as `"instruments"` on the profile, carried by presets, dropped by `eq flat`,
+  exported as peak filters and read back by `eq import` of eq's own JSON. `eq` prints a
+  `boost:` line when any is set.
+
 ## 2026.09.28 — 2026-09-28
 
 ### Added

@@ -80,14 +80,17 @@ struct Profile: Codable, Equatable {
     var preset: String?
     /// nil when flat, so a config without the layer reads and writes as before.
     var preference: Preference?
+    /// Instrument knobs by name, in dB; nil when none is set. A name `Instruments` does not know
+    /// is kept in the file but runs nothing, since the file may be edited by hand.
+    var instruments: [String: Double]?
 
     init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil, preset: String? = nil,
-         preference: Preference? = nil) {
+         preference: Preference? = nil, instruments: [String: Double]? = nil) {
         self.name = name; self.preamp = preamp; self.bands = bands; self.filters = filters; self.imported = imported
-        self.preset = preset; self.preference = preference
+        self.preset = preset; self.preference = preference; self.instruments = instruments
     }
 
-    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset, preference }
+    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset, preference, instruments }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -105,6 +108,7 @@ struct Profile: Codable, Equatable {
         }
         preset = try c.decodeIfPresent(String.self, forKey: .preset)
         preference = try c.decodeIfPresent(Preference.self, forKey: .preference)
+        instruments = try c.decodeIfPresent([String: Double].self, forKey: .instruments)
     }
 
     /// Stores nil rather than an all-zero layer.
@@ -114,19 +118,44 @@ struct Profile: Codable, Equatable {
         preference = layer.isFlat ? nil : layer
     }
 
+    /// Stores nil rather than an empty table, and drops a knob turned to 0.
+    mutating func setKnob(_ instrument: String, _ edit: (Double) -> Double) {
+        var knobs = instruments ?? [:]
+        let gain = edit(knobs[instrument] ?? 0)
+        knobs[instrument] = gain == 0 ? nil : gain
+        instruments = knobs.isEmpty ? nil : knobs
+    }
+
+    /// The knobs that run, in the instrument table's order.
+    var knobs: [(instrument: Instrument, gain: Double)] {
+        Instruments.all.compactMap { instrument in
+            instruments?[instrument.name].flatMap { $0 == 0 ? nil : (instrument, $0) }
+        }
+    }
+
+    var unknownInstruments: [String] {
+        (instruments ?? [:]).keys.filter { name in !Instruments.all.contains { $0.name == name } }.sorted()
+    }
+
     /// `==` stays exact so the daemon still sees a renamed device or a new preset label as a change;
     /// "modified" is about what you hear.
     func sameCurve(as other: Profile) -> Bool {
         bands == other.bands && preamp == other.preamp && (preference ?? Preference()) == (other.preference ?? Preference())
             && filters.count == other.filters.count && zip(filters, other.filters).allSatisfy { $0.sounds(like: $1) }
+            && knobs.elementsEqual(other.knobs) { $0.instrument == $1.instrument && $0.gain == $1.gain }
     }
 
     static let flat = Profile(name: nil, preamp: 0, bands: Array(repeating: 0, count: Config.bandFrequencies.count))
 
+    /// What runs after the bands and filters: the preference shelves, then one peak per knob.
+    var layerBands: [(label: String, band: EQBand)] {
+        (preference?.engineBands ?? []) + knobs.map { ("\($0.instrument.name) boost", $0.instrument.knob(gain: $0.gain)) }
+    }
+
     var engineBands: [EQBand] {
         zip(Config.bandFrequencies, bands).map { EQBand(type: .peak, frequency: $0, gain: $1, q: 1.41) }
             + filters.map { EQBand(type: $0.type, frequency: $0.frequency, gain: $0.gain, q: $0.q) }
-            + (preference?.engineBands.map(\.band) ?? [])
+            + layerBands.map(\.band)
     }
 
     /// Names an `engineBands` index the way the user numbers it: a graphic band or "filter N" as `eq filter` lists it.
@@ -134,7 +163,7 @@ struct Profile: Codable, Equatable {
         let graphic = min(Config.bandFrequencies.count, bands.count)
         if index < graphic { return "band \(index + 1)" }
         if index < graphic + filters.count { return "filter \(index - graphic + 1)" }
-        let layer = preference?.engineBands ?? []
+        let layer = layerBands
         return layer.indices.contains(index - graphic - filters.count) ? layer[index - graphic - filters.count].label : "band \(index + 1)"
     }
 }
@@ -274,6 +303,9 @@ struct Config: Codable, Equatable {
             if !Preference.tiltRange.contains(layer.tilt) {
                 throw ConfigError.preferenceOutOfRange(key, "tilt \(layer.tilt) dB/octave (\(span(Preference.tiltRange)) dB/octave)")
             }
+        }
+        for knob in profile.knobs where !gainRange.contains(knob.gain) {
+            throw ConfigError.preferenceOutOfRange(key, "\(knob.instrument.name) boost \(knob.gain) dB (\(span(gainRange)) dB)")
         }
     }
 

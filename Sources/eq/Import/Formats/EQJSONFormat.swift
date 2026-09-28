@@ -58,6 +58,18 @@ enum EQJSONFormat: EQFormat {
             }
         }
 
-        return ImportResult(filters: filters, bands: bands, preamp: preamp, format: "eq's own profile", warnings: warnings, preference: preference)
+        var instruments: [String: Double]?
+        if let knobs = root["instruments"] as? [String: Any] {
+            for (name, raw) in knobs.sorted(by: { $0.key < $1.key }) {
+                guard Instruments.all.contains(where: { $0.name == name }) else { warnings.append("instrument \(name): skipped, eq has no such instrument"); continue }
+                guard let gain = ImportCheck.number(raw), Config.gainRange.contains(gain) else {
+                    warnings.append("instrument \(name): skipped, boost out of range"); continue
+                }
+                if gain != 0 { instruments = (instruments ?? [:]).merging([name: gain]) { $1 } }
+            }
+        }
+
+        return ImportResult(filters: filters, bands: bands, preamp: preamp, format: "eq's own profile", warnings: warnings,
+                            preference: preference, instruments: instruments)
     }
 }

@@ -52,7 +52,8 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq preamp -1.5` | preamp for the current curve |
 | `eq bass +3`, `eq treble -2` | AutoEq-style bass / treble shelf on top of the curve, `0` removes it |
 | `eq tilt -0.5` | tilt the whole curve, in dB per octave |
-| `eq flat` | reset: everything to 0, dropping the preset label, filters, bass/treble/tilt and any import |
+| `eq boost voice +3` | turn one instrument up or down on its character range, `0` removes it; `eq boost` lists them |
+| `eq flat` | reset: everything to 0, dropping the preset label, filters, bass/treble/tilt, boosts and any import |
 | `eq copy --to AirPods` | give another device this curve |
 | `eq devices` | who has a curve, who is connected, which is active |
 | `eq off`, `eq on` | bypass, and back |
@@ -152,7 +153,7 @@ branch. Editing `eq.json` by hand while stepped back makes that edit the latest 
 next time you run `eq undo` or `eq redo`; the version it started from and the previous latest
 both go into the history. Both commands print the current device's curve. `eq history` lists
 every saved version with its time and a one-line curve summary — `off` when EQ was off in that
-version, `pref …` when bass, treble or tilt were set — marking the current position with `←`; `eq undo --list` is kept as an alias for it. Undo and redo themselves never reorder
+version, `pref …` when bass, treble or tilt were set, `boost …` when a knob is — marking the current position with `←`; `eq undo --list` is kept as an alias for it. Undo and redo themselves never reorder
 the backup files — they move only `eq.json` and two small bookkeeping files beside it,
 `eq.json.pos` and `eq.json.redo`.
 
@@ -279,6 +280,30 @@ the client that asked for it disconnects. At a rate too low for the focus (air o
 in call mode) the footer says `can't listen to air at this rate` and nothing plays solo until
 the focus moves to an instrument the rate can carry. A solo is never saved and never reaches `eq.json`.
 It is the curve you hear through, not a second curve: the EQ stays one curve per device.
+
+Each instrument has a knob for what the watch's focus only shows: `eq boost voice +3` adds
+one peak filter at the geometric centre of the instrument's
+character range, the range a mixing engineer reaches for to bring it forward, with a Q as wide
+as that range; `−12`…`+12` dB, `0` removes it, and an unset knob costs nothing.
+
+| Instrument | Character range | Why this one |
+| --- | --- | --- |
+| kick | thump 50–100 Hz | the weight you feel; the click shares 2–5 kHz with snare and guitar |
+| bass | growl 700 Hz–1.2 kHz | what makes a bass line heard on small speakers; its low end is `eq bass` |
+| snare | crack 4–6 kHz | cuts through; the body sits on the bass fundamental |
+| guitar | bite 2–5 kHz | pick attack; the body spans four octaves |
+| piano | brightness 4–8 kHz | hammer attack and clarity; the fundamental is most of the keyboard |
+| voice | presence 2–5 kHz | intelligibility, where the ear is most sensitive |
+| cymbals | shimmer 6–16 kHz | its only range |
+| air | sparkle 10–20 kHz | its only range |
+
+The knobs live as `"instruments": {"voice": 3}` on the profile next to `"preference"` and run
+after it; presets carry them, `eq flat` drops them, `eq export` writes them as peak filters
+(eqMac's format has no room for them and refuses), and undo and history see them like any
+edit. `eq` prints `boost: voice +3 kick -2` when any is set; `eq boost` alone lists every
+instrument with its range and gain. A name eq does not know, typed into `eq.json` by hand, is
+ignored and logged by the daemon. A knob cannot split instruments that share a range: boosting
+kick thump also lifts the bass there, and guitar bite and voice presence are the same knob.
 
 Any meter client can ask for a solo by writing `{"solo":{"low":L,"high":H}}` to the socket,
 one JSON object per line, with `0 ≤ L < H ≤ 100000` Hz; any other line is ignored. The last

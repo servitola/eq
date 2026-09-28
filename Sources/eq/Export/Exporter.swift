@@ -5,14 +5,15 @@ enum ExportFormat: String, CaseIterable {
 }
 
 enum ExportError: Error, Equatable, CustomStringConvertible {
-    case eqMacNeedsBandsOnly(filters: Int, preference: Bool)
+    case eqMacNeedsBandsOnly(filters: Int, preference: Bool, knobs: Bool = false)
 
     var description: String {
         switch self {
-        case .eqMacNeedsBandsOnly(let filters, let preference):
+        case .eqMacNeedsBandsOnly(let filters, let preference, let knobs):
             var extras: [String] = []
             if filters > 0 { extras.append("\(filters) parametric filter" + (filters == 1 ? "" : "s")) }
             if preference { extras.append("bass/treble/tilt") }
+            if knobs { extras.append("instrument boosts") }
             return "eqMac's preset holds ten band gains and a preamp, nothing else; this curve also has "
                 + extras.joined(separator: " and ") + " — export --format apo, or drop them first"
         }
@@ -121,8 +122,8 @@ enum Exporter {
 
     static func eqMac(_ profile: Profile, name: String) throws -> String {
         let hasPreference = !(profile.preference?.isFlat ?? true)
-        guard profile.filters.isEmpty, !hasPreference else {
-            throw ExportError.eqMacNeedsBandsOnly(filters: profile.filters.count, preference: hasPreference)
+        guard profile.filters.isEmpty, !hasPreference, profile.knobs.isEmpty else {
+            throw ExportError.eqMacNeedsBandsOnly(filters: profile.filters.count, preference: hasPreference, knobs: !profile.knobs.isEmpty)
         }
         return CLI.encode(EqMacPreset(id: UUID().uuidString, name: name, isDefault: false,
                                       gains: .init(global: profile.preamp, bands: profile.bands)))
@@ -150,7 +151,7 @@ enum Exporter {
     /// Names say what each filter is in `eq`'s own terms, so the pasted block reads back.
     static func camillaNames(_ profile: Profile) -> [String] {
         let graphic = min(Config.bandFrequencies.count, profile.bands.count)
-        let layer = profile.preference?.engineBands.map(\.label) ?? []
+        let layer = profile.layerBands.map(\.label)
         var tilt = 0
         return profile.engineBands.indices.map { index in
             if index < graphic { return "eq_band_\(Config.bandLabels[index].lowercased())" }

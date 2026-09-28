@@ -369,6 +369,9 @@ final class Daemon {
         for warning in filterWarnings where loggedFilterWarnings.insert("\(device.uid) \(warning)").inserted {
             Log.write("profile \"\(profileName)\": \(warning)")
         }
+        for name in resolved.profile.unknownInstruments where loggedFilterWarnings.insert("\(device.uid) instrument \(name)").inserted {
+            Log.write("profile \"\(profileName)\": no instrument \"\(name)\" — its boost is ignored")
+        }
         // Read-modify-write from disk so a CLI edit not yet reloaded is not reverted, and skipped
         // while the file is rejected so a half-fixed hand edit survives. `config` is deliberately
         // left alone: the save wakes the watcher, whose reload then applies that pending edit too.

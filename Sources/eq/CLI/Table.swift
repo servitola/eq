@@ -54,6 +54,7 @@ enum Table {
         }
         rows += [labelsRow(), gainsRow(profile.bands)]
         if let layer = profile.preference, !layer.isFlat { rows.append("  preference: " + preference(layer)) }
+        if !profile.knobs.isEmpty { rows.append("  boost: " + knobs(profile)) }
         var lines = rows.joined(separator: "\n")
         if !profile.filters.isEmpty {
             lines += "\n" + filters(profile.filters, imported: profile.imported)
@@ -92,6 +93,11 @@ enum Table {
             .filter { $0.1 != 0 }
             .map { "\($0.0) " + Paint.ink(Paint.gain($0.1), gain($0.1)) + " \($0.2)" }
             .joined(separator: "  ")
+    }
+
+    /// "voice +3 kick -2", in the instrument table's order.
+    static func knobs(_ profile: Profile) -> String {
+        profile.knobs.map { "\($0.instrument.name) " + Paint.ink(Paint.gain($0.gain), String(format: "%+g", $0.gain)) }.joined(separator: " ")
     }
 
     static func compactGains(_ bands: [Double]) -> String {

@@ -163,4 +163,43 @@ extension CLI {
             return "\(part) " + String(format: "%+.1f", value) + " \(unit)"
         }
     }
+
+    static let boostUsage = "eq boost [<instrument> <gain>] [--device DEVICE]"
+
+    /// `eq boost <instrument> <gain>` turns that instrument's knob, 0 removes it; alone it lists the knobs.
+    static func boost(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
+        if rest.isEmpty { return try boostList(explicit, ctx) }
+        guard rest.count == 2 else { throw CLIError.usage(boostUsage) }
+        guard let instrument = Instruments.named(rest[0]) else {
+            throw CLIError.usage("unknown instrument \"\(rest[0])\" — use one of \(Instruments.all.map(\.name).joined(separator: " "))")
+        }
+        let gain = try BandParser.gain(rest[1])
+        return try editProfile(explicit, ctx) { profile in
+            profile.setKnob(instrument.name) { _ in gain }
+            return "boost \(instrument.name) " + String(format: "%+.1f", gain) + " dB"
+        }
+    }
+
+    private static func boostList(_ explicit: Target?, _ ctx: CLIContext) throws -> Output {
+        let config = try loadConfig(ctx)
+        let target: Target
+        if let explicit { target = explicit } else { target = try currentDevice(ctx) }
+        let resolved = config.profile(forDeviceUID: target.uid)
+        let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
+        let set = Dictionary(uniqueKeysWithValues: resolved.profile.knobs.map { ($0.instrument.name, $0.gain) })
+        let nameWidth = (Instruments.all.map(\.name.count).max() ?? 0) + 2
+        let rangeWidth = (Instruments.all.map { InstrumentTable.rangeText($0.characterRange).count }.max() ?? 0) + 2
+        let lines = Instruments.all.map { instrument -> String in
+            let gain = set[instrument.name] ?? 0
+            let range = InstrumentTable.rangeText(instrument.characterRange)
+            return "  " + Paint.ink(.bold, instrument.name) + String(repeating: " ", count: nameWidth - instrument.name.count)
+                + Paint.ink(.dim, range) + String(repeating: " ", count: rangeWidth - range.count)
+                + Paint.ink(gain == 0 ? .dim : Paint.gain(gain), Table.gain(gain)) + " dB"
+        }
+        let report = BoostReport(device: DeviceRef(uid: target.uid, name: target.name),
+                                 source: resolved.source == .device ? "device" : "default",
+                                 knobs: Instruments.all.map { BoostRow(instrument: $0.name, range: $0.characterRange, gain: set[$0.name] ?? 0) })
+        return Output(([Table.paintedHeader("\(target.name) (\(sourceLabel))")] + lines).joined(separator: "\n"), report)
+    }
 }

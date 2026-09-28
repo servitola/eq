@@ -759,7 +759,8 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(instruments.count, 8)
         let voice = try XCTUnwrap(instruments.first { $0["name"] as? String == "voice" })
         XCTAssertEqual(voice["bands"] as? [Double], [64, 125, 250, 500, 1000, 2000, 4000, 8000])
-        XCTAssertEqual(Set(voice.keys), ["name", "ranges", "bands"])
+        XCTAssertEqual(Set(voice.keys), ["name", "ranges", "bands", "character"])
+        XCTAssertEqual(voice["character"] as? String, "presence")
         let ranges = try XCTUnwrap(voice["ranges"] as? [[String: Any]])
         XCTAssertEqual(ranges.map { $0["name"] as? String }, ["fundamental", "F1", "F2", "presence", "sibilance"])
     }

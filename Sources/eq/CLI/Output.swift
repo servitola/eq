@@ -66,6 +66,8 @@ struct ImportReport: Encodable {
 }
 struct FilterRow: Encodable { var number: Int; var type: FilterType; var frequency: Double; var gain: Double; var q: Double; var origin: FilterOrigin }
 struct FiltersReport: Encodable { var device: DeviceRef; var source: String; var imported: String?; var filters: [FilterRow] }
+struct BoostRow: Encodable { var instrument: String; var range: HzRange; var gain: Double }
+struct BoostReport: Encodable { var device: DeviceRef; var source: String; var knobs: [BoostRow] }
 struct ToggleReport: Encodable { var enabled: Bool }
 struct InitReport: Encodable { var path: String; var created: Bool }
 struct UsageReport: Encodable { var usage: String }

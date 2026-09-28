@@ -10,6 +10,8 @@ struct ImportResult: Equatable {
     var warnings: [String]
     /// Only eq's own JSON format sets this; every other format leaves an existing preference layer alone.
     var preference: Preference? = nil
+    /// Likewise only eq's own JSON; nil leaves the device's instrument knobs as they are.
+    var instruments: [String: Double]? = nil
 }
 
 enum ImportError: Error, Equatable, CustomStringConvertible {

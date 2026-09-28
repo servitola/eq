@@ -107,6 +107,7 @@ enum CLI {
         case "filter": return try filter(rest, ctx)
         case "export": return try export(rest, ctx)
         case "bass", "treble", "tilt": return try preference(command, rest, ctx)
+        case "boost": return try boost(rest, ctx)
         case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
@@ -305,6 +306,7 @@ enum CLI {
         }
         profile.preamp = result.preamp
         if let preference = result.preference { profile.preference = preference }
+        if let instruments = result.instruments { profile.instruments = instruments }
         profile.imported = "\(origin) · \(ctx.today())"
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)
@@ -579,7 +581,8 @@ enum CLI {
         var profile = editableProfile(config, target)
         if let old = config.preset(named: name) { config.presets?[old.name] = nil }
         config.presets?[name] = Profile(name: nil, preamp: profile.preamp, bands: profile.bands,
-                                        filters: profile.filters, imported: profile.imported, preference: profile.preference)
+                                        filters: profile.filters, imported: profile.imported, preference: profile.preference,
+                                        instruments: profile.instruments)
         profile.preset = name
         config.setProfile(profile, forDeviceUID: target.uid)
     }
@@ -746,6 +749,7 @@ enum CLI {
                 line += "  preamp " + Paint.ink(Paint.gain(profile.preamp), Table.gain(profile.preamp))
                 if !profile.filters.isEmpty { line += Paint.ink(.cyan, "  +\(profile.filters.count) filters") }
                 if let layer = profile.preference, !layer.isFlat { line += "  pref " + Table.preference(layer) }
+                if !profile.knobs.isEmpty { line += "  boost " + Table.knobs(profile) }
                 if !config.enabled { line += "  " + Paint.ink(.yellow, "off") }
                 if let mark = presetMark(profile, config) { line += "  " + Table.presetLabel(mark) }
             } else if config == nil {

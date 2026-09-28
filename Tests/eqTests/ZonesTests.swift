@@ -177,7 +177,7 @@ final class ZonesTests: XCTestCase {
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
         XCTAssertEqual(json.count, 8)
         let kick = try XCTUnwrap(json.first { $0["name"] as? String == "kick" })
-        XCTAssertEqual(Set(kick.keys), ["name", "ranges", "bands"])
+        XCTAssertEqual(Set(kick.keys), ["name", "ranges", "bands", "character"])
         XCTAssertEqual(kick["bands"] as? [Double], [64, 125, 2000, 4000])
         let ranges = try XCTUnwrap(kick["ranges"] as? [[String: Any]])
         XCTAssertEqual(ranges.map { $0["name"] as? String }, ["thump", "beater click"])
