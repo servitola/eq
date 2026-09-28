@@ -285,16 +285,22 @@ final class APOFormatTests: XCTestCase {
     func testGraphicEQPointsAreCheckedAndAFilePreampWins() throws {
         let r = try parse("GraphicEQ: 20 0; 0 5; abc; 40 6; 80 0; 20000 0")
         XCTAssertEqual(r.warnings.first, "line 1: skipped 2 malformed GraphicEQ points")
-        XCTAssertEqual(r.bands?[0] ?? 0, 6 * log(32.0 / 20) / log(40.0 / 20), accuracy: 0.05)
-        XCTAssertEqual(r.preamp, -((r.bands?.max() ?? 0) * 10).rounded() / 10)
+        XCTAssertGreaterThan(heard(r, at: 40), 3)
+        XCTAssertEqual(heard(r, at: 1000), 0, accuracy: 0.3)
 
+        // A flat curve is a level, and the level is the preamp, up to its +12 dB; the bands take the rest.
         let loud = try parse("Preamp: -2 dB\nGraphicEQ: 20 20; 20000 20")
-        XCTAssertEqual(loud.bands, Array(repeating: 12, count: 10))
-        XCTAssertEqual(loud.preamp, -2)
-        XCTAssertTrue(loud.warnings.contains("GraphicEQ gains beyond ±12 dB were limited to it"), "\(loud.warnings)")
+        XCTAssertEqual(loud.preamp, 12)
+        XCTAssertEqual(heard(loud, at: 1000), 18, accuracy: 0.75)
+        XCTAssertFalse(loud.warnings.contains("GraphicEQ gains beyond ±12 dB were limited to it"), "\(loud.warnings)")
+        let louder = try parse("Preamp: -2 dB\nGraphicEQ: 20 40; 20000 40")
+        XCTAssertEqual(louder.preamp, 12)
+        XCTAssertTrue(louder.bands?.contains(12) ?? false, "\(louder.bands ?? [])")
+        XCTAssertTrue(louder.warnings.contains("GraphicEQ gains beyond ±12 dB were limited to it"), "\(louder.warnings)")
 
         let mixed = try parse("GraphicEQ: 20 1; 20000 1\nFilter: ON PK Fc 1000 Hz Gain 1 dB Q 1")
-        XCTAssertEqual(mixed.bands, Array(repeating: 1, count: 10))
+        XCTAssertEqual(mixed.bands, Array(repeating: 0, count: 10))
+        XCTAssertEqual(mixed.preamp, 1)
         XCTAssertEqual(mixed.filters.count, 1)
         XCTAssertEqual(mixed.format, "Equalizer APO GraphicEQ + filters")
     }

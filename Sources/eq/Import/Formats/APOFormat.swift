@@ -236,8 +236,9 @@ enum APOFormat: EQFormat {
 
     // MARK: - GraphicEQ
 
-    /// Log-frequency interpolation onto our ten centres, flat beyond the first and last points.
-    static func graphic(_ parameters: String) -> (bands: [Double], points: Int, dropped: Int)? {
+    /// Log-frequency interpolation onto `frequencies` (our ten centres unless given), flat beyond
+    /// the first and last points.
+    static func graphic(_ parameters: String, at frequencies: [Double] = Config.bandFrequencies) -> (bands: [Double], points: Int, dropped: Int)? {
         var points: [(f: Double, g: Double)] = []
         var dropped = 0
         for pair in parameters.components(separatedBy: ";") where !pair.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -262,7 +263,115 @@ enum APOFormat: EQFormat {
             }
             return 0
         }
-        return (Config.bandFrequencies.map(interpolate), points.count, dropped)
+        return (frequencies.map(interpolate), points.count, dropped)
+    }
+
+    /// Where a GraphicEQ curve is compared with the ten bands: 128 points, 20 Hz–20 kHz, even in octaves.
+    static let fitFrequencies: [Double] = (0..<128).map { 20 * pow(1000, Double($0) / 127) }
+
+    /// A GraphicEQ line is the response itself, preamp included, and flat beyond its last point.
+    /// Setting each band to the curve's value at its centre misses both: neighbouring peaks add up
+    /// between centres, and a level the whole curve sits at falls back to 0 dB past the outer
+    /// bands. So the preamp and the ten gains are fitted together to the whole curve (least
+    /// squares on `fitFrequencies`, Gauss–Newton because a peak's dB is not quite linear in its
+    /// gain), each kept inside its range.
+    static func fitBands(_ target: [Double], levelRange: ClosedRange<Double>) -> (level: Double, bands: [Double], limited: Bool) {
+        let rate = Config.stabilityCheckRate
+        let points = fitFrequencies.count, bands = Config.bandFrequencies.count
+        func peak(_ index: Int, _ gain: Double) -> [Double] {
+            let biquad = BiquadCoefficients.make(type: .peak, frequency: Config.bandFrequencies[index], gainDB: gain, q: fixedBandQ, sampleRate: rate)
+            return fitFrequencies.map { biquad.magnitudeDB(at: $0, sampleRate: rate) }
+        }
+        func clamp(_ level: Double, _ gains: [Double]) -> (level: Double, gains: [Double]) {
+            (min(max(level, levelRange.lowerBound), levelRange.upperBound),
+             gains.map { min(max($0, Config.gainRange.lowerBound), Config.gainRange.upperBound) })
+        }
+        func residual(_ level: Double, _ shapes: [[Double]]) -> [Double] {
+            var r = target
+            for i in 0..<points {
+                r[i] -= level
+                for shape in shapes { r[i] -= shape[i] }
+            }
+            return r
+        }
+        func cost(_ r: [Double]) -> Double { r.reduce(0) { $0 + $1 * $1 } }
+
+        var level = 0.0
+        var gains = Array(repeating: 0.0, count: bands)
+        var shapes = gains.indices.map { peak($0, gains[$0]) }
+        var r = residual(level, shapes)
+        for _ in 0..<20 {
+            // Column 0 is the level; column j the slope of band j at its current gain.
+            var columns = [Array(repeating: 1.0, count: points)]
+            for j in 0..<bands {
+                let nudged = peak(j, gains[j] + 0.05)
+                columns.append((0..<points).map { (nudged[$0] - shapes[j][$0]) / 0.05 })
+            }
+            var normal = Array(repeating: Array(repeating: 0.0, count: bands + 1), count: bands + 1)
+            var right = Array(repeating: 0.0, count: bands + 1)
+            for a in 0...bands {
+                for i in 0..<points { right[a] += columns[a][i] * r[i] }
+                for b in a...bands {
+                    var sum = 0.0
+                    for i in 0..<points { sum += columns[a][i] * columns[b][i] }
+                    normal[a][b] = sum
+                    normal[b][a] = sum
+                }
+                // A little damping: the level and the ten bands together can nearly draw the same offset twice.
+                normal[a][a] *= 1.001
+            }
+            // A value held at its limit that the step would push further out stays there; the rest
+            // are solved for without it, or a level stuck at the preamp's limit would never let
+            // the bands take up what it cannot.
+            let values = [level] + gains
+            let limits = [levelRange] + Array(repeating: Config.gainRange, count: bands)
+            var free = Array(0...bands)
+            var step: [Double] = []
+            while !free.isEmpty {
+                guard let solved = solve(free.map { a in free.map { normal[a][$0] } }, free.map { right[$0] }) else { break }
+                step = Array(repeating: 0, count: bands + 1)
+                for (k, index) in free.enumerated() { step[index] = solved[k] }
+                let pinned = free.filter { index in
+                    (values[index] >= limits[index].upperBound && step[index] > 0) || (values[index] <= limits[index].lowerBound && step[index] < 0)
+                }
+                if pinned.isEmpty { break }
+                free.removeAll { pinned.contains($0) }
+                step = []
+            }
+            guard !step.isEmpty else { break }
+            var scale = 1.0, improved = false
+            let before = cost(r)
+            while scale > 1.0 / 64 {
+                let next = clamp(level + scale * step[0], zip(gains, step.dropFirst()).map { $0 + scale * $1 })
+                let nextShapes = next.gains.indices.map { peak($0, next.gains[$0]) }
+                let nextResidual = residual(next.level, nextShapes)
+                if cost(nextResidual) < before {
+                    (level, gains, shapes, r, improved) = (next.level, next.gains, nextShapes, nextResidual, true)
+                    break
+                }
+                scale /= 2
+            }
+            // Done when a step no longer moves anything by a hundredth of the 0.1 dB the result is rounded to.
+            if !improved || step.allSatisfy({ abs($0) * scale < 1e-3 }) || before - cost(r) < 1e-6 * Double(points) { break }
+        }
+        // A level at the preamp's limit is not a loss while the bands still take up the rest.
+        return (level, gains, gains.contains { abs($0) == Config.gainRange.upperBound })
+    }
+
+    /// Gaussian elimination with partial pivoting; nil for a singular system.
+    private static func solve(_ matrix: [[Double]], _ vector: [Double]) -> [Double]? {
+        var a = zip(matrix, vector).map { $0 + [$1] }
+        let n = vector.count
+        for column in 0..<n {
+            guard let pivot = (column..<n).max(by: { abs(a[$0][column]) < abs(a[$1][column]) }), abs(a[pivot][column]) > 1e-12 else { return nil }
+            a.swapAt(column, pivot)
+            for row in 0..<n where row != column {
+                let factor = a[row][column] / a[column][column]
+                if factor != 0 { for k in column...n { a[row][k] -= factor * a[column][k] } }
+            }
+        }
+        let x = (0..<n).map { a[$0][n] / a[$0][$0] }
+        return x.allSatisfy(\.isFinite) ? x : nil
     }
 
     // MARK: - FixedBandEQ
@@ -351,7 +460,7 @@ enum APOFormat: EQFormat {
                     }
                     add { $0.preamp += value; $0.preampLines += 1 }
                 case "graphiceq":
-                    guard let reduced = graphic(line.parameters) else { warn(place, "skipped a GraphicEQ: line with fewer than two points"); continue }
+                    guard let reduced = graphic(line.parameters, at: fitFrequencies) else { warn(place, "skipped a GraphicEQ: line with fewer than two points"); continue }
                     if reduced.dropped > 0 { warn(place, "skipped \(reduced.dropped) malformed GraphicEQ points") }
                     warnings.append("GraphicEQ has \(reduced.points) points; reduced to 10 bands \u{2014} the model's ParametricEQ.txt is exact")
                     add { $0.graphics.append(reduced.bands) }
@@ -403,15 +512,18 @@ enum APOFormat: EQFormat {
             if elsewhere > 0 { warnings.append("skipped \(elsewhere) \(elsewhere == 1 ? "line" : "lines") for channels other than left and right") }
             let chain = left
             var bands: [Double]?
+            // What the GraphicEQ lines put into the preamp: the level their curve sits at.
+            var level = 0.0
             if !chain.graphics.isEmpty {
-                let summed = Config.bandFrequencies.indices.map { i in chain.graphics.reduce(0) { $0 + $1[i] } }
-                let limited = summed.map { value -> Double in
-                    min(max((value * 10).rounded() / 10, Config.gainRange.lowerBound), Config.gainRange.upperBound)
-                }
-                if limited != summed.map({ ($0 * 10).rounded() / 10 }) {
+                let summed = fitFrequencies.indices.map { i in chain.graphics.reduce(0) { $0 + $1[i] } }
+                // 0 always fits, so a file preamp already out of range is refused below, not hidden in the fit.
+                let room = min(0, Config.preampRange.lowerBound - chain.preamp)...max(0, Config.preampRange.upperBound - chain.preamp)
+                let fit = fitBands(summed, levelRange: room)
+                if fit.limited {
                     warnings.append(String(format: "GraphicEQ gains beyond ±%g dB were limited to it", Config.gainRange.upperBound))
                 }
-                bands = limited
+                level = min(max((fit.level * 10).rounded() / 10, room.lowerBound), room.upperBound)
+                bands = fit.bands.map { ($0 * 10).rounded() / 10 }
             }
             var filters = chain.filters
             var format = isREW ? "REW filter settings" : "AutoEq / Equalizer APO parametric"
@@ -425,15 +537,9 @@ enum APOFormat: EQFormat {
             guard !filters.isEmpty || bands != nil else {
                 throw warnings.isEmpty ? ImportError.unrecognized : ImportError.nothingUsable(warnings)
             }
-            let preamp: Double
-            if chain.preampLines > 0 {
-                preamp = chain.preamp
-            } else if let bands, filters.isEmpty {
-                // GraphicEQ.txt carries no preamp: AutoEq bakes it into the curve.
-                preamp = -(max(0, bands.max() ?? 0) * 10).rounded() / 10
-            } else {
-                preamp = 0
-            }
+            // GraphicEQ.txt has no Preamp: line, AutoEq bakes it into the curve; APO plays the curve
+            // as written, so its level is the preamp here, not a guess at headroom.
+            let preamp = chain.preamp + level
             guard preamp.isFinite, Config.preampRange.contains(preamp) else { throw ImportError.preampOutOfRange(preamp) }
             return ImportResult(filters: filters, bands: bands, preamp: preamp, format: format, warnings: warnings)
         }

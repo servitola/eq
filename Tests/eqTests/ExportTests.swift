@@ -97,19 +97,17 @@ final class ExportTests: XCTestCase {
         }
     }
 
-    /// The importer reduces 127 points to ten band gains by interpolation; at the centres that
-    /// costs the 0.05 dB of rounding plus the curvature between two grid points.
+    /// A curve beyond the ten bands (a Q 1.1 filter, shelves, tilt) comes back as the ten bands
+    /// and a preamp that draw it closest; at the centres that is close, not exact.
     func testGraphicEQRoundTripAtBandCentres() throws {
-        var profile = Profile(name: nil, preamp: 0, bands: [2, 1, 0, 0, 0, -1, 0, 1, 1, 0],
+        let profile = Profile(name: nil, preamp: -3, bands: [2, 1, 0, 0, 0, -1, 0, 1, 1, 0],
                               filters: [Filter(type: .peak, frequency: 143.7, gain: -3, q: 1.1)],
                               preference: Preference(bass: 3, treble: -1.5, tilt: 0.3))
-        // AutoEq pins the peak at or below 0 dB; the importer then reads the curve with no preamp.
-        profile.preamp = -(Exporter.graphicEQFrequencies.map { Exporter.response(profile, at: Double($0)) }.max()! * 10).rounded(.up) / 10
         let back = try EQFormats.parse(Data(try Exporter.render(profile, as: .graphiceq, header: header).utf8))
-        let bands = try XCTUnwrap(back.bands)
-        XCTAssertEqual(back.preamp, 0)
-        for (gain, centre) in zip(bands, Config.bandFrequencies) {
-            XCTAssertEqual(gain, Exporter.response(profile, at: centre), accuracy: 0.15, "\(centre) Hz")
+        XCTAssertNotNil(back.bands)
+        XCTAssertEqual(back.filters, [])
+        for centre in Config.bandFrequencies {
+            XCTAssertEqual(heard(back, at: centre), Exporter.response(profile, at: centre), accuracy: 0.5, "\(centre) Hz")
         }
     }
 

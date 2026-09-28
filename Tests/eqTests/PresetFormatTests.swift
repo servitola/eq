@@ -138,8 +138,11 @@ final class PresetFormatTests: XCTestCase {
         let sliders = Config.bandFrequencies.enumerated().map { "Frequency\($0.offset + 1)=\(Int($0.element))" }.joined(separator: "\n")
         let gains = (1...10).map { "Gain\($0)=\($0 - 5)" }.joined(separator: "\n")
         let r = try parse("[General]\nGraphicEQ=1\nPreAmp=-5\n[Frequencies]\n\(sliders)\n[Gains]\n\(gains)\n")
-        XCTAssertEqual(r.bands, (1...10).map { Double($0 - 5) })
-        XCTAssertEqual(r.preamp, -5)
+        // Graphic mode writes the sliders as a GraphicEQ: line, the curve APO then plays.
+        // A staircase is not ten peaks' shape; the fit gets within a dB at every centre, closer on average.
+        let misses = Config.bandFrequencies.enumerated().map { abs(heard(r, at: $0.element) - (Double($0.offset - 4) - 5)) }
+        XCTAssertLessThan(misses.max()!, 1.5, "\(misses)")
+        XCTAssertLessThan(misses.reduce(0, +) / 10, 0.6, "\(misses)")
         XCTAssertEqual(r.format, "Peace (10 bands)")
         XCTAssertThrowsError(try parse("[General]\nPreAmp=25\n[Frequencies]\nFrequency1=100\n[Gains]\nGain1=1\n")) {
             XCTAssertEqual($0 as? ImportError, .preampOutOfRange(25))

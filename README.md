@@ -313,8 +313,10 @@ directly. The index is cached at `~/.cache/eq/autoeq` for 7 days — `--refresh`
 re-fetch.
 
 A `ParametricEQ.txt` becomes parametric filters applied exactly as measured. A
-`GraphicEQ.txt` is reduced to the ten fixed bands by sampling its curve, which is close but
-not exact — the `ParametricEQ.txt` of the same model is preferred when both exist. Use
+`GraphicEQ.txt` is reduced to the ten fixed bands and the preamp: eq fits them to the whole
+curve, the level it sits at going to the preamp, which is close but not exact — ten
+octave-wide peaks cannot draw every wiggle — so the `ParametricEQ.txt` of the same model is
+preferred when both exist. Use
 `--source NAME` to pick a reviewer (oratory1990, crinacle, Rtings, …) when a name matches
 several, and `--keep-bands` to layer the correction on top of your hand-tuned bands instead
 of resetting them to flat.

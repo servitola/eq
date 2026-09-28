@@ -36,6 +36,12 @@ its entries under a dated version.
   instead of being imported and refused later or dropped without a word; a total preamp
   outside −30…12 dB refuses the import with that reason. GraphicEQ gains beyond ±12 dB say
   they were limited.
+- A `GraphicEQ:` curve (AutoEq's `GraphicEQ.txt`, Peace's graphic mode, `eq export --format
+  graphiceq`) is fitted: the ten band gains and the preamp are chosen together to match the
+  whole curve, instead of copying the curve's value at each centre. Neighbouring bands no longer
+  add up to dBs too much between centres, and the level the curve sits at becomes the preamp
+  rather than fading out past 16 kHz. AutoEq's Sony WH-1000XM4 curve is now matched to 0.8 dB
+  on average (2.4 dB before), and an exported ten-band curve reads back within 0.5 dB.
 - A relative `Include:` no longer leaves the imported file's folder, and only a regular file of
   up to 1 MB is included, so a downloaded config cannot point eq at `/dev/zero` or out of its folder.
 

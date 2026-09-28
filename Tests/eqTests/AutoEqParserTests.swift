@@ -54,25 +54,22 @@ final class AutoEqParserTests: XCTestCase {
         let r = try AutoEqParser.parse(try fixture("Sony WH-1000XM4 GraphicEQ"))
         let bands = try XCTUnwrap(r.bands)
         XCTAssertEqual(bands.count, 10)
-        XCTAssertEqual(bands[0], -10.1, accuracy: 0.15)   // the file has "32 -10.1"
         XCTAssertTrue(r.filters.isEmpty)
-        XCTAssertLessThanOrEqual(r.preamp, 0)
-        // preamp only compensates a boost (positive max band); this fixture is all-cut, so max(0, …) clamps it to 0.
-        XCTAssertEqual(r.preamp, -(max(0, bands.max() ?? 0) * 10).rounded() / 10, accuracy: 1e-9)
+        // The curve sits around -9 dB (it dips to -12.3 at 128 Hz); that level is the preamp, so the bands keep their range.
+        XCTAssertEqual(r.preamp, -9.1, accuracy: 0.2)
+        XCTAssertEqual(heard(r, at: 32), -10.1, accuracy: 0.5)   // the file has "32 -10.1"
+        XCTAssertEqual(heard(r, at: 128), -12.3, accuracy: 1)    // and "128 -12.3"
         XCTAssertEqual(r.format, "GraphicEQ (reduced to 10 bands)")
-        XCTAssertEqual(r.warnings, [
-            "GraphicEQ has 127 points; reduced to 10 bands \u{2014} the model's ParametricEQ.txt is exact",
-            "GraphicEQ gains beyond ±12 dB were limited to it",   // the file dips to -12.3 dB at 128 Hz
-        ])
+        XCTAssertEqual(r.warnings, ["GraphicEQ has 127 points; reduced to 10 bands \u{2014} the model's ParametricEQ.txt is exact"])
     }
 
     func testGraphicInterpolatesBetweenPoints() throws {
         let r = try AutoEqParser.parse("GraphicEQ: 20 0; 40 6; 80 0; 20000 0")
-        let bands = try XCTUnwrap(r.bands)
-        // accuracy 0.05: implementation rounds each band to 0.1, which can shift the raw log-linear value by up to half a step
-        XCTAssertEqual(bands[0], 6 * log(32.0 / 20) / log(40.0 / 20), accuracy: 0.05)     // 32 Hz between 20 (0) and 40 (6), log-linear
-        XCTAssertEqual(bands[1], 6 * (1 - log(64.0 / 40) / log(80.0 / 40)), accuracy: 0.05) // 64 Hz between 40 (6) and 80 (0)
-        XCTAssertEqual(bands[9], 0, accuracy: 1e-9)
+        XCTAssertNotNil(r.bands)
+        // Ten octave-wide peaks cannot draw a one-octave spike exactly; they get its middle and its edges.
+        XCTAssertGreaterThan(heard(r, at: 40), 3)
+        XCTAssertEqual(heard(r, at: 1000), 0, accuracy: 0.3)
+        XCTAssertEqual(heard(r, at: 16000), 0, accuracy: 0.3)
     }
 
     func testGarbageIsRejected() {
