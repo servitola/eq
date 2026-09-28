@@ -269,6 +269,41 @@ final class CLIShapeTests: XCTestCase {
         XCTAssertFalse(offline.output.contains("eq-dry-run"), offline.output)
     }
 
+    // MARK: - device use
+
+    private func addProfile(_ uid: String, _ name: String) throws {
+        var config = try context.store.load()
+        config.setProfile(Profile(name: name, preamp: 0, bands: Profile.flat.bands), forDeviceUID: uid)
+        try context.store.save(config)
+    }
+
+    func testDeviceUsePicksOnlyConnectedDevices() throws {
+        run("init")
+        try addProfile("OLD-MBP", "MacBook Pro")
+        XCTAssertEqual(run("device", "use", "MacBook Pro Speakers").exitCode, 0)
+        let result = run("device", "use", "MacBook Pro")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(switchedTo, ["BUILTIN", "BUILTIN"])
+    }
+
+    func testDeviceUsePrefersAnExactName() {
+        run("init")
+        context.connectedDevices = { [("JBL-1", "JBL", "usb"), ("BT-1", "JBL Big", "bluetooth")] }
+        let result = run("device", "use", "jbl")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(switchedTo, ["JBL-1"])
+    }
+
+    func testDeviceUseTakesAUIDWhenNamesClash() {
+        run("init")
+        context.connectedDevices = { [("AP-1", "AirPods", "bluetooth"), ("AP-2", "AirPods", "bluetooth")] }
+        let ambiguous = run("device", "use", "AirPods")
+        XCTAssertEqual(ambiguous.exitCode, 1, ambiguous.output)
+        XCTAssertTrue(ambiguous.output.contains("AP-1") && ambiguous.output.contains("AP-2"), ambiguous.output)
+        XCTAssertEqual(run("device", "use", "AP-2").exitCode, 0)
+        XCTAssertEqual(switchedTo, ["AP-2"])
+    }
+
     func testDryRunIsRefusedWhereNothingIsWritten() {
         run("init")
         for args in [["devices"], ["device", "list"], ["export"], ["watch"], ["status"], ["import", "--search", "hd600"], ["preset", "show", "flat"], ["history"]] {

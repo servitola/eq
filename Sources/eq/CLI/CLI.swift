@@ -226,9 +226,19 @@ enum CLI {
     /// Where a dry run of `device use` can reach the same answer without switching anything.
     static func useTarget(_ args: [String], _ ctx: CLIContext) throws -> Target {
         guard args.count == 1 else { throw CLIError.usage("eq device use DEVICE") }
-        let target = try resolveDevice(args[0], ctx)
-        guard ctx.connectedDevices().contains(where: { $0.uid == target.uid }) else { throw CLIError.notConnected(target.name) }
-        return target
+        let query = args[0]
+        let connected = ctx.connectedDevices()
+        if let device = connected.first(where: { $0.uid == query }) { return (device.uid, device.name) }
+        let needle = query.lowercased()
+        let exact = connected.filter { $0.name.lowercased() == needle }
+        let matches = exact.isEmpty ? connected.filter { $0.name.lowercased().contains(needle) } : exact
+        switch matches.count {
+        case 1: return (matches[0].uid, matches[0].name)
+        case 0:
+            if let profile = try? resolveDevice(query, ctx) { throw CLIError.notConnected(profile.name) }
+            throw CLIError.noSuchDevice(query)
+        default: throw CLIError.ambiguousDevice(query, matches.map { "\($0.name) (\($0.uid))" }.sorted())
+        }
     }
 
     private static func use(_ args: [String], _ ctx: CLIContext) throws -> Output {

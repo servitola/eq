@@ -26,7 +26,9 @@ its entries under a dated version.
   the log, and it never affects the audio. `eq doctor` warns about a hook whose program is a
   missing or non-executable absolute path.
 - Noun groups: `eq device list|use|copy`, `eq preset list`, `eq filter list`. `eq device use
-  AirPods` switches the system output. `eq device copy` takes `--device` as well as `--to`.
+  AirPods` switches the system output: it picks among connected devices only, an exact name
+  wins over a partial one, and a device UID works where two devices share a name.
+  `eq device copy` takes `--device` as well as `--to`.
   `eq devices` and `eq copy` still work, as aliases of the new forms.
 - `--dry-run` on every command that changes the config (and on `eq device use`): the curve
   before and after, in `eq`'s own form, or `{"before": …, "after": …}` with `--json`, and

@@ -93,7 +93,8 @@ final class CompletionTests: XCTestCase {
         let driver = """
         eq() {
           case $2 in
-            devices) printf '%s\\n' 'JBL Big' 'MacBook Pro Speakers' ;;
+            devices) printf '%s\\n' 'JBL Big' 'MacBook Pro Speakers' 'Old Speakers' ;;
+            outputs) printf '%s\\n' 'JBL Big' 'MacBook Pro Speakers' ;;
             presets) printf '%s\\n' favourite flat 'club mix' ;;
             instruments) printf '%s\\n' kick voice ;;
             formats) printf '%s\\n' apo json ;;
@@ -126,6 +127,16 @@ final class CompletionTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(bashComplete(["eq", "status", "--"])).contains("--dry-run"))
         XCTAssertEqual(try bashComplete(["eq", "set", "--device", "JBL\\ B"]), ["JBL\\ Big"])
         XCTAssertEqual(try bashComplete(["eq", "copy", "--to", "Mac"]), ["MacBook\\ Pro\\ Speakers"])
+    }
+
+    func testDeviceUseCompletesOnlyConnectedDevices() throws {
+        _ = CLI.run(["init"], context: context)
+        _ = CLI.run(["set", "--device", "jbl", "1khz", "0"], context: context)
+        context.connectedDevices = { [("BUILTIN", "MacBook Pro Speakers", "builtin")] }
+        XCTAssertEqual(CLI.run(["__complete", "outputs"], context: context).output, "MacBook Pro Speakers")
+        for shell in ["zsh", "bash", "fish"] { XCTAssertTrue(script(shell).contains("__complete outputs"), shell) }
+        guard let words = try bashComplete(["eq", "device", "use", ""]) else { throw XCTSkip("no bash") }
+        XCTAssertFalse(words.contains("Old\\ Speakers"), "\(words)")
     }
 
     func testBash5Too() throws {
