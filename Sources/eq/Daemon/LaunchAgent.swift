@@ -160,14 +160,31 @@ enum LaunchAgent {
 
     static func install(_ agent: LaunchAgentControl, replaceLegacy: Bool) throws -> InstallResult {
         var setAside: URL?
+        var bootedOut = false
         let job = agent.loadedJob()
         let legacyLoaded = job.map { !$0.managedByServiceManagement } ?? false
-        if legacyLoaded || agent.legacyPlistExists() {
-            let path = job?.path ?? agent.legacyPlist.path
-            guard replaceLegacy else { throw CLIError.legacyAgent(path) }
-            if legacyLoaded { try agent.bootout() }
-            if agent.legacyPlistExists() { setAside = try agent.setAsideLegacyPlist() }
+        let legacyPath = job.flatMap { $0.managedByServiceManagement ? nil : $0.path } ?? agent.legacyPlist.path
+        do {
+            if legacyLoaded || agent.legacyPlistExists() {
+                guard replaceLegacy else { throw CLIError.legacyAgent(legacyPath) }
+                if legacyLoaded { try agent.bootout(); bootedOut = true }
+                if agent.legacyPlistExists() { setAside = try agent.setAsideLegacyPlist() }
+            }
+            return try registerBundled(agent, job: job, legacyLoaded: legacyLoaded, setAside: setAside)
+        } catch {
+            let why = reason(error)
+            if let setAside {
+                throw CLIError.agent("\(why); the legacy plist is in \(abbreviate(setAside.path)) — to go back, Put Back in Finder, "
+                    + "then: launchctl bootstrap gui/$UID \(abbreviate(agent.legacyPlist.path))")
+            }
+            if bootedOut {
+                throw CLIError.agent("\(why); the legacy job was booted out — to go back: launchctl bootstrap gui/$UID \(abbreviate(legacyPath))")
+            }
+            throw error
         }
+    }
+
+    private static func registerBundled(_ agent: LaunchAgentControl, job: LoadedJob?, legacyLoaded: Bool, setAside: URL?) throws -> InstallResult {
         switch agent.serviceStatus {
         case .notRegistered:
             try register(agent)
@@ -200,6 +217,11 @@ enum LaunchAgent {
             if agent.serviceStatus == .requiresApproval { throw CLIError.agent("waiting for approval: \(approvalHint)") }
             throw CLIError.agent(describe(error))
         }
+    }
+
+    private static func reason(_ error: Error) -> String {
+        if case CLIError.agent(let why) = error { return why }
+        return describe(error)
     }
 
     static func describe(_ error: Error) -> String {

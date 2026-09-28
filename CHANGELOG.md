@@ -28,7 +28,8 @@ its entries under a dated version.
   troubleshooting; `status` reports the SMAppService state (`notRegistered`, `enabled`,
   `requiresApproval`, `notFound`). `uninstall` keeps the daemon off (marker
   `~/.cache/eq/agent-off`) until `install`; the cask's own uninstall step, which also runs on
-  upgrade, does not.
+  upgrade, does not. When `--replace-legacy` fails after moving the old plist to the Trash, the
+  error says where it is and how to load it again.
 
 ## 2026.09.28.1 — 2026-09-28
 

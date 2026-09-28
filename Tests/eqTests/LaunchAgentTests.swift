@@ -208,6 +208,26 @@ final class LaunchAgentTests: XCTestCase {
         XCTAssertEqual(agent.calls, ["bootout", "setAside", "register"])
     }
 
+    func testAFailedReplaceSaysWhereTheLegacyPlistWentAndHowToGoBack() {
+        let agent = FakeAgent.legacyRunning()
+        agent.registerError = NSError(domain: NSOSStatusErrorDomain, code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
+        XCTAssertThrowsError(try LaunchAgent.install(agent, replaceLegacy: true)) { error in
+            XCTAssertEqual("\(error)", "launch agent: Operation not permitted (1); the legacy plist is in /Users/someone/.Trash/com.servitola.eq.plist "
+                + "— to go back, Put Back in Finder, then: launchctl bootstrap gui/$UID /Users/someone/Library/LaunchAgents/com.servitola.eq.plist")
+        }
+        XCTAssertEqual(agent.calls, ["bootout", "setAside", "register"])
+    }
+
+    func testAFailedReplaceOfAJobLoadedFromElsewhereSaysHowToReloadIt() {
+        let agent = FakeAgent()
+        agent.job = LoadedJob(managedByServiceManagement: false, path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
+        agent.registerError = NSError(domain: "x", code: 3, userInfo: [NSLocalizedDescriptionKey: "nope"])
+        XCTAssertThrowsError(try LaunchAgent.install(agent, replaceLegacy: true)) { error in
+            XCTAssertEqual("\(error)", "launch agent: nope; the legacy job was booted out "
+                + "— to go back: launchctl bootstrap gui/$UID /Users/someone/dotfiles/com.servitola.eq.plist")
+        }
+    }
+
     func testInstallReloadsARegistrationLaunchdLost() throws {
         let agent = FakeAgent()
         agent.serviceStatus = .enabled
