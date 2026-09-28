@@ -1,0 +1,5 @@
+module EQCore {
+    header "EQCore.h"
+    header "EQDriverProtocol.h"
+    export *
+}

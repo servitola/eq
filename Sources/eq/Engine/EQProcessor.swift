@@ -13,7 +13,8 @@ final class EQProcessor {
     let core: OpaquePointer
     let meter: BandMeter
 
-    private var settings: eqc_settings?
+    /// Main queue. What the render thread was last handed, solo included.
+    private(set) var settings: eqc_settings?
     /// Main queue only. The requested range; `effectiveSolo` is what it becomes at the current rate.
     /// Assigning it takes effect on the next `update`; `setSolo`/`clearSolo` rebuild at once.
     var solo: SoloRange?
@@ -79,8 +80,9 @@ final class EQProcessor {
         publish(&settings)
     }
 
+    /// Main queue. Adds the solo range and hands `settings` to the render thread.
     @discardableResult
-    private func publish(_ settings: inout eqc_settings) -> [Int] {
+    func publish(_ settings: inout eqc_settings) -> [Int] {
         settings.solo = solo != nil
         settings.soloLow = solo?.low ?? 0
         settings.soloHigh = solo?.high ?? 0
@@ -102,6 +104,14 @@ final class EQProcessor {
     @discardableResult
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
                 limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool, dynamics: Dynamics? = nil) -> [Int] {
+        var s = Self.settings(bands: bands, preampDB: preampDB, outputGainDB: outputGainDB, limiterEnabled: limiterEnabled,
+                              limiterCeilingDB: limiterCeilingDB, bypassed: bypassed, dynamics: dynamics)
+        return publish(&s)
+    }
+
+    /// The parameters as EQCore takes them, without solo, which `publish` adds.
+    static func settings(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
+                         limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool, dynamics: Dynamics? = nil) -> eqc_settings {
         var s = eqc_settings()
         s.bandCount = Int32(min(bands.count, Int(EQC_MAX_BANDS)))
         withUnsafeMutableBytes(of: &s.bands) { raw in
@@ -118,7 +128,7 @@ final class EQProcessor {
         s.compressor = dynamics?.comp?.core ?? EQC_COMPRESSOR_OFF
         s.colour = dynamics?.color?.kind.core ?? EQC_COLOUR_OFF
         s.colourAmount = dynamics?.color?.amount ?? 0
-        return publish(&s)
+        return s
     }
 
     /// Process non-interleaved Float32 channel buffers in place. Audio thread only.

@@ -1,3 +1,4 @@
+import EQCore
 import Foundation
 
 extension EQProcessor {
@@ -6,7 +7,13 @@ extension EQProcessor {
     /// Returns the engine-band indices bypassed as unstable at the current rate.
     @discardableResult
     func apply(profile: Profile, enabled: Bool) -> [Int] {
-        update(bands: profile.engineBands, preampDB: profile.preamp, limiterEnabled: true, limiterCeilingDB: -1, bypassed: !enabled,
-               dynamics: profile.dynamics)
+        var s = Self.settings(profile: profile, enabled: enabled)
+        return publish(&s)
+    }
+
+    /// What `apply` hands EQCore, solo aside; the driver gets the same.
+    static func settings(profile: Profile, enabled: Bool) -> eqc_settings {
+        settings(bands: profile.engineBands, preampDB: profile.preamp, limiterEnabled: true, limiterCeilingDB: -1, bypassed: !enabled,
+                 dynamics: profile.dynamics)
     }
 }

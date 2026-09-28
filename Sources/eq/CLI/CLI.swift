@@ -24,6 +24,10 @@ struct CLIContext {
     /// Apps with audio open, for `eq app set` and completion; only read, never tapped.
     var audioApps: () -> [PlayingApp] = { [] }
     var findApp: (String) -> PlayingApp? = { _ in nil }
+    /// The HAL plug-in, when installed; `eq driver` only.
+    var driver: () -> DriverPort? = { nil }
+    /// Tells the plug-in which write it plays; any increasing number does.
+    var driverSerial: () -> UInt64 = { UInt64(Date().timeIntervalSince1970 * 1000) }
 
     /// `~/.cache/eq` (or EQ_CACHE): eq's own markers live here, beside the downloads, and not in
     /// the config directory, which a fresh Mac does not have until a change needs it.
@@ -55,7 +59,8 @@ struct CLIContext {
             agent: LiveLaunchAgent(),
             checksDaemon: LiveLaunchAgent.autoStarts(),
             audioApps: CoreAudioProcesses.apps,
-            findApp: { InstalledApps.find($0) })
+            findApp: { InstalledApps.find($0) },
+            driver: { DriverControl.find() })
     }
 
 }
@@ -159,13 +164,14 @@ enum CLI {
         case "redo": return try redo(rest, ctx)
         case "history": return try history(rest, ctx)
         case "agent": return try agent(rest, ctx)
+        case "driver": return try driver(rest, ctx)
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
     }
 
     /// Commands that never start the daemon: completion runs on every Tab, and help, the man page
-    /// and `eq agent` itself must not have side effects.
-    private static let leavesDaemonAlone: Set<String> = ["agent", "__complete", "completions", "man", "help", "-h", "--help"]
+    /// and `eq agent` itself must not have side effects; `eq driver` talks to the plug-in alone.
+    private static let leavesDaemonAlone: Set<String> = ["agent", "driver", "__complete", "completions", "man", "help", "-h", "--help"]
 
     /// Starts the bundled daemon when nothing runs one, and says so once on stderr; points at the
     /// System Audio Recording grant while the daemon waits for it.

@@ -112,6 +112,7 @@ extension CLIError {
         case .notConnected: return "notConnected"
         case .switchFailed: return "switchFailed"
         case .agent: return "agent"
+        case .driver: return "driver"
         case .legacyAgent: return "legacyAgent"
         }
     }
