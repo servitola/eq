@@ -107,8 +107,17 @@ enum HookRunner {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
         posix_spawnattr_setpgroup(&attributes, 0)
+        // The daemon ignores these to take them through dispatch sources, and an ignored signal stays
+        // ignored across exec: without the reset a hook would shrug off the timeout's TERM.
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        for sig in [SIGTERM, SIGINT, SIGUSR1, SIGPIPE] { sigaddset(&defaults, sig) }
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        var unblocked = sigset_t()
+        sigemptyset(&unblocked)
+        posix_spawnattr_setsigmask(&attributes, &unblocked)
 
         let environment = ProcessInfo.processInfo.environment.merging(hook.environment) { $1 }.map { "\($0.key)=\($0.value)" }
         let argv = ["/bin/sh", "-c", hook.command].map { (arg: String) in strdup(arg) } + [nil]

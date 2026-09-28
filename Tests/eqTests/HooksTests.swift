@@ -94,4 +94,14 @@ final class HookRunnerTests: XCTestCase {
         wait(for: [logged], timeout: 5)
         XCTAssertEqual(line, "hook device: ok: 48000")
     }
+
+    /// The daemon ignores TERM, INT and USR1 to take them through dispatch sources; a spawned child
+    /// would keep them ignored, and the timeout's TERM would never reach a hook's trap.
+    func testTimeoutTermReachesAHookEvenWhenTheRunnerIgnoresIt() {
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
+        let result = HookRunner.run(hook("trap 'echo got-term; exit 3' TERM; sleep 30 & wait"), timeout: 0.3)
+        XCTAssertTrue(result.timedOut)
+        XCTAssertEqual(result.output, "got-term\n")
+    }
 }
