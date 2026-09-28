@@ -48,7 +48,7 @@ enum ManPage {
             lines.append(".SS \(group.rawValue.capitalized)")
             for entry in members {
                 lines += [".TP", ".B", escape(entry.usage), escape(entry.summary)]
-                if entry.writes { lines.append(escape("Takes --dry-run.")) }
+                if entry.writes { lines += [".br", escape("Takes --dry-run.")] }
                 if !entry.examples.isEmpty {
                     lines += [".RS", ".nf"] + entry.examples.map(escape) + [".fi", ".RE"]
                 }

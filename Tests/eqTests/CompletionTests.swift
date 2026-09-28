@@ -226,6 +226,13 @@ final class CompletionTests: XCTestCase {
         XCTAssertTrue(page.contains("\\-\\-dry\\-run"))
     }
 
+    func testManPageDryRunNoteIsItsOwnLine() {
+        let lines = ManPage.render(version: "2026.09.28").components(separatedBy: "\n")
+        let notes = lines.indices.filter { lines[$0] == ManPage.escape("Takes --dry-run.") }
+        XCTAssertEqual(notes.count, CommandHelp.all.filter(\.writes).count)
+        for at in notes { XCTAssertEqual(lines[at - 1], ".br", lines[at - 2]) }
+    }
+
     func testManPageLints() throws {
         let file = dir.appendingPathComponent("eq.1")
         try CLI.run(["man"], context: context).output.write(to: file, atomically: true, encoding: .utf8)
