@@ -1,7 +1,7 @@
 import Foundation
 
 struct CommandHelp {
-    enum Group: String, CaseIterable { case look, tune, setup }
+    enum Group: String, CaseIterable { case look, tune, device, preset, filter, `import`, setup }
 
     enum Token: Equatable {
         case word(String), flag(String), placeholder(String), punctuation(String)
@@ -23,6 +23,7 @@ struct CommandHelp {
     }
 
     var group: Group
+    var usage: String
     /// One inner array per space-separated word, so `[--device` stays one unbreakable unit.
     var invocation: [[Token]]
     var summary: String
@@ -30,6 +31,7 @@ struct CommandHelp {
 
     init(_ group: Group, _ invocation: String, _ summary: String, examples: [String] = []) {
         self.group = group
+        self.usage = invocation
         self.invocation = invocation.split(separator: " ").map { Self.tokens(String($0)) }
         self.summary = summary
         self.examples = examples
@@ -68,7 +70,6 @@ struct CommandHelp {
 
     static let all: [CommandHelp] = [
         CommandHelp(.look, "eq", "show the current device's curve"),
-        CommandHelp(.look, "eq devices", "known profiles and connected outputs; the current one marked *"),
         CommandHelp(.look, "eq status", "is the daemon alive, on which device, at what rate"),
         CommandHelp(.look, "eq watch [--zones]", "the live equalizer; tune with 1…0, h for keys, q to quit"),
         CommandHelp(.look, "eq zones", "instrument frequency ranges and the bands they touch"),
@@ -91,38 +92,52 @@ struct CommandHelp {
                     "turn an instrument up or down: one peak over its character range (voice 2–5 kHz, kick 50–100 Hz, …), -12…+12 dB; 0 removes it, alone it lists every instrument's range and gain",
                     examples: ["eq boost voice +3", "eq boost kick -2", "eq boost"]),
         CommandHelp(.tune, "eq flat [--device DEVICE]", "everything to 0, dropping the preset, filters, bass/treble/tilt, boosts and any import"),
-        CommandHelp(.tune, "eq copy --to DEVICE", "copy the current device's curve onto DEVICE", examples: ["eq copy --to AirPods"]),
-        CommandHelp(.tune, "eq preset", "list presets; the current device's one marked *"),
-        CommandHelp(.tune, "eq preset save|use <name> [--device DEVICE]", "save the curve as <name> / apply <name>",
-                    examples: ["eq preset save night", "eq preset use favourite"]),
-        CommandHelp(.tune, "eq preset show|rm <name>", "show / delete a preset"),
-        CommandHelp(.tune, "eq preset rename <old> <new>", "rename a preset; devices using it follow"),
-        CommandHelp(.tune, "eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--variant VARIANT] [--keep-bands] [--refresh]",
-                    "apply a correction by headphone name (AutoEq, then OPRA), or from a file or URL; VARIANT picks a state like anc-on, --source opra asks OPRA only",
-                    examples: ["eq import \"WH-1000XM4\"", "eq import \"airpods pro 2\" --variant anc-on", "eq import \"HD 600\" --source opra", "eq import file.txt"]),
-        CommandHelp(.tune, "eq import --search <name> [--source SOURCE] [--refresh]",
-                    "list the headphones a name matches in AutoEq and OPRA, with source and variant, without importing",
-                    examples: ["eq import --search wh1000xm4"]),
-        CommandHelp(.tune, "eq import --clear [--device DEVICE]", "drop the imported correction, keep hand-tuned bands and filters"),
-        CommandHelp(.tune, "eq filter [--device DEVICE]", "list the parametric filters, numbered as eq shows them"),
-        CommandHelp(.tune, "eq filter add <type> <freq> <gain> [<q>] [--device DEVICE]",
-                    "add a filter: peak lowshelf highshelf lowpass highpass notch bandpass; Q defaults to 1.41 for peak, notch and bandpass, 0.707 otherwise",
-                    examples: ["eq filter add peak 3k -2 2", "eq filter add highpass 30 0"]),
-        CommandHelp(.tune, "eq filter set <n> <key>=<value> … [--device DEVICE]", "change filter <n>: freq, gain, q or type",
-                    examples: ["eq filter set 2 gain=-3 q=4"]),
-        CommandHelp(.tune, "eq filter rm <n>|all [--device DEVICE]", "remove filter <n>, or every filter"),
+        CommandHelp(.tune, "eq on | eq off", "enable / bypass"),
         CommandHelp(.tune, "eq undo [--list]", "step the config back one saved version; repeat to go further back; --list is now eq history"),
         CommandHelp(.tune, "eq redo", "step forward again after eq undo"),
         CommandHelp(.tune, "eq history", "list saved versions with their time and curve, marking the current one",
                     examples: ["eq undo --list"]),
-        CommandHelp(.tune, "eq on | eq off", "enable / bypass"),
+        CommandHelp(.device, "eq device [list]", "known profiles and connected outputs; the current one marked *"),
+        CommandHelp(.device, "eq device use DEVICE", "make DEVICE the system output; its curve follows it",
+                    examples: ["eq device use AirPods"]),
+        CommandHelp(.device, "eq device copy --to|--device DEVICE", "copy the current device's curve onto DEVICE",
+                    examples: ["eq device copy --to AirPods"]),
+        CommandHelp(.preset, "eq preset [list]", "list presets; the current device's one marked *"),
+        CommandHelp(.preset, "eq preset save|use <name> [--device DEVICE]", "save the curve as <name> / apply <name>",
+                    examples: ["eq preset save night", "eq preset use favourite"]),
+        CommandHelp(.preset, "eq preset show <name>", "show a preset"),
+        CommandHelp(.preset, "eq preset rm <name>", "delete a preset"),
+        CommandHelp(.preset, "eq preset rename <old> <new>", "rename a preset; devices using it follow"),
+        CommandHelp(.filter, "eq filter [list] [--device DEVICE]", "list the parametric filters, numbered as eq shows them"),
+        CommandHelp(.filter, "eq filter add <type> <freq> <gain> [<q>] [--device DEVICE]",
+                    "add a filter: peak lowshelf highshelf lowpass highpass notch bandpass; Q defaults to 1.41 for peak, notch and bandpass, 0.707 otherwise",
+                    examples: ["eq filter add peak 3k -2 2", "eq filter add highpass 30 0"]),
+        CommandHelp(.filter, "eq filter set <n> <key>=<value> … [--device DEVICE]", "change filter <n>: freq, gain, q or type",
+                    examples: ["eq filter set 2 gain=-3 q=4"]),
+        CommandHelp(.filter, "eq filter rm <n>|all [--device DEVICE]", "remove filter <n>, or every filter"),
+        CommandHelp(.import, "eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--variant VARIANT] [--keep-bands] [--refresh]",
+                    "apply a correction by headphone name (AutoEq, then OPRA), or from a file or URL; VARIANT picks a state like anc-on, --source opra asks OPRA only",
+                    examples: ["eq import \"WH-1000XM4\"", "eq import \"airpods pro 2\" --variant anc-on", "eq import \"HD 600\" --source opra", "eq import file.txt"]),
+        CommandHelp(.import, "eq import --search <name> [--source SOURCE] [--refresh]",
+                    "list the headphones a name matches in AutoEq and OPRA, with source and variant, without importing",
+                    examples: ["eq import --search wh1000xm4"]),
+        CommandHelp(.import, "eq import --clear [--device DEVICE]", "drop the imported correction, keep hand-tuned bands and filters"),
         CommandHelp(.setup, "eq init", "write the default config if none exists"),
         CommandHelp(.setup, "eq doctor", "diagnose config, daemon, permission and audio"),
         CommandHelp(.setup, "eq daemon", "run the audio engine (used by the LaunchAgent)"),
     ]
 
+    /// Spellings from before the noun groups, rewritten to the new shape before dispatch.
+    static let aliases: [(old: String, new: [String])] = [("devices", ["device", "list"]), ("copy", ["device", "copy"])]
+
+    static func canonical(_ args: [String]) -> [String] {
+        guard let first = args.first, let alias = aliases.first(where: { $0.old == first }) else { return args }
+        return alias.new + args.dropFirst()
+    }
+
     static func entries(for command: String) -> [CommandHelp] {
-        all.filter { $0.commands.contains(command) }
+        let command = canonical([command]).first ?? command
+        return all.filter { $0.commands.contains(command) }
     }
 }
 
@@ -209,10 +224,13 @@ enum HelpRenderer {
         let bands = [[Run("bands:", .dim)]] + Config.bandLabels.map { [Run($0, .yellow)] as Word }
         let range = "\(Int(Config.gainRange.lowerBound))…+\(Int(Config.gainRange.upperBound))"
         let gains: [Word] = [[Run("gains:", .dim)], [Run(range, .yellow)], [Run("dB", nil)]]
-        let json: [Word] = [[Run("--json", .cyan)]] + "on any command: the answer as JSON".split(separator: " ").map { [Run(String($0), nil)] }
-        let one: [Word] = [[Run("eq", nil)], [Run("<command>", .yellow)], [Run("--help", .cyan)]]
-            + "for one command".split(separator: " ").map { [Run(String($0), nil)] }
-        return [bands, gains, json, one].flatMap { wrap($0, width: width, hang: 2) }
+        func prose(_ text: String) -> [Word] { text.split(separator: " ").map { [Run(String($0), nil)] } }
+        let json: [Word] = [[Run("--json", .cyan)]] + prose("on any command: the answer as JSON")
+        let old: [Word] = [[Run("old spellings:", .dim)]] + CommandHelp.aliases.enumerated().flatMap { index, alias -> [Word] in
+            [[Run("eq", nil)], [Run(alias.old, .bold), Run(index < CommandHelp.aliases.count - 1 ? "," : "", nil)]]
+        } + prose("still work")
+        let one: [Word] = [[Run("eq", nil)], [Run("<command>", .yellow)], [Run("--help", .cyan)]] + prose("for one command")
+        return [bands, gains, json, old, one].flatMap { wrap($0, width: width, hang: 4) }
     }
 
     private static func words(_ invocation: [[CommandHelp.Token]]) -> [Word] {

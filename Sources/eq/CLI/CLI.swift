@@ -7,6 +7,7 @@ struct CLIContext {
     var statusURL: URL
     var connectedDevices: () -> [ConnectedDevice]
     var defaultOutput: () -> (uid: String, name: String)?
+    var setDefaultOutput: (String) throws -> Void = { _ in throw CLIError.switchFailed("no audio system in this context") }
     var fetch: (URL) throws -> Data
     var cacheDirectory: URL
     var today: () -> String
@@ -24,6 +25,11 @@ struct CLIContext {
             connectedDevices: { AudioDeviceManager.outputDevices().map { ($0.uid, $0.name, $0.transportName) } },
             defaultOutput: {
                 AudioDeviceManager.defaultOutputDeviceID().flatMap(AudioDeviceManager.device).map { ($0.uid, $0.name) }
+            },
+            setDefaultOutput: { uid in
+                guard let device = AudioDeviceManager.outputDevices().first(where: { $0.uid == uid }) else { throw CLIError.notConnected(uid) }
+                let status = AudioDeviceManager.setDefaultOutputDevice(device.id)
+                guard status == noErr else { throw CLIError.switchFailed("Core Audio status \(status)") }
             },
             fetch: HTTPFetch.live,
             cacheDirectory: AutoEqCache.defaultDirectory,
@@ -89,26 +95,26 @@ enum CLI {
     }
 
     private static func dispatch(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        var rest = args
-        let command = rest.isEmpty ? "show" : rest.removeFirst()
-        if rest.contains("--help") || rest.contains("-h") || ["help", "-h", "--help"].contains(command) {
-            let topic = ["help", "-h", "--help"].contains(command) ? (rest.first { !$0.hasPrefix("-") } ?? "") : command
+        if args.contains("--help") || args.contains("-h") || ["help", "-h", "--help"].contains(args.first ?? "") {
+            let topic = ["help", "-h", "--help"].contains(args.first ?? "") ? (args.dropFirst().first { !$0.hasPrefix("-") } ?? "") : args[0]
             let text = helpText(for: topic, width: ctx.width(1), paint: Paint.enabled)
             return Output(text, UsageReport(usage: helpText(for: topic, width: 80, paint: false)))
         }
+        let args = CommandHelp.canonical(args)
+        var rest = args
+        let command = rest.isEmpty ? "show" : rest.removeFirst()
         switch command {
         case "show": return try show(ctx)
         case "init": return try initialise(ctx)
         case "set": return try set(rest, ctx)
         case "preamp": return try preamp(rest, ctx)
         case "flat": return try flat(rest, ctx)
-        case "copy": return try copy(rest, ctx)
+        case "device": return try device(rest, ctx)
         case "import": return try importCommand(rest, ctx)
         case "filter": return try filter(rest, ctx)
         case "export": return try export(rest, ctx)
         case "bass", "treble", "tilt": return try preference(command, rest, ctx)
         case "boost": return try boost(rest, ctx)
-        case "devices": return try devices(ctx)
         case "on": return try toggle(true, ctx)
         case "off": return try toggle(false, ctx)
         case "status": return try status(ctx)
@@ -198,9 +204,40 @@ enum CLI {
         return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
     }
 
+    private static func device(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        switch (args.first ?? "list", args.dropFirst()) {
+        case ("list", let rest) where rest.isEmpty: return try devices(ctx)
+        case ("use", let rest): return try use(Array(rest), ctx)
+        case ("copy", let rest): return try copy(Array(rest), ctx)
+        default: throw CLIError.usage("eq device list | eq device use DEVICE | eq device copy --to DEVICE")
+        }
+    }
+
+    static func useTarget(_ args: [String], _ ctx: CLIContext) throws -> Target {
+        guard args.count == 1 else { throw CLIError.usage("eq device use DEVICE") }
+        let target = try resolveDevice(args[0], ctx)
+        guard ctx.connectedDevices().contains(where: { $0.uid == target.uid }) else { throw CLIError.notConnected(target.name) }
+        return target
+    }
+
+    private static func use(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let target = try useTarget(args, ctx)
+        let config = try loadConfig(ctx)
+        try ctx.setDefaultOutput(target.uid)
+        let resolved = config.profile(forDeviceUID: target.uid)
+        let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
+        let text = Paint.ink(.green, "output → ") + Paint.ink(.bold, target.name) + "\n"
+            + Table.profile(resolved.profile, header: "\(target.name) (\(sourceLabel))", preset: presetMark(resolved.profile, config))
+        return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name),
+                                          source: resolved.source == .device ? "device" : "default",
+                                          profile: resolved.profile, preset: presetMark(resolved.profile, config)?.name))
+    }
+
     private static func copy(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        let (target, rest) = try splitDeviceOption(args, flag: "--to", ctx)
-        guard let target, rest.isEmpty else { throw CLIError.usage("eq copy --to DEVICE") }
+        let usage = "eq device copy --to DEVICE"
+        guard !(args.contains("--to") && args.contains("--device")) else { throw CLIError.usage(usage + " (--to or --device, not both)") }
+        let (target, rest) = try splitDeviceOption(args, flag: args.contains("--device") ? "--device" : "--to", ctx)
+        guard let target, rest.isEmpty else { throw CLIError.usage(usage) }
         var config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
         var profile = config.profile(forDeviceUID: current.uid).profile
@@ -633,7 +670,7 @@ enum CLI {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         var config = try loadConfig(ctx)
         _ = config.seedPresetsIfNeeded()
-        let usage = "eq preset [save|use|show|rm <name> | rename <old> <new>] [--device DEVICE]"
+        let usage = "eq preset [list | save|use|show|rm <name> | rename <old> <new>] [--device DEVICE]"
         func target() throws -> Target { if let explicit { return explicit } else { return try currentDevice(ctx) } }
         func existing(_ name: String) throws -> (name: String, profile: Profile) {
             guard let found = config.preset(named: name) else { throw CLIError.noSuchPreset(name) }
@@ -648,7 +685,7 @@ enum CLI {
         guard explicit == nil || takesDevice else { throw CLIError.usage(usage) }
 
         switch (rest.first, rest.count) {
-        case (nil, _):
+        case (nil, _), ("list", 1):
             return presetList(config, ctx)
         case ("save", 2):
             let name = try validName(rest[1])
@@ -868,7 +905,7 @@ enum CLI {
         return (try resolveDevice(args[at + 1], ctx), rest)
     }
 
-    private static func resolveDevice(_ query: String, _ ctx: CLIContext) throws -> Target {
+    static func resolveDevice(_ query: String, _ ctx: CLIContext) throws -> Target {
         let needle = query.lowercased()
         var candidates: [String: String] = [:]
         for device in ctx.connectedDevices() where device.name.lowercased().contains(needle) {

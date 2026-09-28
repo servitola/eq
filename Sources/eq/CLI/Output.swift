@@ -107,6 +107,8 @@ extension CLIError {
         case .noSuchFilter: return "noSuchFilter"
         case .exportRefused: return "exportRefused"
         case .exportFailed: return "exportFailed"
+        case .notConnected: return "notConnected"
+        case .switchFailed: return "switchFailed"
         }
     }
 }

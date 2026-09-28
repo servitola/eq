@@ -57,7 +57,7 @@ final class HelpTests: XCTestCase {
         let lines = HelpRenderer.render(width: 70, paint: false).components(separatedBy: "\n")
         let set = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("  eq set ") })
         let column = try XCTUnwrap(lines[set].range(of: "change")).lowerBound.utf16Offset(in: lines[set])
-        let devices = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("  eq devices") })
+        let devices = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("  eq device [list]") })
         XCTAssertEqual(lines[devices + 1].prefix { $0 == " " }.count, column, lines[devices + 1])
         for line in lines where line.hasPrefix(" ") && !line.hasPrefix("  eq") {
             XCTAssertGreaterThanOrEqual(line.prefix { $0 == " " }.count, 4, "continuation back at the margin: \(line)")
