@@ -515,7 +515,7 @@ enum CLI {
             case .default?: profile = Paint.ink(.yellow, "default profile")
             case nil: profile = "- profile"
             }
-            let latency = status.latencyMs.map { ", latency " + Paint.ink(.yellow, String(format: "%.1f ms", $0)) } ?? ""
+            let latency = latencyText(status).map { ", latency " + $0 } ?? ""
             lines.append("\(label("device")) \(Paint.ink(.bold, device.name)) \(transport) \(hz)\(latency), \(profile)")
         }
         let callbacks = Paint.ink(.yellow, "\(status.callbacks)")
@@ -528,6 +528,14 @@ enum CLI {
         lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
+    }
+
+    /// Whole milliseconds once the daemon splits the path: the device is what a player compensates, the rest it cannot.
+    static func latencyText(_ status: Status) -> String? {
+        guard let total = status.latencyMs else { return nil }
+        guard let device = status.deviceLatencyMs else { return Paint.ink(.yellow, String(format: "%.1f ms", total)) }
+        let added = status.addedLatencyMs.map { ", eq adds " + Paint.ink(.yellow, Table.whole($0)) } ?? ""
+        return Paint.ink(.yellow, "\(Table.whole(total)) ms") + " (device \(Table.whole(device))\(added))"
     }
 
     private static func stream(_ args: [String], _ ctx: CLIContext) throws -> Output {

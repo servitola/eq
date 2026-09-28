@@ -715,6 +715,18 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(plain["status"]!.hasPrefix("state: running\ndevice: MacBook Pro Speakers [builtin] 48000 Hz, latency 11.6 ms, device profile"), plain["status"]!)
     }
 
+    func testStatusSplitsDeviceLatencyFromWhatEqAdds() {
+        var status = Status(state: .running, device: nil, sampleRate: 44100, profile: nil, framesProcessed: 0, callbacks: 0, writes: 0,
+                            enabled: true, error: nil, pid: 1, version: "1", updatedAt: Date(), latencyMs: 432.2)
+        XCTAssertEqual(CLI.latencyText(status), "432.2 ms")
+        status.deviceLatencyMs = 210.3
+        XCTAssertEqual(CLI.latencyText(status), "432 ms (device 210)")
+        status.addedLatencyMs = 23.9
+        XCTAssertEqual(CLI.latencyText(status), "432 ms (device 210, eq adds 23)")
+        status.latencyMs = nil
+        XCTAssertNil(CLI.latencyText(status))
+    }
+
     func testStreamExitsOneWhenDaemonCloses() throws {
         let socketURL = dir.appendingPathComponent("meter.sock")
         context.meterSocketURL = socketURL

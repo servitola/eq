@@ -6,6 +6,13 @@ struct Status: Codable, Equatable {
         case noPermission = "no-permission"
     }
 
+    /// Host-clock seconds of the last sound to follow silence, when the tap stamped it and when eq sent it on.
+    struct Onset: Codable, Equatable {
+        var tapHostSeconds: Double
+        var outputHostSeconds: Double
+        var count: UInt64
+    }
+
     struct Device: Codable, Equatable {
         var uid: String
         var name: String
@@ -30,6 +37,11 @@ struct Status: Codable, Equatable {
     var tapSilentSeconds: Double? = nil
     /// Written as [] when there is nothing to say, so nil means a daemon too old to check.
     var warnings: [String]? = nil
+    var deviceLatencyMs: Double? = nil
+    /// Measured from the IO cycle's own timestamps; players compensate for the device, never for this.
+    var addedLatencyMs: Double? = nil
+    var addedLatencyFrames: Double? = nil
+    var lastOnset: Onset? = nil
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -73,6 +85,7 @@ struct Status: Codable, Equatable {
 extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
+        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -94,5 +107,9 @@ extension Status {
         latencyMs = try c.decodeIfPresent(Double.self, forKey: .latencyMs)
         tapSilentSeconds = try c.decodeIfPresent(Double.self, forKey: .tapSilentSeconds)
         warnings = try c.decodeIfPresent([String].self, forKey: .warnings)
+        deviceLatencyMs = try c.decodeIfPresent(Double.self, forKey: .deviceLatencyMs)
+        addedLatencyMs = try c.decodeIfPresent(Double.self, forKey: .addedLatencyMs)
+        addedLatencyFrames = try c.decodeIfPresent(Double.self, forKey: .addedLatencyFrames)
+        lastOnset = try c.decodeIfPresent(Onset.self, forKey: .lastOnset)
     }
 }

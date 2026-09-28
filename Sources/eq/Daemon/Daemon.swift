@@ -601,6 +601,8 @@ final class Daemon {
 
     private func writeStatus() {
         statusWrites += 1
+        let running = engine.state == .running
+        let added = engine.addedLatency
         let status = Status(
             state: state,
             device: device.map { Status.Device(uid: $0.uid, name: $0.name, transport: $0.transportName) },
@@ -614,9 +616,13 @@ final class Daemon {
             pid: getpid(),
             version: Build.version,
             updatedAt: Date(),
-            latencyMs: engine.state == .running ? engine.latencyMs : nil,
+            latencyMs: running ? engine.latencyMs : nil,
             tapSilentSeconds: observeTap(),
-            warnings: filterWarnings)
+            warnings: filterWarnings,
+            deviceLatencyMs: running ? engine.deviceLatencyMs : nil,
+            addedLatencyMs: running ? added?.milliseconds() : nil,
+            addedLatencyFrames: running ? added?.frames : nil,
+            lastOnset: running ? engine.lastOnset : nil)
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

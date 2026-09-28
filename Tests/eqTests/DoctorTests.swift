@@ -36,7 +36,7 @@ final class DoctorTests: XCTestCase {
     func testAllGreen() {
         let report = Doctor.run(probes(status: running(), callbacksLater: 20))
         XCTAssertTrue(report.ok, Doctor.text(report))
-        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "hooks", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "filters"])
+        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "hooks", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "latency", "filters"])
         XCTAssertTrue(report.checks.allSatisfy(\.ok))
     }
 
@@ -295,5 +295,22 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(Doctor.program(of: "\"/a b/c"), "/a b/c")
         XCTAssertEqual(Doctor.program(of: "echo"), "echo")
         XCTAssertNil(Doctor.program(of: "   "))
+    }
+
+    func testLatencyWarnsPastTheLipSyncLimit() {
+        var s = running()
+        XCTAssertEqual(Doctor.latencyCheck(s), DoctorCheck(name: "latency", ok: true, detail: "skipped (not measured yet)", warning: false))
+        s.addedLatencyMs = 45
+        XCTAssertEqual(Doctor.latencyCheck(s), DoctorCheck(name: "latency", ok: true, detail: "eq adds 45 ms", warning: false))
+        s.addedLatencyMs = 212.4
+        let late = Doctor.latencyCheck(s)
+        XCTAssertFalse(late.ok)
+        XCTAssertTrue(late.warning)
+        XCTAssertTrue(late.detail.hasPrefix("eq adds 212 ms — "), late.detail)
+        XCTAssertTrue(late.detail.contains("45 ms"), late.detail)
+        let report = Doctor.run(probes(status: s, callbacksLater: 20))
+        XCTAssertTrue(report.ok, "a warning must not fail doctor: \(Doctor.text(report))")
+        s.state = .failed
+        XCTAssertEqual(Doctor.latencyCheck(s).detail, "skipped (engine not running)")
     }
 }

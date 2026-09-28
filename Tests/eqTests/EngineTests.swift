@@ -162,5 +162,47 @@ final class PathLatencyTests: XCTestCase {
 
     func testNoRateNoNumber() {
         XCTAssertNil(PathLatency(outputDevice: 1, outputStream: 1, buffer: 256, tapInput: 1).milliseconds(sampleRate: 0))
+        XCTAssertNil(PathLatency(outputDevice: 1, outputStream: 1, buffer: 256, tapInput: 1).deviceMilliseconds(sampleRate: 0))
+    }
+
+    func testDeviceShareIsWhatAPlayerSees() throws {
+        let latency = PathLatency(outputDevice: 9274, outputStream: 0, buffer: 256, tapInput: 9274)
+        XCTAssertEqual(try XCTUnwrap(latency.deviceMilliseconds(sampleRate: 44100)), 9274 / 44.1, accuracy: 1e-9)
+    }
+}
+
+final class IODelayTests: XCTestCase {
+    private func stamp(host: UInt64, sample: Double, flags: AudioTimeStampFlags = [.hostTimeValid, .sampleTimeValid]) -> AudioTimeStamp {
+        var t = AudioTimeStamp()
+        t.mHostTime = host
+        t.mSampleTime = sample
+        t.mFlags = flags
+        return t
+    }
+
+    /// Apple silicon's timebase: 125/3 ns per tick.
+    private let appleSilicon: (UInt64) -> UInt64 = { $0 * 125 / 3 }
+
+    func testOutputMinusInputInTicksAndFrames() throws {
+        let delay = try XCTUnwrap(IODelay.measure(input: stamp(host: 1_000, sample: 100), output: stamp(host: 1_000 + 24_000, sample: 100 + 512)))
+        XCTAssertEqual(delay, IODelay(hostTicks: 24_000, frames: 512))
+        XCTAssertEqual(delay.milliseconds(nanos: appleSilicon), 1.0, accuracy: 1e-9)
+    }
+
+    func testInvalidOrBackwardsStampsMeasureNothing() {
+        XCTAssertNil(IODelay.measure(input: stamp(host: 1, sample: 0, flags: [.sampleTimeValid]), output: stamp(host: 9, sample: 8)))
+        XCTAssertNil(IODelay.measure(input: stamp(host: 1, sample: 0), output: stamp(host: 9, sample: 8, flags: [.hostTimeValid])))
+        XCTAssertNil(IODelay.measure(input: AudioTimeStamp(), output: stamp(host: 9, sample: 8)))
+        XCTAssertNil(IODelay.measure(input: stamp(host: 9, sample: 8), output: stamp(host: 9, sample: 8)))
+    }
+
+    func testRealClockRoundTrips() {
+        let ticks = AudioConvertNanosToHostTime(10_000_000)
+        XCTAssertEqual(IODelay(hostTicks: ticks, frames: 0).milliseconds(), 10, accuracy: 0.001)
+    }
+
+    func testOnsetSecondsAddTheFrameOffset() {
+        XCTAssertEqual(IODelay.seconds(host: 24_000_000, frame: 441, sampleRate: 44100, nanos: appleSilicon), 1.01, accuracy: 1e-12)
+        XCTAssertEqual(IODelay.seconds(host: 24_000_000, frame: 441, sampleRate: 0, nanos: appleSilicon), 1.0, accuracy: 1e-12)
     }
 }

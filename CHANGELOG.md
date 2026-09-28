@@ -3,6 +3,17 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- `eq status` splits the latency: `latency 432 ms (device 210, eq adds 23)`. The device share is
+  what a video player sees and compensates for; what eq adds, measured from its own IO cycle
+  timestamps, no player can see. `eq status --json` carries it as `addedLatencyMs`, beside
+  `deviceLatencyMs`.
+- `eq doctor` warns when eq adds more than 45 ms, the most sound may trail picture before
+  viewers notice (ATSC IS-191).
+
 ## 2026.09.28.4 — 2026-09-28
 
 ### Fixed

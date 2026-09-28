@@ -74,6 +74,8 @@ final class StatusTests: XCTestCase {
         let status = try XCTUnwrap(Status.read(from: url))
         XCTAssertNil(status.latencyMs)
         XCTAssertNil(status.tapSilentSeconds)
+        XCTAssertNil(status.addedLatencyMs)
+        XCTAssertNil(status.lastOnset)
     }
 
     func testLatencyAndSilenceRoundTrip() throws {
@@ -84,6 +86,21 @@ final class StatusTests: XCTestCase {
         status.tapSilentSeconds = 42
         try status.write(to: url)
         XCTAssertEqual(Status.read(from: url), status)
+    }
+
+    func testAddedLatencyAndOnsetRoundTrip() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-status-\(UUID().uuidString)/status.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var status = sample(at: Date(timeIntervalSince1970: 1_700_000_000))
+        status.deviceLatencyMs = 210.3
+        status.addedLatencyMs = 23.2
+        status.addedLatencyFrames = 1024
+        status.lastOnset = Status.Onset(tapHostSeconds: 100.25, outputHostSeconds: 100.5, count: 3)
+        try status.write(to: url)
+        XCTAssertEqual(Status.read(from: url), status)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(json["addedLatencyMs"] as? Double, 23.2)
+        XCTAssertEqual((json["lastOnset"] as? [String: Any])?["outputHostSeconds"] as? Double, 100.5)
     }
 
     func testV2StatusWithoutWritesDecodesZero() throws {

@@ -75,6 +75,7 @@ enum Doctor {
             audio,
             engineCheck(live),
             tapCheck(refreshed),
+            latencyCheck(refreshed),
             filtersCheck(live),
         ]
         let ok = checks.allSatisfy { $0.warning || $0.ok }
@@ -167,6 +168,26 @@ enum Doctor {
         }
         return DoctorCheck(name: "tap", ok: false,
                            detail: "no audio reached the tap for \(Table.whole(silent)) s — if something is playing, check System Audio Recording permission",
+                           warning: true)
+    }
+
+    /// eq delays sound behind picture, and no player compensates for it. ATSC IS-191 allows sound to
+    /// lag by at most 45 ms end to end (EBU R37: 60 ms; its 40 ms is the limit for sound leading).
+    static let addedLatencyLimitMs = 45.0
+
+    static func latencyCheck(_ live: Status?) -> DoctorCheck {
+        guard let live, live.state == .running || live.state == .bypassed else {
+            return DoctorCheck(name: "latency", ok: true, detail: "skipped (engine not running)", warning: false)
+        }
+        guard let added = live.addedLatencyMs else {
+            return DoctorCheck(name: "latency", ok: true, detail: "skipped (not measured yet)", warning: false)
+        }
+        let detail = "eq adds \(Table.whole(added)) ms"
+        guard added > addedLatencyLimitMs else {
+            return DoctorCheck(name: "latency", ok: true, detail: detail, warning: false)
+        }
+        return DoctorCheck(name: "latency", ok: false,
+                           detail: detail + " — video players do not compensate for it, so sound trails lips past the \(Table.whole(addedLatencyLimitMs)) ms that viewers notice",
                            warning: true)
     }
 

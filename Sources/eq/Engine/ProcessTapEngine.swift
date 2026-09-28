@@ -73,6 +73,36 @@ struct PathLatency: Equatable {
         let frames = Double(outputDevice) + Double(outputStream) + 2 * Double(buffer) + Double(tapInput)
         return frames / sampleRate * 1000
     }
+
+    /// What a player sees on the device and compensates for without eq.
+    func deviceMilliseconds(sampleRate: Double) -> Double? {
+        guard sampleRate > 0 else { return nil }
+        return (Double(outputDevice) + Double(outputStream)) / sampleRate * 1000
+    }
+}
+
+/// How long one IO cycle holds a sample: from the time the tap delivered it to the time eq hands it
+/// to the output, both read from the aggregate's own timestamps.
+struct IODelay: Equatable {
+    var hostTicks: UInt64
+    var frames: Double
+
+    static func measure(input: AudioTimeStamp, output: AudioTimeStamp) -> IODelay? {
+        let valid: AudioTimeStampFlags = [.hostTimeValid, .sampleTimeValid]
+        guard input.mFlags.contains(valid), output.mFlags.contains(valid),
+              output.mHostTime > input.mHostTime else { return nil }
+        return IODelay(hostTicks: output.mHostTime - input.mHostTime, frames: output.mSampleTime - input.mSampleTime)
+    }
+
+    func milliseconds(nanos: (UInt64) -> UInt64 = AudioConvertHostTimeToNanos) -> Double {
+        Double(nanos(hostTicks)) / 1_000_000
+    }
+
+    /// Host time as seconds on the clock every process shares, `frame` samples after `host`.
+    static func seconds(host: UInt64, frame: Int, sampleRate: Double,
+                        nanos: (UInt64) -> UInt64 = AudioConvertHostTimeToNanos) -> Double {
+        Double(nanos(host)) / 1_000_000_000 + (sampleRate > 0 ? Double(frame) / sampleRate : 0)
+    }
 }
 
 /// Signal path: muted global tap (silences original output) → aggregate device
@@ -99,6 +129,28 @@ final class ProcessTapEngine {
     /// Callbacks whose tap input carried a non-zero sample; stops advancing when nothing reaches the tap.
     private(set) var signalCallbacks: UInt64 = 0
     private(set) var latencyMs: Double?
+    private(set) var deviceLatencyMs: Double?
+    private var ioDelayTicks: UInt64 = 0
+    private var ioDelayFrames: Double = 0
+    /// The first sample after silence, as the tap stamped it and as eq sends it on: a click played
+    /// by another process lines up against these to measure what the whole tap path adds.
+    private var onsets: UInt64 = 0
+    private var onsetInputHost: UInt64 = 0
+    private var onsetOutputHost: UInt64 = 0
+    private var onsetFrame = 0
+
+    var addedLatency: IODelay? {
+        let ticks = ioDelayTicks
+        return ticks == 0 ? nil : IODelay(hostTicks: ticks, frames: ioDelayFrames)
+    }
+
+    var lastOnset: Status.Onset? {
+        guard onsets > 0 else { return nil }
+        let rate = processor.sampleRate
+        return Status.Onset(tapHostSeconds: IODelay.seconds(host: onsetInputHost, frame: onsetFrame, sampleRate: rate),
+                            outputHostSeconds: IODelay.seconds(host: onsetOutputHost, frame: onsetFrame, sampleRate: rate),
+                            count: onsets)
+    }
 
     private var tapID: AudioObjectID = 0
     private var aggregateID: AudioObjectID = 0
@@ -228,8 +280,8 @@ final class ProcessTapEngine {
         // 3. IOProc: tapped audio arrives as input, processed audio leaves as output.
         silentFrames = 0
         isSilenceGated = false
-        status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, nil) { [weak self] _, inInputData, _, outOutputData, _ in
-            self?.render(input: inInputData, output: outOutputData)
+        status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, nil) { [weak self] _, inInputData, inInputTime, outOutputData, inOutputTime in
+            self?.render(input: inInputData, output: outOutputData, inputTime: inInputTime.pointee, outputTime: inOutputTime.pointee)
         }
         guard status == noErr, let ioProcID else {
             cleanup()
@@ -249,12 +301,15 @@ final class ProcessTapEngine {
             return
         }
 
-        latencyMs = PathLatency(
+        let path = PathLatency(
             outputDevice: AudioDeviceManager.latencyFrames(device: deviceID, scope: kAudioDevicePropertyScopeOutput),
             outputStream: AudioDeviceManager.firstOutputStreamLatencyFrames(deviceID),
             buffer: UInt32(ioBufferFrames),
             tapInput: AudioDeviceManager.latencyFrames(device: aggregateID, scope: kAudioDevicePropertyScopeInput)
-        ).milliseconds(sampleRate: sampleRate)
+        )
+        latencyMs = path.milliseconds(sampleRate: sampleRate)
+        deviceLatencyMs = path.deviceMilliseconds(sampleRate: sampleRate)
+        Log.write("path latency frames: \(path)")
         installSampleRateListener(on: deviceID)
         transition(to: .running)
     }
@@ -267,6 +322,10 @@ final class ProcessTapEngine {
         callbacks = 0
         signalCallbacks = 0
         latencyMs = nil
+        deviceLatencyMs = nil
+        ioDelayTicks = 0
+        ioDelayFrames = 0
+        onsets = 0
         processor.solo = nil
         if state != .stopped { transition(to: .stopped) }
     }
@@ -352,8 +411,13 @@ final class ProcessTapEngine {
 
     // MARK: - Render path (audio thread)
 
-    func render(input: UnsafePointer<AudioBufferList>, output: UnsafeMutablePointer<AudioBufferList>) {
+    func render(input: UnsafePointer<AudioBufferList>, output: UnsafeMutablePointer<AudioBufferList>,
+                inputTime: AudioTimeStamp, outputTime: AudioTimeStamp) {
         callbacks &+= 1
+        if let delay = IODelay.measure(input: inputTime, output: outputTime) {
+            ioDelayFrames = delay.frames
+            ioDelayTicks = delay.hostTicks
+        }
         let inputList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         let outputList = UnsafeMutableAudioBufferListPointer(output)
         guard inputList.count > 0, outputList.count > 0 else {
@@ -386,14 +450,20 @@ final class ProcessTapEngine {
         // raw AudioBuffer storage as one contiguous vDSP vector is incorrect for
         // layouts with padding or a channel stride and can leave the engine
         // permanently gated after playback resumes.
-        var inputHasSignal = false
-        signalSearch: for channel in inputChannels {
-            for frame in 0..<frameCount where channel.pointer[frame * channel.stride] != 0 {
-                inputHasSignal = true
+        var firstSignalFrame = -1
+        signalSearch: for frame in 0..<frameCount {
+            for channel in inputChannels where channel.pointer[frame * channel.stride] != 0 {
+                firstSignalFrame = frame
                 break signalSearch
             }
         }
-        if inputHasSignal {
+        if firstSignalFrame >= 0 {
+            if silentFrames + firstSignalFrame >= Int(processor.sampleRate) / 10 {
+                onsetInputHost = inputTime.mHostTime
+                onsetOutputHost = outputTime.mHostTime
+                onsetFrame = firstSignalFrame
+                onsets &+= 1
+            }
             signalCallbacks &+= 1
             silentFrames = 0
             isSilenceGated = false
