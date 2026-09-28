@@ -10,6 +10,7 @@ enum WatchAction: Equatable {
     case focusNext, focusPrevious, unfocus, listen
     /// A key's step for the focused instrument's knob; `boost` is that step once the focus names it.
     case knob(Double), boost(String, Double)
+    case cycleComp, cycleColour, colourAmount
 }
 
 enum WatchKeys {
@@ -46,6 +47,9 @@ enum WatchKeys {
         case "l", "L", "д", "Д": return .listen
         case ".", ">", "ю", "Ю": return .knob(step)
         case ",", "<", "б", "Б": return .knob(-step)
+        case "c", "C", "с", "С": return .cycleComp
+        case "v", "м": return .cycleColour
+        case "V", "М": return .colourAmount
         case "\u{1B}": return .unfocus
         default: break
         }
@@ -148,7 +152,7 @@ struct KeyBuffer {
 enum HintBox {
     static let width = 29
     private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "b bass", "t treble", "p ↑↓ preset", "u undo", "s save",
-                                          "z zones", "[ ] focus", "← → boost", "l listen", "h help", "q quit"]
+                                          "c comp", "v color", "z zones", "[ ] focus", "← → boost", "l listen", "h help", "q quit"]
 
     /// Whole segments drop from the right to fit `width`, except `q quit`: the way out always shows.
     static func compact(width: Int) -> String {
@@ -165,6 +169,7 @@ enum HintBox {
         [("b t", "bass/treble, ⇧ down")],
         [("p ↑↓", "preset  "), ("u", "undo")],
         [("s", "save as preset")],
+        [("c v", "comp/color, ⇧v amt")],
         [("z", "zones   "), ("h", "this hint")],
         [("[ ]", "focus   "), ("l", "listen")],
         [("← →", "focused one ±0.5")],

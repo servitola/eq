@@ -528,6 +528,7 @@ enum CLI {
         let enabled = Paint.ink(status.enabled ? .green : .yellow, "\(status.enabled)")
         lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
         if let text = ringText(status) { lines.append("\(label("ring")) \(text)") }
+        if let reduction = status.compReductionDB { lines.append("\(label("comp")) \(Paint.ink(.yellow, String(format: "%.1f dB", reduction)))") }
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
@@ -658,7 +659,8 @@ enum CLI {
         func header() -> Watch.Header {
             guard let config = try? loadConfig(ctx), let target = try? currentDevice(ctx) else { return Watch.Header() }
             let profile = config.profile(forDeviceUID: target.uid).profile
-            return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments)
+            return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments,
+                                dynamics: profile.dynamics)
         }
 
         func apply(_ action: WatchAction) throws {
@@ -701,6 +703,18 @@ enum CLI {
                 profile.setPreference { $0.treble = stepped($0.treble, delta, Config.gainRange) }
             case .boost(let instrument, let delta):
                 profile.setKnob(instrument) { stepped($0, delta, Config.gainRange) }
+            case .cycleComp:
+                profile.setDynamics { $0.comp = Self.next($0.comp, in: Dynamics.Compressor.allCases) }
+            case .cycleColour:
+                profile.setDynamics { layer in
+                    layer.color = Self.next(layer.color?.kind, in: Dynamics.ColourKind.allCases)
+                        .map { .init(kind: $0, amount: layer.color?.amount ?? Self.colourStart) }
+                }
+            case .colourAmount:
+                guard let colour = profile.dynamics?.color else { throw Note(description: "color is off — v turns it on") }
+                // Up a tenth at a time, and from 1 round to 0.1: one key covers the whole range.
+                let amount = colour.amount >= 1 ? 0.1 : ((colour.amount * 10).rounded(.down) + 1) / 10
+                profile.setDynamics { $0.color?.amount = amount }
             case .cyclePreset, .previousPreset:
                 _ = config.seedPresetsIfNeeded()
                 let names = (config.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
@@ -716,6 +730,14 @@ enum CLI {
                 return nil
             }
             return profile == before ? nil : profile
+        }
+
+        static let colourStart = 0.3
+
+        /// Off, then each case in turn, then off again.
+        private static func next<T: Equatable>(_ current: T?, in cases: [T]) -> T? {
+            guard let current, let at = cases.firstIndex(of: current) else { return cases.first }
+            return at + 1 < cases.count ? cases[at + 1] : nil
         }
 
         /// A session edit may skip the backup only while the file is still what this session last

@@ -171,3 +171,104 @@ final class DynamicsCLITests: XCTestCase {
         XCTAssertEqual(CommandHelp.form(matching: ["color", "tube", "0.5"])?.writes, true)
     }
 }
+
+final class DynamicsWatchTests: XCTestCase {
+    private var dir: URL!
+    private var context: CLIContext!
+
+    override func setUpWithError() throws {
+        Paint.forced = false
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-dynwatch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        context = CLIContext(
+            store: ConfigStore(url: dir.appendingPathComponent("eq.json")),
+            statusURL: dir.appendingPathComponent("status.json"),
+            connectedDevices: { [("BUILTIN", "MacBook Pro Speakers", "builtin")] },
+            defaultOutput: { ("BUILTIN", "MacBook Pro Speakers") },
+            fetch: { _ in throw URLError(.notConnectedToInternet) },
+            cacheDirectory: dir.appendingPathComponent("cache"),
+            today: { "2026-09-28" })
+        _ = CLI.run(["init"], context: context)
+    }
+
+    override func tearDownWithError() throws {
+        Paint.forced = nil
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func layer() throws -> Dynamics? {
+        try context.store.load().devices["BUILTIN"]?.dynamics
+    }
+
+    func testKeysOnBothLayouts() {
+        for key in ["c", "C", "с", "С"] { XCTAssertEqual(WatchKeys.action(for: key), .cycleComp, key) }
+        for key in ["v", "м"] { XCTAssertEqual(WatchKeys.action(for: key), .cycleColour, key) }
+        for key in ["V", "М"] { XCTAssertEqual(WatchKeys.action(for: key), .colourAmount, key) }
+    }
+
+    func testSessionCyclesModesAndAmount() throws {
+        let session = CLI.WatchSession(context)
+        XCTAssertThrowsError(try session.apply(.colourAmount))
+        try session.apply(.cycleComp)
+        XCTAssertEqual(try layer()?.comp, .gentle)
+        try session.apply(.cycleComp)
+        XCTAssertEqual(try layer()?.comp, .night)
+        try session.apply(.cycleComp)
+        XCTAssertNil(try layer())
+
+        try session.apply(.cycleColour)
+        XCTAssertEqual(try layer()?.color, .init(kind: .tape, amount: 0.3))
+        try session.apply(.colourAmount)
+        XCTAssertEqual(try layer()?.color, .init(kind: .tape, amount: 0.4))
+        try session.apply(.cycleColour)
+        XCTAssertEqual(try layer()?.color, .init(kind: .tube, amount: 0.4))
+        for _ in 0..<6 { try session.apply(.colourAmount) }
+        XCTAssertEqual(try layer()?.color?.amount, 1)
+        try session.apply(.colourAmount)
+        XCTAssertEqual(try layer()?.color?.amount, 0.1)
+        XCTAssertEqual(session.header().dynamics, Dynamics(color: .init(kind: .tube, amount: 0.1)))
+        try session.apply(.cycleColour)
+        XCTAssertNil(try layer())
+
+        for _ in 0..<14 { try session.apply(.undo) }
+        XCTAssertNil(try layer())
+        XCTAssertThrowsError(try session.apply(.undo))
+    }
+
+    func testHeaderShowsTheLiveReductionAndTheColour() {
+        var f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
+                           gains: [], preamp: 0, enabled: true, comp: -3.24)
+        let layout = WatchLayout.fit(cols: 140, rows: 30)
+        let dynamics = Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3))
+        XCTAssertTrue(Watch.frame(f, layout: layout, dynamics: dynamics)[0].contains("preamp +0.0 dB · night comp -3.2 · tape 0.3 · peak"))
+        f.comp = nil
+        XCTAssertTrue(Watch.frame(f, layout: layout, dynamics: dynamics)[0].contains("· night comp · tape 0.3 ·"))
+        XCTAssertFalse(Watch.frame(f, layout: layout)[0].contains("comp"))
+    }
+
+    func testHintNamesTheKeys() {
+        XCTAssertTrue(HintBox.rows.contains { $0.contains("comp/color, ⇧v amt") })
+        XCTAssertTrue(HintBox.compact(width: 400).contains("c comp · v color"))
+    }
+
+    func testFrameAndStatusCarryTheReductionOnlyWhileItRuns() throws {
+        let off = MeterFrame(t: 0, device: nil, rate: 48000, in: [], out: [], peak: 0, limiting: false, gains: [], preamp: 0, enabled: true)
+        XCTAssertFalse(String(decoding: try MeterFrame.encodeLine(off), as: UTF8.self).contains("comp"))
+        var on = off
+        on.comp = -2.5
+        let line = try MeterFrame.encodeLine(on)
+        XCTAssertTrue(String(decoding: line, as: UTF8.self).contains(#""comp":-2.5"#))
+        XCTAssertEqual(try JSONDecoder().decode(MeterFrame.self, from: line), on)
+
+        var status = Status(state: .running, device: .init(uid: "BUILTIN", name: "MacBook Pro Speakers", transport: "builtin"),
+                            sampleRate: 48000, profile: .device, framesProcessed: 1, callbacks: 1, writes: 1, enabled: true,
+                            error: nil, pid: getpid(), version: "dev", updatedAt: Date())
+        status.compReductionDB = -3.2
+        try status.write(to: context.statusURL)
+        XCTAssertEqual(Status.read(from: context.statusURL)?.compReductionDB, -3.2)
+        let text = CLI.run(["status"], context: context).output
+        XCTAssertTrue(text.contains("comp: -3.2 dB"), text)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(CLI.run(["status", "--json"], context: context).output.utf8)) as? [String: Any])
+        XCTAssertEqual(json["compReductionDB"] as? Double, -3.2)
+    }
+}

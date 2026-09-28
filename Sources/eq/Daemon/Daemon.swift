@@ -335,7 +335,14 @@ final class Daemon {
             enabled: config.enabled,
             // The daemon's copy, not the processor's: a rebuild clears the processor's for a moment,
             // and the watch would blink SOLO off and on.
-            solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: processor.sampleRate) })
+            solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: processor.sampleRate) },
+            comp: compReduction(profile).map(MeterFrame.round1))
+    }
+
+    /// Only while a compressor runs: a bypassed or compressor-less curve has no reduction to report.
+    private func compReduction(_ profile: Profile?) -> Double? {
+        guard config.enabled, engine.state == .running, profile?.dynamics?.comp != nil else { return nil }
+        return Double(engine.processor.compressorReductionDB)
     }
 
     // MARK: - Engine
@@ -702,7 +709,8 @@ final class Daemon {
             lastOnset: running ? engine.lastOnset : nil,
             underruns: running ? engine.underruns : nil,
             overruns: running ? engine.overruns : nil,
-            dropouts: running ? engine.dropouts : nil)
+            dropouts: running ? engine.dropouts : nil,
+            compReductionDB: compReduction(device.map { config.profile(forDeviceUID: $0.uid).profile }).map(MeterFrame.round1))
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

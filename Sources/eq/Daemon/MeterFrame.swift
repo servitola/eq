@@ -18,6 +18,8 @@ struct MeterFrame: Codable, Equatable {
     var preamp: Double
     var enabled: Bool
     var solo: SoloRange? = nil
+    /// The compressor's gain change in dB, 0 or below; absent while it is off.
+    var comp: Double? = nil
 
     // Written by hand only so an inactive solo goes out as an explicit `null`; the synthesized
     // encoder would omit the key.
@@ -34,6 +36,7 @@ struct MeterFrame: Codable, Equatable {
         try c.encode(preamp, forKey: .preamp)
         try c.encode(enabled, forKey: .enabled)
         try c.encode(solo, forKey: .solo)
+        try c.encodeIfPresent(comp, forKey: .comp)
     }
 
     private static let encoder: JSONEncoder = {
