@@ -36,7 +36,7 @@ final class DoctorTests: XCTestCase {
     func testAllGreen() {
         let report = Doctor.run(probes(status: running(), callbacksLater: 20))
         XCTAssertTrue(report.ok, Doctor.text(report))
-        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "filters"])
+        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "hooks", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "filters"])
         XCTAssertTrue(report.checks.allSatisfy(\.ok))
     }
 
@@ -259,5 +259,41 @@ final class DoctorTests: XCTestCase {
         let report = Doctor.run(p)
         XCTAssertTrue(report.ok)
         XCTAssertEqual(report.checks.first { $0.name == "launch agent" }!.detail, "skipped (EQ_SMOKE)")
+    }
+
+    private func hooksCheck(_ hooks: [String: String]?) -> DoctorCheck {
+        var p = probes(status: running(), callbacksLater: 20)
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.hooks = hooks
+        p.loadConfig = { config }
+        return Doctor.run(p).checks.first { $0.name == "hooks" }!
+    }
+
+    func testHooksCheckFlagsMissingAndNonExecutableAbsolutePaths() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-doctor-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let script = dir.appendingPathComponent("on device.sh")
+        FileManager.default.createFile(atPath: script.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o644])
+
+        XCTAssertEqual(hooksCheck(nil), DoctorCheck(name: "hooks", ok: true, detail: "none", warning: false))
+        XCTAssertEqual(hooksCheck(["device": "osascript -e 'beep'", "preset": "/bin/echo \"$EQ_PRESET\""]),
+                       DoctorCheck(name: "hooks", ok: true, detail: "device, preset", warning: false))
+
+        let bad = hooksCheck(["device": "'\(script.path)' --now", "preset": "\(dir.path)/gone.sh", "volume": "true"])
+        XCTAssertFalse(bad.ok)
+        XCTAssertTrue(bad.warning, "a hook never affects audio, so it cannot fail the doctor")
+        XCTAssertEqual(bad.detail, "unknown hook \"volume\" is ignored; device: \(script.path) is not executable; preset: \(dir.path)/gone.sh does not exist")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        XCTAssertTrue(hooksCheck(["device": "\"\(script.path)\""]).ok)
+    }
+
+    func testProgramOfACommand() {
+        XCTAssertEqual(Doctor.program(of: "  /usr/bin/say hi"), "/usr/bin/say")
+        XCTAssertEqual(Doctor.program(of: "'/a b/c' x"), "/a b/c")
+        XCTAssertEqual(Doctor.program(of: "\"/a b/c"), "/a b/c")
+        XCTAssertEqual(Doctor.program(of: "echo"), "echo")
+        XCTAssertNil(Doctor.program(of: "   "))
     }
 }

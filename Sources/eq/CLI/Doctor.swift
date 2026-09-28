@@ -80,6 +80,7 @@ enum Doctor {
         let checks = [
             macOSCheck(probes),
             configCheck(probes),
+            hooksCheck(probes),
             outputCheck(probes),
             daemonCheck(live),
             permissionCheck(live),
@@ -117,6 +118,37 @@ enum Doctor {
         } catch {
             return DoctorCheck(name: "config", ok: false, detail: "\(error)", warning: false)
         }
+    }
+
+    private static func hooksCheck(_ probes: DoctorProbes) -> DoctorCheck {
+        guard let hooks = (try? probes.loadConfig())?.hooks, !hooks.isEmpty else {
+            return DoctorCheck(name: "hooks", ok: true, detail: "none", warning: false)
+        }
+        var problems = Hooks.unknown(in: hooks).map { "unknown hook \"\($0)\" is ignored" }
+        for (name, command) in hooks.sorted(by: { $0.key < $1.key }) where Hooks.known.contains(name) {
+            guard let program = program(of: command), program.hasPrefix("/") else { continue }
+            if !FileManager.default.fileExists(atPath: program) {
+                problems.append("\(name): \(program) does not exist")
+            } else if !FileManager.default.isExecutableFile(atPath: program) {
+                problems.append("\(name): \(program) is not executable")
+            }
+        }
+        guard problems.isEmpty else {
+            return DoctorCheck(name: "hooks", ok: false, detail: problems.joined(separator: "; "), warning: true)
+        }
+        return DoctorCheck(name: "hooks", ok: true, detail: hooks.keys.sorted().joined(separator: ", "), warning: false)
+    }
+
+    /// The command's first word, unquoted; nil when it is empty. Only an absolute path can be
+    /// checked: anything else is a builtin or found on the hook's own PATH.
+    static func program(of command: String) -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.first else { return nil }
+        if first == "\"" || first == "'" {
+            let rest = trimmed.dropFirst()
+            return String(rest.prefix { $0 != first })
+        }
+        return String(trimmed.prefix { !$0.isWhitespace })
     }
 
     private static func outputCheck(_ probes: DoctorProbes) -> DoctorCheck {
