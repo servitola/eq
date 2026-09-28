@@ -248,6 +248,20 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertNil(try ctx.store.stepBack(), "nothing further back than the pre-session config")
     }
 
+    func testAnEditFromAnotherCommandBetweenWatchSavesIsBackedUp() throws {
+        let ctx = try context()
+        let session = CLI.WatchSession(ctx)
+        try session.apply(.preamp(-1))
+        var other = try ctx.store.load()
+        var profile = other.profile(forDeviceUID: "SPK").profile
+        profile.preamp = -7
+        other.setProfile(profile, forDeviceUID: "SPK")
+        try ctx.store.save(other)
+        try session.apply(.bandStep(0, 0.5))
+        let preamps = ctx.store.backups().map { try? ctx.store.load(backup: $0.index).profile(forDeviceUID: "SPK").profile.preamp }
+        XCTAssertTrue(preamps.contains(-7), "eq set's -7 must stay in history, got \(preamps)")
+    }
+
     func testAWatchEditAfterAnUndoElsewhereSurvivesRedo() throws {
         let ctx = try context()
         let session = CLI.WatchSession(ctx)

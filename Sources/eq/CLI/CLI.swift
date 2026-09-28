@@ -484,7 +484,7 @@ enum CLI {
 
         private let ctx: CLIContext
         private var history: [(uid: String, profile: Profile?)] = []
-        private var backedUp = false
+        private var lastSaved: Config?
 
         init(_ ctx: CLIContext) { self.ctx = ctx }
 
@@ -504,7 +504,7 @@ enum CLI {
             if case .undo = action {
                 guard let last = history.popLast() else { throw Note(description: "nothing left to undo in this session") }
                 config.devices[last.uid] = last.profile
-                try save(config)
+                try save(config, over: original)
                 return
             }
             let target = try currentDevice(ctx)
@@ -516,7 +516,7 @@ enum CLI {
                 config.setProfile(profile, forDeviceUID: target.uid)
             }
             guard config != original else { return }
-            try save(config)
+            try save(config, over: original)
             if config.devices[target.uid] != before { history.append((target.uid, before)) }
         }
 
@@ -553,9 +553,11 @@ enum CLI {
             return profile == before ? nil : profile
         }
 
-        private func save(_ config: Config) throws {
-            try ctx.store.save(config, as: backedUp ? .sessionEdit : .edit)
-            backedUp = true
+        /// A session edit may skip the backup only while the file is still what this session last
+        /// wrote; anything another command or a hand edit put there in between must be backed up.
+        private func save(_ config: Config, over original: Config) throws {
+            try ctx.store.save(config, as: lastSaved != nil && original == lastSaved ? .sessionEdit : .edit)
+            lastSaved = config
         }
     }
 
