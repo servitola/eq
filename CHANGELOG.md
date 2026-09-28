@@ -16,6 +16,8 @@ its entries under a dated version.
 - AutoEq's `FixedBandEQ.txt` sets the ten bands instead of adding ten filters.
 - REW's text export (with its header and `ON None` slots) and squig.link's (CRLF, `Channel:
   L`/`R`) import. The README has a new Formats section listing what imports.
+- `eq import` reads eqMac's preset export (Advanced presets set the ten bands, Expert presets
+  become filters) and Poweramp's preset JSON (graphic sliders or parametric bands).
 
 ### Changed
 

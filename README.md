@@ -365,6 +365,13 @@ backend of its own site, with no stated terms.
   `ON None` empty slots.
 - **squig.link**, **peqdb** and **SoundSource** headphone-EQ text, which are the same grammar;
   squig.link's CRLF line endings and `Channel: L`/`Channel: R` blocks included.
+- **eqMac** preset export (JSON). An Advanced preset's ten gains are eqMac's ten bands, the
+  same centres as eq's, and its global gain is the preamp; gains beyond ±12 dB come in as ten
+  peak filters instead, so the curve still sounds the same. An Expert preset's bands become
+  filters, bandwidth in octaves turned into Q. A file of several presets imports the first.
+- **Poweramp** preset (JSON). Graphic mode's sliders become the ten bands (other slider counts
+  are reduced to ten), its tone shelves come in only when they are not at 0 dB; parametric mode
+  keeps every band as a filter. Bands for one channel only are skipped.
 
 `Channel:` scopes what follows, as in APO. eq is one curve for both ears, so it imports the
 left channel and warns when the right one differs; filters only for other channels (`C`,
