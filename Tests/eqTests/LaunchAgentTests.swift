@@ -256,6 +256,17 @@ final class LaunchAgentTests: XCTestCase {
     }
 }
 
+final class AutoStartTests: XCTestCase {
+    private let installed = URL(fileURLWithPath: "/Applications/EQ.app")
+
+    func testOnlyTheInstalledAppOfARegularUser() {
+        XCTAssertTrue(LiveLaunchAgent.autoStarts(environment: [:], bundle: installed, uid: 501))
+        XCTAssertFalse(LiveLaunchAgent.autoStarts(environment: [:], bundle: installed, uid: 0), "root has no gui domain to register in")
+        XCTAssertFalse(LiveLaunchAgent.autoStarts(environment: ["EQ_CONFIG": "/tmp/eq.json"], bundle: installed, uid: 501))
+        XCTAssertFalse(LiveLaunchAgent.autoStarts(environment: [:], bundle: URL(fileURLWithPath: "/Users/someone/eq/build/EQ.app"), uid: 501))
+    }
+}
+
 final class AgentCLITests: XCTestCase {
     private var dir: URL!
     private var context: CLIContext!

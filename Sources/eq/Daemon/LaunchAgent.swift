@@ -284,10 +284,11 @@ final class LiveLaunchAgent: LaunchAgentControl {
     }
 
     /// Only an installed EQ.app starts its own daemon: a build in a checkout or a sandboxed
-    /// run (EQ_CONFIG, EQ_STATUS — the smoke test) must not register a login item.
-    static func autoStarts(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        guard ["EQ_CONFIG", "EQ_STATUS"].allSatisfy({ (environment[$0] ?? "").isEmpty }) else { return false }
-        let bundle = Bundle.main.bundleURL
+    /// run (EQ_CONFIG, EQ_STATUS — the smoke test) must not register a login item, and root
+    /// (sudo eq) has no login session of its own to register one in.
+    static func autoStarts(environment: [String: String] = ProcessInfo.processInfo.environment,
+                           bundle: URL = Bundle.main.bundleURL, uid: uid_t = getuid()) -> Bool {
+        guard uid != 0, ["EQ_CONFIG", "EQ_STATUS"].allSatisfy({ (environment[$0] ?? "").isEmpty }) else { return false }
         return bundle.pathExtension == "app" && bundle.deletingLastPathComponent().lastPathComponent == "Applications"
     }
 
