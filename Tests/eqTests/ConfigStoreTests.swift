@@ -9,6 +9,12 @@ final class ConfigStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
+    private static var changed: Config {
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.enabled = false
+        return config
+    }
+
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: dir)
     }
@@ -97,7 +103,7 @@ final class ConfigStoreTests: XCTestCase {
         watcher.start()
         defer { watcher.stop() }
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("config").path))
-        try store.save(Config.initial(builtInUID: nil, builtInName: nil))
+        try store.save(Self.changed)
         wait(for: [fired], timeout: 2)
     }
 
@@ -114,7 +120,33 @@ final class ConfigStoreTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.3)
         let saved = expectation(description: "save seen")
         lock.lock(); pending = saved; lock.unlock()
-        try store.save(Config.initial(builtInUID: nil, builtInName: nil))
+        try store.save(Self.changed)
+        wait(for: [saved], timeout: 2)
+    }
+
+    func testWatcherFollowsADirectoryReplacedUnderIt() throws {
+        let store = ConfigStore(url: dir.appendingPathComponent("eq/eq.json"))
+        let files = FileManager.default
+        try files.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staged = dir.appendingPathComponent("eq.staged")
+        try files.createDirectory(at: staged, withIntermediateDirectories: true)
+        let lock = NSLock()
+        var pending: XCTestExpectation?
+        let queue = DispatchQueue(label: "test")
+        let watcher = ConfigWatcher(url: store.url, queue: queue, debounce: 0.05) {
+            lock.lock(); pending?.fulfill(); pending = nil; lock.unlock()
+        }
+        watcher.start()
+        defer { watcher.stop() }
+        // Both moves land before the watcher sees the first event, so the path it re-checks already exists again.
+        queue.suspend()
+        try files.moveItem(at: store.url.deletingLastPathComponent(), to: dir.appendingPathComponent("eq.old"))
+        try files.moveItem(at: staged, to: store.url.deletingLastPathComponent())
+        queue.resume()
+        Thread.sleep(forTimeInterval: 0.3)
+        let saved = expectation(description: "save seen")
+        lock.lock(); pending = saved; lock.unlock()
+        try store.save(Self.changed)
         wait(for: [saved], timeout: 2)
     }
 }

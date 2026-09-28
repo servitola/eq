@@ -11,7 +11,8 @@ its entries under a dated version.
   needed: every command reads the default curve `eq init` would write, and the first change
   writes `~/.config/eq/eq.json`. `eq history` says there is no history yet, `eq doctor` shows
   `config — defaults (no file yet)`, `--dry-run` compares against the defaults, and the daemon
-  runs on them without writing anything, picking up the file whenever it appears. Deleting
+  runs on them without writing anything, picking up the file whenever it appears, even into a
+  config directory replaced wholesale. Deleting
   `eq.json` now means the defaults again. `eq init` is optional.
 - EQ.app carries its own LaunchAgent and registers it as the login item "EQ": the cask does it
   on install, and any `eq` command does it when no daemon runs, printing one dim line the
