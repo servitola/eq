@@ -14,6 +14,15 @@ its entries under a dated version.
   exported as peak filters and read back by `eq import` of eq's own JSON. `eq` prints a
   `boost:` line when any is set.
 
+### Fixed
+
+- `eq watch` keys work while the daemon sends no frames: input and the meter socket are
+  waited on together.
+- Esc followed quickly by `[` or `O` no longer waits for an escape sequence and swallows the
+  next key.
+- Focusing another instrument while listening and while the device settles at 0 Hz no longer
+  leaves the watch listening without a solo: it asks again once the rate arrives.
+
 ## 2026.09.28 — 2026-09-28
 
 ### Added

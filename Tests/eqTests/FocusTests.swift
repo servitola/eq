@@ -73,7 +73,7 @@ final class FocusTests: XCTestCase {
         XCTAssertEqual(WatchKeys.actions(for: "\u{1B}OA"), [.previousPreset])
         XCTAssertEqual(WatchKeys.actions(for: "\u{1B}OB"), [.cyclePreset])
         XCTAssertEqual(WatchKeys.actions(for: "\u{1B}[B\u{1B}[B"), [.cyclePreset, .cyclePreset])
-        for reserved in ["\u{1B}[C", "\u{1B}[D", "\u{1B}OC", "\u{1B}[15~", "\u{1B}[1;2P", "\u{1B}[", "\u{1B}x"] {
+        for reserved in ["\u{1B}[C", "\u{1B}[D", "\u{1B}OC", "\u{1B}[15~", "\u{1B}[1;2P", "\u{1B}x"] {
             XCTAssertEqual(WatchKeys.actions(for: reserved), [], reserved.debugDescription)
         }
         XCTAssertEqual(WatchKeys.actions(for: "1\u{1B}[Aq"), [.bandStep(0, 0.5), .previousPreset, .quit])

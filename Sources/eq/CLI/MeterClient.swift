@@ -7,6 +7,10 @@ final class MeterClient {
 
     private let socketURL: URL
     private var fd: Int32 = -1
+    /// Also waited on by `lines`: when it has something to read, or nothing arrived for `idle`
+    /// seconds, `handle` gets an empty line, so keys work while the daemon sends no frames.
+    var input: Int32?
+    static let idle = 0.1
 
     init(socketURL: URL) { self.socketURL = socketURL }
 
@@ -47,7 +51,22 @@ final class MeterClient {
         var pending = Data()
         var delivered = 0
         var chunk = [UInt8](repeating: 0, count: 4096)
+        var input = self.input
         while true {
+            if let watched = input {
+                var fds = [pollfd(fd: fd, events: Int16(POLLIN), revents: 0), pollfd(fd: watched, events: Int16(POLLIN), revents: 0)]
+                let ready = poll(&fds, 2, Int32(Self.idle * 1000))
+                if ready < 0 {
+                    if errno != EINTR { input = nil }
+                    continue
+                }
+                // A hung-up terminal stays readable forever; stop waiting on it rather than spin.
+                if fds[1].revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0 { input = nil }
+                if fds[0].revents == 0 {
+                    guard handle("") else { return false }
+                    continue
+                }
+            }
             let n = read(fd, &chunk, chunk.count)
             guard n > 0 else { return true }
             pending.append(contentsOf: chunk[0..<n])

@@ -278,7 +278,8 @@ it. Switching focus moves the solo to the new instrument. `l` again, `Esc` and `
 off; so does the watch going away in any other way, since the daemon drops a solo the moment
 the client that asked for it disconnects. At a rate too low for the focus (air on a headset
 in call mode) the footer says `can't listen to air at this rate` and nothing plays solo until
-the focus moves to an instrument the rate can carry. A solo is never saved and never reaches `eq.json`.
+the focus moves to an instrument the rate can carry. A solo asked for while the device is
+still settling at 0 Hz is asked for again once the rate arrives. A solo is never saved and never reaches `eq.json`.
 It is the curve you hear through, not a second curve: the EQ stays one curve per device.
 
 Each instrument has a knob for what the watch's focus only shows: `eq boost voice +3` adds

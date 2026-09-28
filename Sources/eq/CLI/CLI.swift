@@ -457,6 +457,7 @@ enum CLI {
         try Watch.requireTerminal(isTTY: terminal.isTTY)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
+        client.input = 0
         LiveTerminal.enterRaw()
         let marker = hintOffMarker(ctx)
         let session = WatchSession(ctx)

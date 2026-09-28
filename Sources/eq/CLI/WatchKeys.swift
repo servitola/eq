@@ -49,8 +49,9 @@ enum WatchKeys {
 
     /// Complete keys as `KeyBuffer` hands them over. ↑/↓ arrive as `ESC [ A`/`B`, or `ESC O A`/`B`
     /// when the terminal is in application-cursor mode; any other escape sequence is skipped whole,
-    /// so its tail never reads as letter commands. A trailing bare `ESC` is the Esc key: the
-    /// buffer only lets one through once nothing followed it.
+    /// so its tail never reads as letter commands. A trailing bare `ESC`, or `ESC [`/`ESC O` with
+    /// no final byte, is the Esc key and whatever was typed after it: the buffer only lets such a
+    /// tail through once nothing followed it.
     static func actions(for keys: String) -> [WatchAction] {
         let chars = Array(keys)
         var result: [WatchAction] = []
@@ -66,9 +67,14 @@ enum WatchKeys {
             let introducer = chars[i]
             i += 1
             guard introducer == "[" || introducer == "O" else { continue }
+            let start = i
             // CSI parameters and intermediates run until the final byte, @ through ~.
             while i < chars.count, !(chars[i].asciiValue.map { (0x40...0x7E).contains($0) } ?? false) { i += 1 }
-            guard i < chars.count else { break }
+            guard i < chars.count else {
+                result.append(.unfocus)
+                i = start - 1
+                continue
+            }
             switch chars[i] {
             case "A": result.append(.previousPreset)
             case "B": result.append(.cyclePreset)
@@ -88,12 +94,13 @@ struct KeyBuffer {
     // Longer than any sequence a terminal sends for a key; a tail this long is not a key.
     static let maxTail = 32
 
-    /// `bytes` is everything one frame's read drained, possibly nothing. A lone `ESC` left over
-    /// from the previous read becomes the Esc key only when this read brought nothing after it.
+    /// `bytes` is everything one read drained, possibly nothing. A lone `ESC`, or `ESC [`/`ESC O`,
+    /// left over from the previous read is the Esc key (and `[`/`O`) only when this read brought
+    /// nothing after it; a terminal writes a whole sequence at once, a person does not.
     mutating func feed(_ bytes: [UInt8]) -> String? {
-        if bytes.isEmpty, pending == [0x1B] {
-            pending = []
-            return "\u{1B}"
+        if bytes.isEmpty, pending == [0x1B] || pending == [0x1B, UInt8(ascii: "[")] || pending == [0x1B, UInt8(ascii: "O")] {
+            defer { pending = [] }
+            return String(decoding: pending, as: UTF8.self)
         }
         pending += bytes
         var end = 0

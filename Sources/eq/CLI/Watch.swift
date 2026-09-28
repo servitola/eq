@@ -288,13 +288,14 @@ enum Watch {
     static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
     static func cannotListen(_ instrument: Instrument) -> String { "can't listen to \(instrument.name) at this rate" }
 
-    /// Redraws on every frame the source delivers; the key and the terminal size are checked
-    /// between frames, which at 30 frames a second is quicker than a person notices.
-    /// `edit` applies a band, preamp, preset or undo step; what it throws is shown in the footer
-    /// for two seconds. `preset` names the current device's preset for the header; it is asked
-    /// again after every edit and once a second, so a change from another terminal shows too.
-    /// `send` writes one request line to the daemon (solo on/off); a solo this loop turned on is
-    /// turned off again on the way out, and the daemon drops it anyway once the socket closes.
+    /// Redraws on every frame the source delivers, and after keys that arrive between frames; a
+    /// line that is no frame (the client's wake-up for input) only reads keys. The terminal size
+    /// is checked on every draw. `edit` applies a band, preamp, preset or undo step; what it
+    /// throws is shown in the footer for two seconds. `preset` names the current device's preset
+    /// for the header; it and the layers are asked again after every edit and once a second, so a
+    /// change from another terminal shows too. `send` writes one request line to the daemon (solo
+    /// on/off); a solo this loop turned on is turned off again on the way out, and the daemon
+    /// drops it anyway once the socket closes.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
                     zones: Bool = false, hintDismissed: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
@@ -313,7 +314,8 @@ enum Watch {
         var mark = preset()
         var layer = preference()
         var framesSinceMark = 0
-        var rate: Double?
+        var last: MeterFrame?
+        var requestedAt: Double?
         var focused: Instrument? { focus.map { Instruments.all[$0] } }
         func fit() -> WatchLayout {
             .fit(cols: current.cols, rows: current.rows,
@@ -321,6 +323,11 @@ enum Watch {
         }
         var layout = fit()
         func show(_ text: String) { note = (text, noteFrames) }
+        func refresh() {
+            mark = preset()
+            layer = preference()
+            framesSinceMark = 0
+        }
         func apply(_ action: WatchAction) {
             if case .bandStep(let band, _) = action, let instrument = focused, !instrument.bands.contains(band) {
                 show(outsideNote(instrument))
@@ -332,11 +339,10 @@ enum Watch {
             } catch {
                 show(String(describing: error).split(separator: "\n").first.map(String.init) ?? "")
             }
-            mark = preset()
-            layer = preference()
-            framesSinceMark = 0
+            refresh()
         }
         func request(_ range: HzRange?) -> Bool {
+            requestedAt = last?.rate
             do {
                 try send(soloRequest(range))
             } catch {
@@ -344,7 +350,7 @@ enum Watch {
                 return false
             }
             // The daemon refuses silently (and drops the previous solo); the same clamp here says why.
-            if let range, let rate, let instrument = focused,
+            if let range, let rate = last?.rate, let instrument = focused,
                EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: rate) == nil {
                 show(cannotListen(instrument))
             }
@@ -358,27 +364,22 @@ enum Watch {
             }
             layout = fit()
         }
-        let eof = source.lines(maxLines: nil) { line in
-            if let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8)) {
-                rate = f.rate
-                let now = size()
-                var clear = ""
-                if now != current {
-                    current = now
-                    layout = fit()
-                    // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
-                    clear = "\u{1B}[2J"
-                }
-                framesSinceMark += 1
-                if framesSinceMark >= markFrames { mark = preset(); layer = preference(); framesSinceMark = 0 }
-                let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0,
-                                  flash: flash?.band, note: note?.text, preset: mark, preference: layer, prompt: prompt)
-                emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
-                hintLeft = max(hintLeft - 1, 0)
-                flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
-                note = note.flatMap { $0.left > 1 ? ($0.text, $0.left - 1) : nil }
+        func draw() {
+            guard let f = last else { return }
+            let now = size()
+            var clear = ""
+            if now != current {
+                current = now
+                layout = fit()
+                // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
+                clear = "\u{1B}[2J"
             }
-            guard let keys = readKey() else { return true }
+            let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0, flash: flash?.band,
+                              note: note?.text, preset: mark, preference: layer, prompt: prompt)
+            emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
+        }
+        /// False to quit.
+        func handle(_ keys: String) -> Bool {
             hintLeft = 0
             if let typed = prompt {
                 switch promptStep(typed, keys) {
@@ -421,6 +422,26 @@ enum Watch {
                     apply(action)
                 }
             }
+            return true
+        }
+        let eof = source.lines(maxLines: nil) { line in
+            let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8))
+            if let f {
+                last = f
+                // A device settling at 0 Hz refuses the solo; ask again once the rate moves.
+                if listening, let instrument = focused, requestedAt != f.rate {
+                    listening = request(instrument.outerSpan)
+                }
+                framesSinceMark += 1
+                if framesSinceMark >= markFrames { refresh() }
+                draw()
+                hintLeft = max(hintLeft - 1, 0)
+                flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
+                note = note.flatMap { $0.left > 1 ? ($0.text, $0.left - 1) : nil }
+            }
+            guard let keys = readKey() else { return true }
+            guard handle(keys) else { return false }
+            if f == nil { draw() }
             return true
         }
         emit(leave)
