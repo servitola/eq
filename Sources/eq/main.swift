@@ -7,6 +7,15 @@ func paintStderrError(_ text: String) -> String {
     return "\u{1B}[\(Paint.Ink.red.rawValue)merror:\u{1B}[0m " + text.dropFirst(prefix.count)
 }
 
+// Bundle.main is looked up beside the path as invoked, and brew's eq is a symlink into EQ.app:
+// SMAppService would search the symlink's folder for the LaunchAgent. One exec of the real binary fixes it.
+if let invoked = Bundle.main.executablePath {
+    let real = URL(fileURLWithPath: invoked).resolvingSymlinksInPath().path
+    if real != invoked, real.hasSuffix(".app/Contents/MacOS/eq") {
+        execv(real, CommandLine.unsafeArgv)
+    }
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 
 if arguments.first == "daemon" && !arguments.contains("--help") && !arguments.contains("-h") && !arguments.contains("--dry-run") {
