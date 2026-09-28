@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS("14.4")],
     targets: [
         .target(name: "EQAtomics", path: "Sources/EQAtomics"),
+        .target(name: "EQCore", path: "Sources/EQCore"),
         .executableTarget(
             name: "eq",
             dependencies: ["EQAtomics"],
@@ -14,10 +15,11 @@ let package = Package(
         ),
         .testTarget(
             name: "eqTests",
-            dependencies: ["eq"],
+            dependencies: ["eq", "EQCore"],
             path: "Tests/eqTests",
             resources: [.copy("Fixtures")]
         ),
     ],
-    swiftLanguageVersions: [.v5]
+    swiftLanguageVersions: [.v5],
+    cLanguageStandard: .c11
 )
