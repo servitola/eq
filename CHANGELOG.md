@@ -3,6 +3,17 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- Curve per app, experimental and off by default: `eq app set Spotify favourite` makes the
+  daemon play that preset while Spotify plays and go back to the device's curve when it stops,
+  without writing `eq.json` or history. `eq app list|rm|on|off`; `eq`, `eq status` and
+  `eq watch` show `app: Spotify → favourite`; `eq events` sends an `app` event; `eq doctor` has an
+  `apps` row while it is on. One curve for the whole system at a time: two apps playing together
+  share the winner's.
+
 ## 2026.09.28.6 — 2026-09-28
 
 ### Fixed

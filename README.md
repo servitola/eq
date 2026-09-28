@@ -58,7 +58,7 @@ the plist to the Trash and starts the bundled login item instead.
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
-| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon; never meter ticks |
+| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app; never meter ticks |
 
 Tune the curve:
 
@@ -85,6 +85,8 @@ Devices, presets, filters and imports each have their own group:
 | `eq preset list` | list presets; the current device's one marked `*` (`eq preset` alone too) |
 | `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
 | `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
+| `eq app set Spotify favourite` | while Spotify plays, hear the `favourite` preset (experimental, see below) |
+| `eq app [list]`, `eq app rm <app>`, `eq app on\|off` | list the app rules, remove one, follow apps or stop |
 | `eq filter list` | the parametric filters, numbered, with where each came from (`eq filter` alone too) |
 | `eq filter add peak 3k -2 2` | add a filter by hand: type, frequency, gain, optional Q |
 | `eq filter set 2 gain=-3 q=4`, `eq filter rm 2\|all` | change or remove filters by number |
@@ -142,6 +144,45 @@ profile · favourite)`. Tune the curve afterwards and the name gets a yellow `*`
 `favourite*` — meaning the device started from that preset and has moved away from it; the
 preset itself is unchanged until you save over it. `eq preset rm` and `rename` update the
 devices that point at the preset, and leave their curves alone.
+
+## Curve per app (experimental)
+
+An app rule gives an app its own preset while it plays:
+
+```sh
+eq app set Spotify favourite     # a name, or a bundle ID: com.spotify.client
+eq app set com.google.Chrome flat
+eq app on                        # off by default
+```
+
+The rules sit in `eq.json` in order, and the feature stays off until `"experimental": {"apps":
+true}` is there, which `eq app on` writes:
+
+```json
+"apps": [{"app": "com.spotify.client", "preset": "favourite"}, {"app": "com.google.Chrome", "preset": "flat"}],
+"experimental": {"apps": true}
+```
+
+While an app with a rule plays, the daemon plays the rule's preset instead of the device's curve,
+as `eq preset use` would, and goes back to the device's curve a second after the app stops. The
+switch lives only in the daemon: `eq.json` keeps the device's own curve, and nothing lands in undo
+or history. `eq`, `eq status` and `eq watch` say `app: Spotify → favourite` while it lasts, `eq
+events` sends `{"event":"app","app":"com.spotify.client","name":"Spotify","preset":"favourite"}`,
+and `"preset":null` when the device's curve comes back. The `profile` event and the hooks stay
+about the device's curve. An edit to the curve while an app plays goes to the device's curve as
+always and is heard at once; the rule rests until that app stops, and applies again the next time
+it plays.
+
+The daemon learns what plays from Core Audio's list of audio clients, through listeners and without
+polling; with the feature off it does not listen at all. Browsers and Electron apps play from a
+helper process, which counts as the app whose bundle holds it: Chrome's helper is Chrome. Safari and
+other WebKit apps play from WebKit's shared `com.apple.WebKit.GPU` service, which names no app; a
+rule for that bundle ID catches all of them. When two apps with rules play at once, the one macOS
+shows as now playing wins if `/opt/homebrew/bin/nowplayingseek` is
+installed, and the first rule otherwise.
+
+The honest limit: there is one curve for the whole system at a time. When two apps play together,
+both are heard through the winner's curve. `eq doctor` has an `apps` row while this is on.
 
 ## Filters
 
@@ -369,6 +410,7 @@ is not running or predates events. Every line has `t` (Unix seconds) and `event`
 | `profile` | `device`, `preset` (or `null`), `source` (`device` or `default`) | the curve, preset or knob in effect changes |
 | `enabled` | `enabled` | `eq on` / `eq off` |
 | `solo` | `solo`: `{"low":L,"high":H}` or `null` | a watch starts or stops listening to one range |
+| `app` | `app`, `name`, `preset` (or `null`) | an app rule starts or stops being heard (experimental) |
 
 ```sh
 eq events | jq -r --unbuffered 'select(.event == "device") | "\(.device) at \(.rate) Hz"'
@@ -621,7 +663,8 @@ is connected. An `eq events` client does not count.
 - macOS 14.4 or newer, Apple Silicon. Tested on macOS 26.6.
 - Ten graphic bands plus up to 32 parametric filters, imported or added by hand. Filters are
   edited by number from the command line; `eq watch` tunes only the bands and the preamp.
-- One curve per device, applied to everything on that device. No per-app EQ.
+- One curve per device, applied to everything on that device. An app rule swaps the whole
+  system's curve while that app plays; it does not give two apps two curves at once.
 - A DAW that needs zero latency: `eq off` while you work.
 
 ## Development
