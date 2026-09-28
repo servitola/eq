@@ -70,7 +70,9 @@ Tune the curve:
 | `eq bass +3`, `eq treble -2` | AutoEq-style bass / treble shelf on top of the curve, `0` removes it |
 | `eq tilt -0.5` | tilt the whole curve, in dB per octave |
 | `eq boost voice +3` | turn one instrument up or down on its character range, `0` removes it; `eq boost` lists them |
-| `eq flat` | reset: everything to 0, dropping the preset label, filters, bass/treble/tilt, boosts and any import |
+| `eq comp gentle\|night\|off` | light compression after the EQ: `gentle` glues music, `night` evens out films |
+| `eq color tape\|tube 0.3`, `eq color off` | saturation after the compressor; the amount runs 0…1 |
+| `eq flat` | reset: everything to 0, dropping the preset label, filters, bass/treble/tilt, boosts, compression, color and any import |
 | `eq off`, `eq on` | bypass, and back |
 | `eq undo`, `eq redo` | step the config back one saved version at a time, and forward again |
 | `eq history` | list saved versions with their time and curve, marking the current one (`eq undo --list` is an alias) |
@@ -174,6 +176,46 @@ cost any processing. `eq` shows a `preference:` line when any is set, the config
 as `"preference"` on the profile, presets carry them, and `eq flat` drops them. A boost adds
 gain the preamp does not take back; the limiter catches peaks, or lower the preamp yourself.
 
+## Compression and colour
+
+Two stages sit after the whole curve and before the limiter, in this order: a compressor and a
+colour. Each is off until you turn it on, and one that is off is skipped entirely. Both take
+`--device DEVICE`; the config stores them per profile as `"dynamics": {"comp": "gentle",
+"color": {"kind": "tape", "amount": 0.3}}`, presets carry them, `eq flat` drops them, and undo
+and history see them like any edit. `eq` shows a `dynamics:` line when either is on.
+
+`eq comp gentle|night|off` is a feed-forward compressor, linked across channels so the stereo
+image stays put. Its detector listens through a 100 Hz high-pass (24 dB per octave), so bass
+does not pump the gain: a 40 Hz tone at −10 dBFS is not compressed at all, the same level at
+1 kHz is. It measures RMS over 2.5 ms and smooths the gain in dB with the attack and release
+below, over a soft knee. Makeup gain is automatic: it gives back exactly what the compressor
+takes at the mode's reference level, so material at that level plays as loud as before and
+only what is louder or quieter moves.
+
+| Mode | Ratio | Threshold | Knee | Attack | Release | Makeup | For |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gentle` | 2:1 | −18 dBFS | 6 dB | 30 ms | 250 ms | +3 dB (level at −12 dBFS RMS) | glue on music |
+| `night` | 4:1 | −30 dBFS | 10 dB | 5 ms | 400 ms | +4.5 dB (level at −24 dBFS RMS, film dialogue) | quiet dialogue up, explosions down |
+
+`eq color tape|tube <amount>` shapes the waveform. `tape` is a symmetric soft clip,
+`tanh(k·x)/k`, which adds odd harmonics only; `tube` biases the same curve off centre, which
+adds even harmonics too, with a DC blocker at 5 Hz behind it. The drive `k` is twice the amount,
+and dividing by it keeps a quiet signal exactly as loud; at −12 dBFS the level moves less than
+1 dB at any amount. At −12 dBFS and amount 1, tape measures 2 % THD, tube 11 %; at 0.3, 0.2 %
+and 1.1 %. `eq color tape 0` removes it like `off`.
+
+There is no oversampling, so the harmonics of high notes fold back below Nyquist. The drive is
+capped at amount 1 to keep that low: at 48 kHz a 10 kHz tone at −12 dBFS folds its 3rd harmonic
+to 18 kHz at −34 dB (tape) or −42 dB (tube) under the tone, and its 5th to 2 kHz at −66 dB or
+−81 dB. Anything below 8 kHz has no 3rd harmonic to fold, and real music has far less energy
+up there than a test tone.
+
+`eq status` shows the compressor's reduction, `comp: -3.2 dB`, as of the daemon's last status
+write, and `--json` carries it as `compReductionDB`. `eq watch` shows it live in the header,
+`night comp -3.2`, followed by the colour, `tape 0.3`; `eq stream` frames carry it as `comp`.
+`eq export` writes both only in eq's own `json`: every other format has no place for them, so it
+says so on stderr and exports the EQ alone.
+
 ## Undo
 
 Every save of the config first copies the previous file to `eq.json.1`, shifting the older
@@ -249,6 +291,8 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 | `t` / `T` | treble shelf ±0.5 dB |
 | `p`, `↓` | next preset, alphabetically, wrapping round |
 | `↑` | previous preset, wrapping round |
+| `c` | compressor: off → gentle → night → off |
+| `v` / `V` | colour: off → tape → tube → off, starting at amount 0.3 / raise the amount by 0.1, from 1 back to 0.1 |
 | `u` | undo the last change made in this session, back to how it started |
 | `s` | save the curve as a preset: type a name, Enter saves, Esc cancels |
 | `z` | the instrument strip, on and off |
@@ -266,12 +310,13 @@ picks it up and the slider marker moves on the next frame, while the band's labe
 bold. When the edit cannot be saved (no config yet, say), the reason shows in a dim line at
 the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
 band 7 (2 kHz) can only be lowered from a US layout; the letter keys work from the same
-physical keys on either layout (`и` for `b`, `е` for `t`, `з` for `p`, `г` for `u`, `ы` for `s`, `х`/`ъ` for `[`/`]`,
+physical keys on either layout (`и` for `b`, `е` for `t`, `з` for `p`, `г` for `u`, `ы` for `s`, `с` for `c`, `м` for `v`, `х`/`ъ` for `[`/`]`,
 `д` for `l`, and so on).
 
 The header names the device's preset after the preamp, with the yellow `*` once the curve has
 moved away from it. Bass, treble and tilt follow it when set: `bass +3 treble -2`, then the
-instrument knobs that are set, and the focused one even at 0: `voice +3.0`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
+instrument knobs that are set, and the focused one even at 0: `voice +3.0`, then the
+compressor with its live reduction and the colour: `night comp -3.2 · tape 0.3`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
 through this session's steps, preset changes included, one per press, until the curve is as it
 was when the session started; it does not reach past the session — that is `eq undo`. `s`
 turns the bottom line into `save as: ▏`; while it is open every key types into it, digits
@@ -555,7 +600,8 @@ into place, so nothing ever sees half a file, and refuses a file that already ex
 
 The daemon opens a Core Audio process tap on the output device (macOS 14.4+), which mutes the
 original output and hands the audio to the daemon. Ten peaking biquads plus the imported
-filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. Latency is
+filters, a preamp, the compressor and colour when on, and a limiter at −1 dBFS later, the daemon
+plays it back on the same device. Latency is
 shown in `eq status`; Bluetooth adds the headset's own buffering. Volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
 
 The daemon is a LaunchAgent inside the app, `EQ.app/Contents/Library/LaunchAgents/com.servitola.eq.daemon.plist`,
@@ -612,6 +658,11 @@ Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 
 
 512 IO frames halves context switches but more than doubles CPU, so 256 stays the default;
 `EQ_IO_FRAMES` is the escape hatch to re-measure on other hardware (see "How it works" above).
+
+The compressor and the colour cost nothing while off. Switched on, measured offline with
+`swift test -c release -Xswiftc -enable-testing --filter DynamicsTests/testCost` on an M3 Pro,
+per second of stereo audio at 48 kHz: the ten-band curve 0.97 ms, the compressor another
+1.3 ms, tape 0.6 ms, compressor and tube together 2.3 ms — about 0.2 % of one core.
 
 Zero cost while nobody watches: the meter and its 30 Hz timer exist only while a meter client
 is connected. An `eq events` client does not count.
