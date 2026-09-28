@@ -208,3 +208,33 @@ final class IODelayTests: XCTestCase {
         XCTAssertEqual(IODelay.seconds(host: 24_000_000, frame: 441, sampleRate: 0, nanos: appleSilicon), 1.0, accuracy: 1e-12)
     }
 }
+
+final class StrandedIOProcsTests: XCTestCase {
+    private let proc: AudioDeviceIOProcID = { _, _, _, _, _, _, _ in noErr }
+
+    func testAProcOnADeviceThatIsGoneIsNotStranded() {
+        XCTAssertTrue(StrandedIOProcs.gone(afterDestroy: noErr))
+        XCTAssertTrue(StrandedIOProcs.gone(afterDestroy: kAudioHardwareBadDeviceError))
+        XCTAssertTrue(StrandedIOProcs.gone(afterDestroy: kAudioHardwareBadObjectError))
+        XCTAssertFalse(StrandedIOProcs.gone(afterDestroy: kAudioHardwareUnspecifiedError))
+        XCTAssertFalse(StrandedIOProcs.gone(afterDestroy: kAudioHardwareIllegalOperationError))
+    }
+
+    func testRetryKeepsOnlyWhatStillWillNotGo() {
+        var stranded = StrandedIOProcs()
+        stranded.add(device: 7, proc: proc)
+        stranded.add(device: 9, proc: proc)
+        stranded.retry { device, _ in device == 7 ? kAudioHardwareUnspecifiedError : noErr }
+        XCTAssertEqual(stranded.devices, [7])
+        stranded.retry { _, _ in noErr }
+        XCTAssertTrue(stranded.isEmpty)
+    }
+
+    func testADestroyedAggregateTakesItsProcs() {
+        var stranded = StrandedIOProcs()
+        stranded.add(device: 7, proc: proc)
+        stranded.add(device: 9, proc: proc)
+        stranded.forget(device: 9)
+        XCTAssertEqual(stranded.devices, [7])
+    }
+}

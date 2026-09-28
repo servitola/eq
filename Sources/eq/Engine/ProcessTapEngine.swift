@@ -25,6 +25,33 @@ enum TapFormat {
     }
 }
 
+/// IOProcs Core Audio refused to destroy. One may still be running, so the ring and scratch it
+/// renders into must stay where they are until it is gone.
+struct StrandedIOProcs {
+    private var procs: [(device: AudioObjectID, proc: AudioDeviceIOProcID)] = []
+
+    var isEmpty: Bool { procs.isEmpty }
+    var devices: [AudioObjectID] { procs.map(\.device) }
+
+    /// A device that no longer exists took its IOProcs with it.
+    static func gone(afterDestroy status: OSStatus) -> Bool {
+        status == noErr || status == kAudioHardwareBadDeviceError || status == kAudioHardwareBadObjectError
+    }
+
+    mutating func add(device: AudioObjectID, proc: AudioDeviceIOProcID) {
+        procs.append((device, proc))
+    }
+
+    /// The aggregate itself was destroyed, and every IOProc on it with it.
+    mutating func forget(device: AudioObjectID) {
+        procs.removeAll { $0.device == device }
+    }
+
+    mutating func retry(destroy: (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = AudioDeviceDestroyIOProcID) {
+        procs.removeAll { Self.gone(afterDestroy: destroy($0.device, $0.proc)) }
+    }
+}
+
 /// One pass through the tap path, in frames at the device's nominal rate.
 struct PathLatency: Equatable {
     /// Output device latency plus its safety offset.
@@ -162,6 +189,7 @@ final class ProcessTapEngine {
     private var tapProcID: AudioDeviceIOProcID?
     private var outputProcID: AudioDeviceIOProcID?
     private var sampleRateListener: AudioObjectPropertyListenerBlock?
+    private var stranded = StrandedIOProcs()
 
     // Render state. `ring` and `sharedCells` live as long as the engine, so the IOProcs never
     // take a reference to anything that could go away under them.
@@ -204,6 +232,11 @@ final class ProcessTapEngine {
     /// current system default output.
     func start(outputDeviceID explicitDevice: AudioObjectID? = nil) {
         stop()
+        stranded.retry()
+        guard stranded.isEmpty else {
+            transition(to: .failed("Core Audio would not remove an earlier IO proc on device \(stranded.devices.map(String.init).joined(separator: ", "))."))
+            return
+        }
 
         guard let deviceID = explicitDevice ?? AudioDeviceManager.defaultOutputDeviceID(),
               let deviceUID = AudioDeviceManager.stringProperty(deviceID, kAudioDevicePropertyDeviceUID) else {
@@ -406,25 +439,38 @@ final class ProcessTapEngine {
 
     private func cleanup() {
         if let outputProcID, targetDeviceID != 0 {
-            AudioDeviceStop(targetDeviceID, outputProcID)
-            AudioDeviceDestroyIOProcID(targetDeviceID, outputProcID)
+            destroy(outputProcID, on: targetDeviceID, "output")
         }
         outputProcID = nil
         if let tapProcID, aggregateID != 0 {
-            AudioDeviceStop(aggregateID, tapProcID)
-            AudioDeviceDestroyIOProcID(aggregateID, tapProcID)
+            destroy(tapProcID, on: aggregateID, "tap")
         }
         tapProcID = nil
         if aggregateID != 0 {
-            AudioHardwareDestroyAggregateDevice(aggregateID)
+            let status = AudioHardwareDestroyAggregateDevice(aggregateID)
+            if status == noErr {
+                stranded.forget(device: aggregateID)
+            } else {
+                Log.write("AudioHardwareDestroyAggregateDevice(\(aggregateID)) failed: \(status)")
+            }
             aggregateID = 0
         }
         cleanupTap()
     }
 
+    private func destroy(_ proc: AudioDeviceIOProcID, on device: AudioObjectID, _ role: String) {
+        let stopped = AudioDeviceStop(device, proc)
+        if stopped != noErr { Log.write("AudioDeviceStop(\(device)) for the \(role) IO proc failed: \(stopped)") }
+        let destroyed = AudioDeviceDestroyIOProcID(device, proc)
+        guard destroyed != noErr else { return }
+        Log.write("AudioDeviceDestroyIOProcID(\(device)) for the \(role) IO proc failed: \(destroyed)")
+        if !StrandedIOProcs.gone(afterDestroy: destroyed) { stranded.add(device: device, proc: proc) }
+    }
+
     private func cleanupTap() {
         if tapID != 0 {
-            AudioHardwareDestroyProcessTap(tapID)
+            let status = AudioHardwareDestroyProcessTap(tapID)
+            if status != noErr { Log.write("AudioHardwareDestroyProcessTap(\(tapID)) failed: \(status)") }
             tapID = 0
         }
     }
