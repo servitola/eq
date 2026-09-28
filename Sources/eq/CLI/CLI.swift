@@ -56,7 +56,7 @@ struct CLIContext {
 }
 
 enum CLI {
-    static let permissionHint = "System Settings → Privacy & Security → Screen & System Audio Recording → enable EQ, then: launchctl kickstart -k gui/$UID/com.servitola.eq"
+    static let permissionHint = "System Settings → Privacy & Security → Screen & System Audio Recording → enable EQ, then: " + LaunchAgent.restartHint
 
     /// `isError` marks a thrown error, the only output that belongs on stderr; a report that merely
     /// exits non-zero (a failing `doctor`) is still the answer and goes to stdout.

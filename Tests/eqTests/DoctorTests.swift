@@ -84,7 +84,7 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(report.ok)
         let audio = report.checks.first { $0.name == "audio" }!
         XCTAssertTrue(audio.warning)
-        XCTAssertEqual(audio.detail, "status not refreshed after SIGUSR1 — daemon predates v3? restart it: launchctl kickstart -k gui/$UID/com.servitola.eq")
+        XCTAssertEqual(audio.detail, "status not refreshed after SIGUSR1 — daemon predates v3? restart it: launchctl kickstart -k gui/$UID/com.servitola.eq.daemon")
     }
 
     func testAudioCheckSendsSignal() {

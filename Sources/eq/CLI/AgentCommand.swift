@@ -7,6 +7,7 @@ extension CLI {
         var launcher: Launcher
         var service: AgentServiceStatus
         var loaded: Bool
+        var label: String?
         var pid: Int32?
         var path: String?
         var bundle: String?
@@ -65,9 +66,9 @@ extension CLI {
     }
 
     private static func agentReport(_ agent: LaunchAgentControl) -> AgentReport {
-        let job = agent.loadedJob()
-        let launcher = LaunchAgent.launcher(agent)
-        return AgentReport(launcher: launcher, service: agent.serviceStatus, loaded: job != nil, pid: job?.pid,
+        let loaded = [LaunchAgent.legacyLabel, LaunchAgent.label].lazy.compactMap { label in agent.loadedJob(label).map { (label, $0) } }.first
+        let job = loaded?.1
+        return AgentReport(launcher: LaunchAgent.launcher(agent), service: agent.serviceStatus, loaded: job != nil, label: loaded?.0, pid: job?.pid,
                            path: job?.path ?? (agent.legacyPlistExists() ? agent.legacyPlist.path : nil), bundle: agent.bundlePath)
     }
 
@@ -76,7 +77,7 @@ extension CLI {
         return [
             "\(label("launcher")) \(LaunchAgent.summary(report.launcher).detail)",
             "\(label("service")) \(report.service.rawValue)",
-            "\(label("job")) " + (report.loaded ? "loaded" + (report.pid.map { ", pid \($0)" } ?? ", not running") : "not loaded"),
+            "\(label("job")) " + (report.loaded ? "\(report.label ?? "") loaded" + (report.pid.map { ", pid \($0)" } ?? ", not running") : "not loaded"),
             "\(label("bundle")) \(report.bundle ?? "none (not running from EQ.app)")",
         ]
     }

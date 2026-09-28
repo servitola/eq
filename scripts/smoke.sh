@@ -13,7 +13,7 @@ cd "${0:a:h}/.."
 eq=${1:-build/EQ.app/Contents/MacOS/eq}
 [[ -x $eq ]] || { echo "no binary at $eq" >&2; exit 2 }
 # The scratch status file hides a running daemon from the single-instance check, and two taps would stack.
-pgrep -f 'MacOS/eq daemon' >/dev/null && { echo "an eq daemon is already running — stop com.servitola.eq first (launchctl bootout gui/\$UID/com.servitola.eq)" >&2; exit 2 }
+pgrep -f 'MacOS/eq daemon' >/dev/null && { echo "an eq daemon is already running — stop it first (launchctl bootout gui/\$UID/com.servitola.eq.daemon, or com.servitola.eq for a legacy plist)" >&2; exit 2 }
 
 scratch=$(mktemp -d /tmp/eq-smoke.XXXXXX)
 export EQ_CONFIG=$scratch/eq.json EQ_STATUS=$scratch/status.json

@@ -559,8 +559,9 @@ original output and hands the audio to the daemon. Ten peaking biquads plus the 
 filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. Latency is
 shown in `eq status`; Bluetooth adds the headset's own buffering. Volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
 
-The daemon is a LaunchAgent inside the app, `EQ.app/Contents/Library/LaunchAgents/com.servitola.eq.plist`,
-registered through `SMAppService`; nothing is copied into `~/Library/LaunchAgents`. It logs to
+The daemon is a LaunchAgent inside the app, `EQ.app/Contents/Library/LaunchAgents/com.servitola.eq.daemon.plist`,
+registered through `SMAppService` under the label `com.servitola.eq.daemon`; nothing is copied
+into `~/Library/LaunchAgents`. It logs to
 `~/Library/Logs/eq.log`. `eq agent status` shows how it is launched. `eq agent uninstall`
 removes the login item, stops the daemon and leaves the empty marker `~/.cache/eq/agent-off`,
 so no later `eq` command starts it again; `eq agent install` deletes the marker and puts the

@@ -4,7 +4,7 @@ import XCTest
 
 final class FakeAgent: LaunchAgentControl {
     var serviceStatus: AgentServiceStatus = .notRegistered
-    var job: LoadedJob?
+    var jobs: [String: LoadedJob] = [:]
     var legacyExists = false
     var registerError: Error?
     var calls: [String] = []
@@ -15,20 +15,30 @@ final class FakeAgent: LaunchAgentControl {
         calls.append("register")
         if let registerError { throw registerError }
         serviceStatus = .enabled
-        job = LoadedJob(managedByServiceManagement: true, path: nil, pid: 42)
+        job = LoadedJob(path: nil, pid: 42)
     }
 
     func unregister() throws {
         calls.append("unregister")
         serviceStatus = .notRegistered
-        if job?.managedByServiceManagement == true { job = nil }
+        job = nil
     }
 
-    func loadedJob() -> LoadedJob? { job }
+    var job: LoadedJob? {
+        get { jobs[LaunchAgent.label] }
+        set { jobs[LaunchAgent.label] = newValue }
+    }
 
-    func bootout() throws {
-        calls.append("bootout")
-        job = nil
+    var legacyJob: LoadedJob? {
+        get { jobs[LaunchAgent.legacyLabel] }
+        set { jobs[LaunchAgent.legacyLabel] = newValue }
+    }
+
+    func loadedJob(_ label: String) -> LoadedJob? { jobs[label] }
+
+    func bootout(_ label: String) throws {
+        calls.append("bootout \(label)")
+        jobs[label] = nil
     }
 
     func legacyPlistExists() -> Bool { legacyExists }
@@ -42,7 +52,7 @@ final class FakeAgent: LaunchAgentControl {
     static func legacyRunning() -> FakeAgent {
         let agent = FakeAgent()
         agent.legacyExists = true
-        agent.job = LoadedJob(managedByServiceManagement: false, path: agent.legacyPlist.path, pid: 7)
+        agent.legacyJob = LoadedJob(path: agent.legacyPlist.path, pid: 7)
         return agent
     }
 }
@@ -69,7 +79,7 @@ final class LaunchAgentTests: XCTestCase {
             \t}
             }
             """
-        XCTAssertEqual(LoadedJob.parse(text), LoadedJob(managedByServiceManagement: true, path: nil, pid: 1539))
+        XCTAssertEqual(LoadedJob.parse(text), LoadedJob(path: nil, pid: 1539))
     }
 
     func testParsesALegacyJob() {
@@ -82,12 +92,32 @@ final class LaunchAgentTests: XCTestCase {
             }
             """
         XCTAssertEqual(LoadedJob.parse(text),
-                       LoadedJob(managedByServiceManagement: false, path: "/Users/someone/projects/dotfiles/launchagents/com.servitola.eq.plist",
-                                 pid: 89423))
+                       LoadedJob(path: "/Users/someone/projects/dotfiles/launchagents/com.servitola.eq.plist", pid: 89423))
     }
 
     func testAJobThatIsNotRunningHasNoPid() {
         XCTAssertNil(LoadedJob.parse("gui/501/com.servitola.eq = {\n\tstate = not running\n}").pid)
+    }
+
+    // MARK: - Labels
+
+    func testTheBundledLabelIsNotTheLegacyOne() throws {
+        XCTAssertEqual(LaunchAgent.label, "com.servitola.eq.daemon")
+        XCTAssertEqual(LaunchAgent.legacyLabel, "com.servitola.eq")
+        XCTAssertEqual(FakeAgent().legacyPlist.lastPathComponent, LaunchAgent.legacyPlistName)
+        XCTAssertTrue(LaunchAgent.restartHint.hasSuffix("gui/$UID/com.servitola.eq.daemon"))
+    }
+
+    func testTheBundledPlistCarriesTheBundledLabel() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/\(LaunchAgent.plistName)")
+        let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil) as? [String: Any])
+        XCTAssertEqual(plist["Label"] as? String, LaunchAgent.label)
+        XCTAssertEqual(plist["KeepAlive"] as? Bool, true, "exit(0) must bring the daemon back")
+    }
+
+    func testLiveLegacyPlistKeepsTheLegacyName() {
+        XCTAssertTrue(LiveLaunchAgent().legacyPlist.path.hasSuffix("/Library/LaunchAgents/com.servitola.eq.plist"))
     }
 
     // MARK: - Which launcher
@@ -101,12 +131,20 @@ final class LaunchAgentTests: XCTestCase {
         XCTAssertEqual(LaunchAgent.launcher(agent), .needsApproval)
         agent.serviceStatus = .enabled
         XCTAssertEqual(LaunchAgent.launcher(agent), .bundled(loaded: false))
-        agent.job = LoadedJob(managedByServiceManagement: true, path: nil, pid: 1)
+        agent.job = LoadedJob(path: nil, pid: 1)
         XCTAssertEqual(LaunchAgent.launcher(agent), .bundled(loaded: true))
         let legacy = FakeAgent.legacyRunning()
         XCTAssertEqual(LaunchAgent.launcher(legacy), .legacy(path: legacy.legacyPlist.path, loaded: true))
-        legacy.job = nil
+        legacy.legacyJob = nil
         XCTAssertEqual(LaunchAgent.launcher(legacy), .legacy(path: legacy.legacyPlist.path, loaded: false))
+    }
+
+    func testALoadedLegacyJobWinsOverTheBundledOne() {
+        let agent = FakeAgent()
+        agent.serviceStatus = .enabled
+        agent.job = LoadedJob(path: nil, pid: 42)
+        agent.legacyJob = LoadedJob(path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
+        XCTAssertEqual(LaunchAgent.launcher(agent), .legacy(path: "/Users/someone/dotfiles/com.servitola.eq.plist", loaded: true))
     }
 
     func testSummaryPointsAtTheFix() {
@@ -141,8 +179,11 @@ final class LaunchAgentTests: XCTestCase {
     func testNeverStacksASecondDaemonOnTheLegacyPlist() {
         let agent = FakeAgent.legacyRunning()
         XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false))
-        agent.job = nil
+        agent.legacyJob = nil
         XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), "an unloaded legacy plist is still the user's choice")
+        agent.legacyExists = false
+        agent.legacyJob = LoadedJob(path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
+        XCTAssertNil(LaunchAgent.ensureRunning(agent, daemonAlive: false, optedOut: false), "a legacy job loaded from elsewhere")
         XCTAssertEqual(agent.calls, [])
     }
 
@@ -199,13 +240,19 @@ final class LaunchAgentTests: XCTestCase {
             XCTAssertTrue("\(error)".contains("eq agent install --replace-legacy"))
         }
         XCTAssertEqual(agent.calls, [])
+        let elsewhere = FakeAgent()
+        elsewhere.legacyJob = LoadedJob(path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
+        XCTAssertThrowsError(try LaunchAgent.install(elsewhere, replaceLegacy: false)) { error in
+            XCTAssertEqual(error as? CLIError, .legacyAgent("/Users/someone/dotfiles/com.servitola.eq.plist"))
+        }
+        XCTAssertEqual(elsewhere.calls, [])
     }
 
     func testReplaceLegacyBootsItOutAndMovesItAside() throws {
         let agent = FakeAgent.legacyRunning()
         let result = try LaunchAgent.install(agent, replaceLegacy: true)
         XCTAssertEqual(result, .started(setAside: URL(fileURLWithPath: "/Users/someone/.Trash/com.servitola.eq.plist")))
-        XCTAssertEqual(agent.calls, ["bootout", "setAside", "register"])
+        XCTAssertEqual(agent.calls, ["bootout com.servitola.eq", "setAside", "register"])
     }
 
     func testAFailedReplaceSaysWhereTheLegacyPlistWentAndHowToGoBack() {
@@ -215,12 +262,12 @@ final class LaunchAgentTests: XCTestCase {
             XCTAssertEqual("\(error)", "launch agent: Operation not permitted (1); the legacy plist is in /Users/someone/.Trash/com.servitola.eq.plist "
                 + "— to go back, Put Back in Finder, then: launchctl bootstrap gui/$UID /Users/someone/Library/LaunchAgents/com.servitola.eq.plist")
         }
-        XCTAssertEqual(agent.calls, ["bootout", "setAside", "register"])
+        XCTAssertEqual(agent.calls, ["bootout com.servitola.eq", "setAside", "register"])
     }
 
     func testAFailedReplaceOfAJobLoadedFromElsewhereSaysHowToReloadIt() {
         let agent = FakeAgent()
-        agent.job = LoadedJob(managedByServiceManagement: false, path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
+        agent.legacyJob = LoadedJob(path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
         agent.registerError = NSError(domain: "x", code: 3, userInfo: [NSLocalizedDescriptionKey: "nope"])
         XCTAssertThrowsError(try LaunchAgent.install(agent, replaceLegacy: true)) { error in
             XCTAssertEqual("\(error)", "launch agent: nope; the legacy job was booted out "
@@ -366,6 +413,14 @@ final class AgentCLITests: XCTestCase {
         XCTAssertEqual(agent.calls, [])
     }
 
+    func testAgentStatusNamesTheLoadedLabel() {
+        agent.serviceStatus = .enabled
+        agent.job = LoadedJob(path: nil, pid: 42)
+        XCTAssertTrue(run(["agent", "status"]).output.contains("job: com.servitola.eq.daemon loaded, pid 42"))
+        agent.legacyJob = LoadedJob(path: "/Users/someone/dotfiles/com.servitola.eq.plist", pid: 7)
+        XCTAssertTrue(run(["agent", "status"]).output.contains("job: com.servitola.eq loaded, pid 7"))
+    }
+
     func testAgentStatus() throws {
         let text = run(["agent", "status"]).output
         XCTAssertTrue(text.contains("launcher: not registered — eq agent install"), text)
@@ -409,7 +464,7 @@ final class AgentCLITests: XCTestCase {
 
     func testUninstallKeepsItOffUntilInstall() {
         agent.serviceStatus = .enabled
-        agent.job = LoadedJob(managedByServiceManagement: true, path: nil, pid: 42)
+        agent.job = LoadedJob(path: nil, pid: 42)
         XCTAssertTrue(run(["agent", "uninstall"]).output.contains("stays off until eq agent install"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: optOutMarker.path))
         run([])

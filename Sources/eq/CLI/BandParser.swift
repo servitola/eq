@@ -44,9 +44,9 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .ambiguousDevice(let q, let names): return "\"\(q)\" matches several devices: \(names.joined(separator: ", "))"
         case .noCurrentDevice: return "cannot determine the current output device"
         case .daemonNotRunning: return "eq daemon is not running — see eq doctor"
-        case .noMeter: return "eq daemon is not serving a meter — is it running and at least v4? launchctl kickstart -k gui/$UID/com.servitola.eq"
+        case .noMeter: return "eq daemon is not serving a meter — is it running and at least v4? " + LaunchAgent.restartHint
         case .daemonClosedMeter: return "daemon closed the meter"
-        case .noEvents: return "eq daemon is not serving events — is it running and at least \(Build.version)? launchctl kickstart -k gui/$UID/com.servitola.eq"
+        case .noEvents: return "eq daemon is not serving events — is it running and at least \(Build.version)? " + LaunchAgent.restartHint
         case .daemonClosedEvents: return "daemon closed the event stream"
         case .importUnrecognized(let what): return "could not read an EQ profile from \(what)"
         case .importNotFound(let what): return "AutoEq has no ParametricEQ.txt for \(what)"

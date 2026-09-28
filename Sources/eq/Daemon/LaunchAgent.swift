@@ -3,18 +3,16 @@ import ServiceManagement
 
 /// The daemon's launchd job as `launchctl print` describes it.
 struct LoadedJob: Equatable {
-    var managedByServiceManagement: Bool
     var path: String?
     var pid: Int32?
 
     /// Only the job's own top-level `key = value` lines: nested blocks reuse names like `state`.
     static func parse(_ text: String) -> LoadedJob {
-        var job = LoadedJob(managedByServiceManagement: false, path: nil, pid: nil)
+        var job = LoadedJob(path: nil, pid: nil)
         for line in text.split(separator: "\n") where line.hasPrefix("\t") && !line.hasPrefix("\t\t") {
             let parts = line.dropFirst().split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard parts.count == 2 else { continue }
             switch parts[0] {
-            case "managed_by": job.managedByServiceManagement = parts[1] == "com.apple.xpc.ServiceManagement"
             case "path": job.path = parts[1].hasPrefix("/") ? parts[1] : nil
             case "pid": job.pid = Int32(parts[1])
             default: break
@@ -34,8 +32,8 @@ protocol LaunchAgentControl {
     var serviceStatus: AgentServiceStatus { get }
     func register() throws
     func unregister() throws
-    func loadedJob() -> LoadedJob?
-    func bootout() throws
+    func loadedJob(_ label: String) -> LoadedJob?
+    func bootout(_ label: String) throws
     var legacyPlist: URL { get }
     func legacyPlistExists() -> Bool
     /// Moves the hand-installed plist out of `~/Library/LaunchAgents` and says where it went.
@@ -67,21 +65,22 @@ enum Launcher: Equatable, Encodable {
 }
 
 enum LaunchAgent {
-    /// The same label as the hand-installed plist: launchd refuses a second job under a loaded
-    /// label, so the two can never both start a daemon, and every `launchctl kickstart
-    /// gui/$UID/com.servitola.eq` hint works whichever one is in use.
-    static let label = "com.servitola.eq"
+    /// Not the hand-installed plist's label: background task management keeps a label a legacy
+    /// user agent once had, and SMAppService.register() refuses it with "Operation not
+    /// permitted" (SMAppServiceErrorDomain 1). With two labels launchd no longer keeps the two
+    /// apart, so nothing registers this one while the legacy job or its plist is there.
+    static let label = "com.servitola.eq.daemon"
     static let plistName = "\(label).plist"
+    static let legacyLabel = "com.servitola.eq"
+    static let legacyPlistName = "\(legacyLabel).plist"
+    static let restartHint = "launchctl kickstart -k gui/$UID/\(label)"
     static let loginItemName = "EQ"
     static let approvalHint = "System Settings → General → Login Items → allow \(loginItemName)"
     static let permissionPrompt = "allow System Audio Recording when macOS asks"
 
     static func launcher(_ agent: LaunchAgentControl) -> Launcher {
-        if let job = agent.loadedJob() {
-            return job.managedByServiceManagement
-                ? .bundled(loaded: true)
-                : .legacy(path: job.path ?? agent.legacyPlist.path, loaded: true)
-        }
+        if let legacy = agent.loadedJob(legacyLabel) { return .legacy(path: legacy.path ?? agent.legacyPlist.path, loaded: true) }
+        if agent.loadedJob(label) != nil { return .bundled(loaded: true) }
         switch agent.serviceStatus {
         case .enabled: return .bundled(loaded: false)
         case .requiresApproval: return .needsApproval
@@ -118,6 +117,10 @@ enum LaunchAgent {
         case failed(String)
     }
 
+    static func legacyInUse(_ agent: LaunchAgentControl) -> Bool {
+        agent.loadedJob(legacyLabel) != nil || agent.legacyPlistExists()
+    }
+
     /// The file `eq agent uninstall` leaves so later commands do not register the agent again.
     static let optOutName = "agent-off"
 
@@ -127,7 +130,7 @@ enum LaunchAgent {
     /// a job booted out on purpose, and a crashed daemon is KeepAlive's to restart. Never throws: a
     /// command must not fail because the daemon could not be started.
     static func ensureRunning(_ agent: LaunchAgentControl, daemonAlive: Bool, optedOut: Bool) -> Note? {
-        guard !daemonAlive, !optedOut, agent.loadedJob() == nil, !agent.legacyPlistExists() else { return nil }
+        guard !daemonAlive, !optedOut, agent.loadedJob(label) == nil, !legacyInUse(agent) else { return nil }
         switch agent.serviceStatus {
         case .notRegistered:
             do {
@@ -161,16 +164,15 @@ enum LaunchAgent {
     static func install(_ agent: LaunchAgentControl, replaceLegacy: Bool) throws -> InstallResult {
         var setAside: URL?
         var bootedOut = false
-        let job = agent.loadedJob()
-        let legacyLoaded = job.map { !$0.managedByServiceManagement } ?? false
-        let legacyPath = job.flatMap { $0.managedByServiceManagement ? nil : $0.path } ?? agent.legacyPlist.path
+        let legacyJob = agent.loadedJob(legacyLabel)
+        let legacyPath = legacyJob?.path ?? agent.legacyPlist.path
         do {
-            if legacyLoaded || agent.legacyPlistExists() {
+            if legacyJob != nil || agent.legacyPlistExists() {
                 guard replaceLegacy else { throw CLIError.legacyAgent(legacyPath) }
-                if legacyLoaded { try agent.bootout(); bootedOut = true }
+                if legacyJob != nil { try agent.bootout(legacyLabel); bootedOut = true }
                 if agent.legacyPlistExists() { setAside = try agent.setAsideLegacyPlist() }
             }
-            return try registerBundled(agent, job: job, legacyLoaded: legacyLoaded, setAside: setAside)
+            return try registerBundled(agent, setAside: setAside)
         } catch {
             let why = reason(error)
             if let setAside {
@@ -184,15 +186,15 @@ enum LaunchAgent {
         }
     }
 
-    private static func registerBundled(_ agent: LaunchAgentControl, job: LoadedJob?, legacyLoaded: Bool, setAside: URL?) throws -> InstallResult {
+    private static func registerBundled(_ agent: LaunchAgentControl, setAside: URL?) throws -> InstallResult {
         switch agent.serviceStatus {
         case .notRegistered:
             try register(agent)
             return .started(setAside: setAside)
         case .enabled:
-            if !legacyLoaded, job != nil { return .alreadyRunning }
-            // Registered but not in launchd — booted out by hand, or refused a second job under
-            // the legacy label: only unregistering lets launchd take it again.
+            if agent.loadedJob(label) != nil { return .alreadyRunning }
+            // Registered but not in launchd — booted out by hand: only unregistering lets
+            // launchd take it again.
             try? agent.unregister()
             try register(agent)
             return .restarted(setAside: setAside)
@@ -237,7 +239,7 @@ enum LaunchAgent {
 
 final class LiveLaunchAgent: LaunchAgentControl {
     private var service: SMAppService { SMAppService.agent(plistName: LaunchAgent.plistName) }
-    private var target: String { "gui/\(getuid())/\(LaunchAgent.label)" }
+    private func target(_ label: String) -> String { "gui/\(getuid())/\(label)" }
 
     var serviceStatus: AgentServiceStatus {
         switch service.status {
@@ -252,19 +254,19 @@ final class LiveLaunchAgent: LaunchAgentControl {
     func register() throws { try service.register() }
     func unregister() throws { try service.unregister() }
 
-    func loadedJob() -> LoadedJob? {
-        guard let output = launchctl(["print", target]), output.status == 0 else { return nil }
+    func loadedJob(_ label: String) -> LoadedJob? {
+        guard let output = launchctl(["print", target(label)]), output.status == 0 else { return nil }
         return LoadedJob.parse(output.text)
     }
 
-    func bootout() throws {
-        guard let output = launchctl(["bootout", target]), output.status == 0 else {
-            throw CLIError.agent("launchctl bootout \(target) failed")
+    func bootout(_ label: String) throws {
+        guard let output = launchctl(["bootout", target(label)]), output.status == 0 else {
+            throw CLIError.agent("launchctl bootout \(target(label)) failed")
         }
     }
 
     var legacyPlist: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(LaunchAgent.plistName)")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(LaunchAgent.legacyPlistName)")
     }
 
     func legacyPlistExists() -> Bool {

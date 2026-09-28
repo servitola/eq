@@ -191,7 +191,7 @@ enum Doctor {
     private static func daemonCheck(_ live: Status?) -> DoctorCheck {
         guard let live else {
             return DoctorCheck(name: "daemon", ok: false,
-                                detail: "not running — launchctl kickstart -k gui/$UID/com.servitola.eq", warning: false)
+                                detail: "not running — " + LaunchAgent.restartHint, warning: false)
         }
         return DoctorCheck(name: "daemon", ok: true, detail: "running, pid \(live.pid), \(live.version.map { "v\($0)" } ?? "pre-v3")", warning: false)
     }
@@ -239,7 +239,7 @@ enum Doctor {
         guard let daemonVersion = s0.version else {
             return (DoctorCheck(name: "audio", ok: false,
                                detail: "daemon runs a pre-v3 build, this eq is \(Build.version)"
-                                   + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
+                                   + " — restart it: " + LaunchAgent.restartHint,
                                warning: true), live)
         }
         guard probes.executablePath(s0.pid)?.hasSuffix("/eq") == true else {
@@ -259,7 +259,7 @@ enum Doctor {
         let before = s1.callbacks, after = s2.callbacks
         if before == 0 && after == 0 {
             return (DoctorCheck(name: "audio", ok: false,
-                               detail: "no IO callbacks — if the daemon predates v2, restart it: launchctl kickstart -k gui/$UID/com.servitola.eq",
+                               detail: "no IO callbacks — if the daemon predates v2, restart it: " + LaunchAgent.restartHint,
                                warning: true), s2)
         }
         guard after > before else {
@@ -269,14 +269,14 @@ enum Doctor {
         guard daemonVersion == Build.version else {
             return (DoctorCheck(name: "audio", ok: false,
                                detail: detail + " (daemon v\(daemonVersion), this eq v\(Build.version)"
-                                   + " — restart it: launchctl kickstart -k gui/$UID/com.servitola.eq)",
+                                   + " — restart it: " + LaunchAgent.restartHint + ")",
                                warning: true), s2)
         }
         return (DoctorCheck(name: "audio", ok: true, detail: detail, warning: false), s2)
     }
 
     private static let staleAfterSignalDetail =
-        "status not refreshed after SIGUSR1 — daemon predates v3? restart it: launchctl kickstart -k gui/$UID/com.servitola.eq"
+        "status not refreshed after SIGUSR1 — daemon predates v3? restart it: " + LaunchAgent.restartHint
 
     // SIGUSR1 makes the daemon rewrite immediately, so a 2 s / 0.1 s poll is enough —
     // no more waiting out the heartbeat.

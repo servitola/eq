@@ -3,6 +3,16 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Fixed
+
+- The bundled login item registers on a Mac that once ran the hand-installed
+  `com.servitola.eq` agent: macOS refused that label with "Operation not permitted", so the
+  bundled job is now `com.servitola.eq.daemon`. eq still never registers it while the legacy
+  job is loaded or its plist is in `~/Library/LaunchAgents`, and `eq agent status` names the
+  loaded job's label. Restart hints read `launchctl kickstart -k gui/$UID/com.servitola.eq.daemon`.
+
 ## 2026.09.28.2 — 2026-09-28
 
 ### Changed
