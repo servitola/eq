@@ -12,9 +12,12 @@ enum APOFormat: EQFormat {
 
     static func sniff(_ data: Data, filename: String?) -> Bool {
         guard let text = ImportText.decode(data) else { return false }
+        // A YAML key (CamillaDSP names a Gain filter `preamp:`) has nothing or a flow collection
+        // after its colon; an APO command always has parameters. `Channel:` alone imports nothing.
         return lines(text).contains {
-            guard let command = Line(String($0))?.command else { return false }
-            return ["filter", "preamp", "graphiceq", "include", "channel"].contains(command)
+            guard let line = Line(String($0)), ["filter", "preamp", "graphiceq", "include"].contains(line.command) else { return false }
+            let parameters = line.parameters.trimmingCharacters(in: .whitespaces)
+            return !parameters.isEmpty && !parameters.hasPrefix("{") && !parameters.hasPrefix("[")
         }
     }
 

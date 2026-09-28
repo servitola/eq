@@ -382,6 +382,15 @@ backend of its own site, with no stated terms.
   whose Quality is the order, and its GraphicEQ mode) and reads them as above, so speaker groups
   work like `Channel:`. Commands from Peace's command window are read too. Peace's effects
   (routing, crossfeed, bass and treble, …) are named in a warning and not imported.
+- **CamillaDSP** config (YAML). The `pipeline:` decides what imports: the filters channel 0
+  runs, in order, with a warning when channel 1 runs something else; `Gain` filters on it add
+  up to the preamp (`scale: linear` too); mixers and processors are named and skipped; with no
+  pipeline every filter under `filters:` imports. Biquads `Peaking`, `Lowshelf`, `Highshelf`,
+  `Lowpass`, `Highpass`, `Notch` and `Bandpass` with `q`, a shelf `slope` in dB per octave or a
+  `bandwidth` in octaves (warped at the config's own sample rate, as CamillaDSP does); first-order,
+  all-pass, `Free` and `BiquadCombo` filters are skipped with a warning. eq reads the YAML those
+  configs are written in (block and one-line flow collections, quotes, comments) without a YAML
+  library; anchors, tags and multi-line strings refuse the file with the line that has them.
 
 `Channel:` scopes what follows, as in APO. eq is one curve for both ears, so it imports the
 left channel and warns when the right one differs; filters only for other channels (`C`,
@@ -391,9 +400,14 @@ headphone name. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`/`Else:`, `Delay:` a
 `Convolution:` have no meaning for eq; each is named once in a warning and the filters around
 it are imported. All-pass and `IIR` filters are skipped with a warning.
 
+A file is recognised by its content in this order: eqMac, Poweramp and EasyEffects JSON by
+their keys, a `.peace` by its `[Frequencies]`-style sections, a CamillaDSP config by a top-level
+`filters:` beside `pipeline:` or a `Biquad`, and anything with an APO `Filter:`, `Preamp:`,
+`GraphicEQ:` or `Include:` line as APO text.
+
 Every number is checked before it becomes a filter: a frequency outside 10–24000 Hz, a gain
 outside ±30 dB, a Q outside 0.1–30, a filter that would be unstable at 48 kHz, or a line that
-does not parse is skipped with a warning naming its line. A total preamp outside −30…12 dB
+does not parse is skipped with a warning naming its line (or its band, slider or filter). A total preamp outside −30…12 dB
 refuses the import. The preamp is the file's own: AutoEq's `.txt` files carry the peak of the
 whole cascade, 0.1 dB less cautious than the README tables beside them, and eq does not
 recompute it.
