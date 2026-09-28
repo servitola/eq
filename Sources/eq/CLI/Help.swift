@@ -128,6 +128,9 @@ struct CommandHelp {
         CommandHelp(.import, "eq import --clear [--device DEVICE]", "drop the imported correction, keep hand-tuned bands and filters", writes: true),
         CommandHelp(.setup, "eq init", "write the default config if none exists", writes: true),
         CommandHelp(.setup, "eq doctor", "diagnose config, daemon, permission and audio"),
+        CommandHelp(.setup, "eq completions zsh|bash|fish", "print the shell completion script; the Homebrew cask installs all three",
+                    examples: ["eq completions zsh > ~/.zfunc/_eq"]),
+        CommandHelp(.setup, "eq man", "print the man page (roff)", examples: ["eq man | mandoc -a"]),
         CommandHelp(.setup, "eq daemon", "run the audio engine (used by the LaunchAgent)"),
     ]
 
