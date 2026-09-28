@@ -6,6 +6,7 @@ import Foundation
 enum NowPlaying {
     static let binary = "/opt/homebrew/bin/nowplayingseek"
     static let timeout: TimeInterval = 0.3
+    static let outputCap = 256 * 1024
 
     private struct Answer: Decodable {
         var app: String?
@@ -30,21 +31,8 @@ enum NowPlaying {
     }
 
     static func ask(_ binary: String, timeout: TimeInterval) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binary)
-        process.arguments = ["status", "--minify"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-        let done = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in done.signal() }
-        do { try process.run() } catch { return nil }
-        guard done.wait(timeout: .now() + timeout) == .success else {
-            // SIGKILL: the daemon ignores SIGTERM, and the child inherits that.
-            kill(process.processIdentifier, SIGKILL)
-            return nil
-        }
-        return parse(pipe.fileHandleForReading.readDataToEndOfFile())
+        let answer = HookRunner.spawn([binary, "status", "--minify"], timeout: timeout, cap: outputCap, errors: false, grace: 0.1)
+        guard !answer.timedOut, !answer.truncated else { return nil }
+        return parse(Data(answer.output.utf8))
     }
 }

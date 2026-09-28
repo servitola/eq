@@ -370,6 +370,25 @@ final class NowPlayingTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
     }
 
+    func testAnAnswerLargerThanThePipeIsReadWhileTheChildWrites() throws {
+        let big = try script(#"printf '{"app":"com.spotify.client","playing":true,"pad":"'; head -c 200000 /dev/zero | tr '\0' x; printf '"}'"#)
+        XCTAssertEqual(NowPlaying.ask(big, timeout: 5), "com.spotify.client")
+    }
+
+    func testEndlessOutputIsCutAndTheChildEnds() throws {
+        let endless = try script("yes")
+        let started = Date()
+        XCTAssertNil(NowPlaying.ask(endless, timeout: 0.3))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+    }
+
+    func testAChildIgnoringTermIsStillKilled() throws {
+        let stubborn = try script("trap '' TERM; sleep 5; sleep 5")
+        let started = Date()
+        XCTAssertNil(NowPlaying.ask(stubborn, timeout: 0.3))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+    }
+
     func testAMissingBinaryAnswersNothingAtOnce() {
         var answered: [String?] = ["unset"]
         NowPlaying.live(queue: .main, binary: dir.appendingPathComponent("absent").path)({ answered = [$0] })

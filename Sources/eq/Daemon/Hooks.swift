@@ -105,6 +105,15 @@ enum HookRunner {
     }
 
     static func run(_ hook: HookRun, timeout: TimeInterval = timeout, cap: Int = outputCap) -> Result {
+        let environment = ProcessInfo.processInfo.environment.merging(hook.environment) { $1 }
+        return spawn(["/bin/sh", "-c", hook.command], environment: environment, timeout: timeout, cap: cap)
+    }
+
+    /// Runs `argv` in a process group of its own, with the daemon's ignored signals back to their
+    /// defaults, and reads its output while it runs. Past `timeout` the group gets TERM, and KILL
+    /// `grace` later. stderr joins the output, or goes to /dev/null without `errors`.
+    static func spawn(_ argv: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
+                      timeout: TimeInterval, cap: Int, errors: Bool = true, grace: TimeInterval = 1) -> Result {
         var pipe: [Int32] = [-1, -1]
         guard Darwin.pipe(&pipe) == 0 else { return Result(status: nil, timedOut: false, output: "pipe: errno \(errno)", truncated: false) }
         let (readEnd, writeEnd) = (pipe[0], pipe[1])
@@ -115,7 +124,11 @@ enum HookRunner {
         defer { posix_spawn_file_actions_destroy(&actions) }
         posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
         posix_spawn_file_actions_adddup2(&actions, writeEnd, 1)
-        posix_spawn_file_actions_adddup2(&actions, writeEnd, 2)
+        if errors {
+            posix_spawn_file_actions_adddup2(&actions, writeEnd, 2)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
+        }
         posix_spawn_file_actions_addclose(&actions, readEnd)
         posix_spawn_file_actions_addclose(&actions, writeEnd)
         var attributes: posix_spawnattr_t?
@@ -133,12 +146,11 @@ enum HookRunner {
         sigemptyset(&unblocked)
         posix_spawnattr_setsigmask(&attributes, &unblocked)
 
-        let environment = ProcessInfo.processInfo.environment.merging(hook.environment) { $1 }.map { "\($0.key)=\($0.value)" }
-        let argv = ["/bin/sh", "-c", hook.command].map { (arg: String) in strdup(arg) } + [nil]
-        let envp = environment.map { (pair: String) in strdup(pair) } + [nil]
-        defer { (argv + envp).forEach { free($0) } }
+        let args = argv.map { (arg: String) in strdup(arg) } + [nil]
+        let envp = environment.map { (key: String, value: String) in strdup("\(key)=\(value)") } + [nil]
+        defer { (args + envp).forEach { free($0) } }
         var pid: pid_t = 0
-        let spawned = posix_spawn(&pid, "/bin/sh", &actions, &attributes, argv, envp)
+        let spawned = posix_spawn(&pid, argv[0], &actions, &attributes, args, envp)
         close(writeEnd)
         guard spawned == 0 else {
             return Result(status: nil, timedOut: false, output: String(cString: strerror(spawned)), truncated: false)
@@ -174,7 +186,7 @@ enum HookRunner {
             if !timedOut, DispatchTime.now() >= deadline {
                 timedOut = true
                 kill(-pid, SIGTERM)
-                killAt = DispatchTime.now() + 1
+                killAt = DispatchTime.now() + grace
             } else if let at = killAt, DispatchTime.now() >= at {
                 kill(-pid, SIGKILL)
                 killAt = nil
