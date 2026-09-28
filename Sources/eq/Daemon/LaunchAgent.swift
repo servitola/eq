@@ -292,6 +292,16 @@ final class LiveLaunchAgent: LaunchAgentControl {
         return bundle.pathExtension == "app" && bundle.deletingLastPathComponent().lastPathComponent == "Applications"
     }
 
+    /// Bundle.main is looked up beside the path as invoked, and brew's eq is a symlink into EQ.app:
+    /// SMAppService would search the symlink's folder for the LaunchAgent. realpath(3), not
+    /// resolvingSymlinksInPath, which turns /private/var into /var and would re-exec every run there.
+    static func realExecutable(invoked: String) -> String? {
+        guard let resolved = realpath(invoked, nil) else { return nil }
+        defer { free(resolved) }
+        let real = String(cString: resolved)
+        return real != invoked && real.hasSuffix(".app/Contents/MacOS/eq") ? real : nil
+    }
+
     private func launchctl(_ arguments: [String]) -> (status: Int32, text: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")

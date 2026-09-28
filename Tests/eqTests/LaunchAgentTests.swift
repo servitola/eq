@@ -265,6 +265,25 @@ final class AutoStartTests: XCTestCase {
         XCTAssertFalse(LiveLaunchAgent.autoStarts(environment: ["EQ_CONFIG": "/tmp/eq.json"], bundle: installed, uid: 501))
         XCTAssertFalse(LiveLaunchAgent.autoStarts(environment: [:], bundle: URL(fileURLWithPath: "/Users/someone/eq/build/EQ.app"), uid: 501))
     }
+
+    func testReExecutesOnlyThroughASymlink() throws {
+        let files = FileManager.default
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("eq-exec-\(UUID().uuidString)")
+        defer { try? files.removeItem(at: dir) }
+        let macOS = dir.appendingPathComponent("EQ.app/Contents/MacOS")
+        try files.createDirectory(at: macOS, withIntermediateDirectories: true)
+        let binary = macOS.appendingPathComponent("eq")
+        files.createFile(atPath: binary.path, contents: nil)
+        let link = dir.appendingPathComponent("eq")
+        try files.createSymbolicLink(at: link, withDestinationURL: binary)
+        let resolved = try XCTUnwrap(realpath(binary.path, nil))
+        defer { free(resolved) }
+        let real = String(cString: resolved)
+        XCTAssertTrue(real.hasPrefix("/private/"), real)
+        XCTAssertEqual(LiveLaunchAgent.realExecutable(invoked: link.path), real)
+        XCTAssertNil(LiveLaunchAgent.realExecutable(invoked: real), "already the real binary under /private")
+        XCTAssertNil(LiveLaunchAgent.realExecutable(invoked: dir.appendingPathComponent("missing").path))
+    }
 }
 
 final class AgentCLITests: XCTestCase {
