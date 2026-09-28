@@ -3,7 +3,8 @@
 #   Driver/test.sh               core: ring, clock servo, timeline checks, latency, target state machine
 #   Driver/test.sh --host-idle   also loads build/EQDriver.driver into a fake host without ever
 #                                starting IO: configuration changes with Perform run inside Request,
-#                                on another thread while Request waits, and after it returns; kill file
+#                                on another thread while Request waits, and after it returns; a stored
+#                                target of this device's own UID; kill file
 #   Driver/test.sh --host        the same, then a full run that opens IO on the built-in output and
 #                                plays silence for about 25 s
 set -euo pipefail
@@ -24,6 +25,7 @@ xcrun clang++ -std=c++17 -O2 -g -Wall -Wextra -Werror Tests/HostHarness.cpp -o b
 for mode in sync wait async; do
   build/host-harness build/EQDriver.driver --idle $mode
 done
+build/host-harness build/EQDriver.driver --idle sync self
 killed=build/killed/EQDriver.driver
 rm -rf build/killed && mkdir -p build/killed && ditto build/EQDriver.driver $killed
 touch $killed/Contents/Resources/disabled

@@ -138,7 +138,8 @@ class Driver : TargetExecutor {
         machine_ = std::make_unique<TargetMachine>(loadedAt_);
 
         killed_ = killFileExists();
-        targetUID_ = storedString("target");
+        // A target of this very device would feed its own mix back into itself.
+        if (std::string uid = storedString("target"); uid != kDeviceUID) targetUID_ = uid;
         targetName_ = storedString("targetName");
         hiddenPref_ = storedBool("hidden");
         if (double rate = storedDouble("sampleRate"); rate >= 8000 && rate <= 768000) sampleRate_ = rate;
@@ -743,10 +744,12 @@ class Driver : TargetExecutor {
     }
 
     AudioObjectID resolveTarget(const std::string &uid) {
-        if (uid.empty()) return kAudioObjectUnknown;
-        std::vector<AudioObjectID> all = hal::devices();
+        if (uid.empty() || uid == kDeviceUID) return kAudioObjectUnknown;
         std::vector<std::pair<AudioObjectID, std::string>> uids;
-        for (AudioObjectID id : all) uids.push_back({id, hal::stringProperty(id, kAudioDevicePropertyDeviceUID)});
+        for (AudioObjectID id : hal::devices()) {
+            std::string u = hal::stringProperty(id, kAudioDevicePropertyDeviceUID);
+            if (u != kDeviceUID) uids.push_back({id, u});
+        }
         AudioObjectID found = kAudioObjectUnknown;
         for (auto &[id, u] : uids)
             if (u == uid) found = id;

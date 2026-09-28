@@ -3,11 +3,12 @@
 // WriteMix from a timed IO thread. The plug-in's target side is a normal HAL client, so it really
 // opens IO; the harness points it at the built-in output and writes silence.
 //   host-harness <bundle>                     the full run above
-//   host-harness <bundle> --idle sync|wait|async
+//   host-harness <bundle> --idle sync|wait|async [self]
 //                                             never calls StartIO, so the target IOProc is created
 //                                             but never started; checks the configuration change
 //                                             with Perform run inside Request, on another thread
-//                                             while Request waits, or after Request returned
+//                                             while Request waits, or after Request returned.
+//                                             self: the stored target is this device's own UID
 //   host-harness <bundle> --killed            kill file present
 
 #include "../Source/HAL.h"
@@ -217,9 +218,7 @@ static void failAfter(int seconds) {
     }).detach();
 }
 
-static int idle(AudioObjectID speakers) {
-    Float64 speakersRate = 0;
-    hal::get(speakers, hal::address(kAudioDevicePropertyNominalSampleRate), speakersRate);
+static int idle() {
     for (int i = 0; i < 160 && configChanges == 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     UInt32 latency = 0;
@@ -227,6 +226,13 @@ static int idle(AudioObjectID speakers) {
     get(2, kAudioDevicePropertyLatency, latency, kAudioObjectPropertyScopeOutput);
     get(2, kAudioDevicePropertyNominalSampleRate, rate);
     CFDictionaryRef h = health();
+    std::string targetUID = text(h, "target");
+    std::printf("  target %s (%s)\n", text(h, "targetName").c_str(), targetUID.c_str());
+    CHECK(!targetUID.empty() && targetUID != "com.servitola.eq.device");
+    Float64 speakersRate = 0;
+    for (AudioObjectID id : hal::devices())
+        if (hal::stringProperty(id, kAudioDevicePropertyDeviceUID) == targetUID)
+            hal::get(id, hal::address(kAudioDevicePropertyNominalSampleRate), speakersRate);
     std::printf("  requests %d, changes %d, perform failures %d, request timeouts %d, latency %u, rate %.0f "
                 "(target %.0f), io %.0f, error \"%s\"\n",
                 configRequests.load(), configChanges.load(), performFailures.load(), requestTimeouts.load(), latency,
@@ -245,6 +251,7 @@ static int idle(AudioObjectID speakers) {
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : "build/EQDriver.driver";
     std::string mode = argc > 2 ? argv[2] : "";
+    bool storeSelf = mode == "--idle" && argc > 4 && std::string(argv[4]) == "self";
     if (mode == "--idle") {
         std::string how = argc > 3 ? argv[3] : "sync";
         if (how == "wait") changeMode = ChangeMode::Wait;
@@ -253,7 +260,7 @@ int main(int argc, char **argv) {
             std::printf("unknown change mode %s\n", how.c_str());
             return 2;
         }
-        std::printf("idle, Perform %s\n", how.c_str());
+        std::printf("idle, Perform %s%s\n", how.c_str(), storeSelf ? ", stored target is this device" : "");
     }
     failAfter(mode == "--idle" ? 20 : 60);
     AudioObjectID speakers = kAudioObjectUnknown;
@@ -271,7 +278,8 @@ int main(int argc, char **argv) {
                 speakersUID.c_str());
 
     storage = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFStringRef uid = CFStringCreateWithCString(nullptr, speakersUID.c_str(), kCFStringEncodingUTF8);
+    CFStringRef uid = CFStringCreateWithCString(nullptr, storeSelf ? "com.servitola.eq.device" : speakersUID.c_str(),
+                                                kCFStringEncodingUTF8);
     CFDictionarySetValue(storage, CFSTR("target"), uid);
     CFRelease(uid);
 
@@ -291,7 +299,7 @@ int main(int argc, char **argv) {
     CHECK(vt()->QueryInterface(driver, CFUUIDGetUUIDBytes(kAudioServerPlugInDriverInterfaceUUID), &iface) == 0);
     CHECK(vt()->Initialize(driver, &host) == noErr);
 
-    if (mode == "--idle") return idle(speakers);
+    if (mode == "--idle") return idle();
 
     if (mode == "--killed") {
         std::this_thread::sleep_for(std::chrono::milliseconds(1500));
