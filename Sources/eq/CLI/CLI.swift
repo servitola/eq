@@ -537,7 +537,7 @@ enum CLI {
         lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
         if let text = ringText(status) { lines.append("\(label("ring")) \(text)") }
         if let apps = status.apps, let line = appLine(apps.overlay, held: apps.held) { lines.append(line) }
-        if let reduction = status.compReductionDB { lines.append("\(label("comp")) \(Paint.ink(.yellow, String(format: "%.1f dB", reduction)))") }
+        if let reduction = status.compReductionDB { lines.append("\(label("comp")) \(Paint.ink(.yellow, String(format: "%.1f dB", reduction == 0 ? 0 : reduction)))") }
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }

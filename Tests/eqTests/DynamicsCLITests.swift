@@ -309,5 +309,10 @@ final class DynamicsWatchTests: XCTestCase {
         XCTAssertTrue(text.contains("comp: -3.2 dB"), text)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(CLI.run(["status", "--json"], context: context).output.utf8)) as? [String: Any])
         XCTAssertEqual(json["compReductionDB"] as? Double, -3.2)
+
+        status.compReductionDB = -0.0
+        try status.write(to: context.statusURL)
+        let zero = CLI.run(["status"], context: context).output
+        XCTAssertTrue(zero.contains("comp: 0.0 dB"), zero)
     }
 }
