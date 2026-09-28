@@ -5,6 +5,8 @@ its entries under a dated version.
 
 ## Unreleased
 
+## 2026.09.27.9 — 2026-09-27
+
 ### Added
 
 - `eq filter` edits parametric filters by hand: `eq filter` lists them, `eq filter add <type>
