@@ -3,6 +3,16 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## 2026.09.28.4 — 2026-09-28
+
+### Fixed
+
+- On a fresh install the first `eq` did not start the daemon: macOS 26 reports a login item
+  that was never registered as "not found", which eq read as "this build has no LaunchAgent".
+  A not-found service whose plist ships in EQ.app is now registered.
+- `eq watch` and `eq stream` without a daemon say so and point at `eq doctor`, instead of
+  asking whether the daemon is at least v4.
+
 ## 2026.09.28.3 — 2026-09-28
 
 ### Fixed
