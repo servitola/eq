@@ -2,8 +2,9 @@
 
 An output-only virtual audio device, **"<target> · EQ"**, that plays whatever apps send it on a
 real output device (the *target*) from inside a Core Audio plug-in. Nothing reads audio, so macOS
-shows no Privacy indicator. This is milestone 1 of driver mode
-(`docs/superpowers/specs/2026-09-28-eq-driver-mode.md`): a pass-through, no EQ yet.
+shows no Privacy indicator. This is milestone 2 of driver mode
+(`docs/superpowers/specs/2026-09-28-eq-driver-mode.md`): EQCore, the daemon's own DSP, runs in the
+target's IOProc on the curve eq last sent for that target. Nothing switches modes yet.
 
 It breaks one of Apple's rules: `AudioServerPlugIn.h` forbids a plug-in to call the HAL client
 API, and playing on another device is exactly that. The research is in `docs/research/06a–06c`.
@@ -16,10 +17,12 @@ Derived from [Proxy Audio Device](https://github.com/briankendall/proxy-audio-de
 ```sh
 Driver/build.sh             # build/EQDriver.driver and build/probe, Developer ID + hardened runtime
 Driver/build.sh --adhoc     # ad-hoc signed
-Driver/test.sh              # ring, clock servo, timeline checks, latency, target state machine
+Driver/test.sh              # ring, clock servo, timeline checks, latency, target state machine, the
+                            # settings record, per-target settings, EQ processing, writer checks
 Driver/test.sh --host-idle  # also loads the built plug-in into a fake host that never starts IO:
                             # configuration changes performed inside Request, on another thread
-                            # while Request waits, and after it returns; the kill file
+                            # while Request waits, and after it returns; the kill file; settings
+                            # writes and the meter
 Driver/test.sh --host       # the same, then plays silence on the built-in output for about 25 s
 ```
 
@@ -35,6 +38,15 @@ sudo Driver/dev-uninstall.sh
 
 At first load the target is the default output if it is a real device, else the first external
 output, else the built-in one. The device hides while its target has been gone for 3 s.
+
+Send it a curve with the eq in a signed EQ.app (see *Who may write settings*):
+
+```sh
+eq driver status   # the health below, as eq reads it
+eq driver push     # the driver's target's own profile (or the default one), as the daemon would play it
+```
+
+A target eq never sent a curve for plays untouched.
 
 ## Recovery
 
@@ -69,4 +81,25 @@ On the device, `kAudioObjectPropertyScopeGlobal`, element main:
 | --- | --- | --- |
 | `eqTg` | CFString, settable | target device UID; `""` picks the default again |
 | `eqHd` | CFBoolean, settable | hide the device |
-| `eqHl` | CFDictionary | health |
+| `eqHl` | CFDictionary | health; `eqActive`, `settingsSerial` and `settingsError` for the curve |
+| `eqSt` | CFData, settable | the settings record (`Sources/EQCore/include/EQDriverProtocol.h`) for one target; reads back what plays |
+| `eqMt` | CFData | the meter frame; reading it keeps the meter running for 1 s |
+
+The record carries `eqc_settings` and the target UID it belongs to. The plug-in checks every field
+(size, magic, version, UID, finite values, ranges) before use, stores it in host storage under
+that UID, and plays it when that UID is the target, across coreaudiod restarts and without the
+daemon. Solo is never stored.
+
+### Who may write settings
+
+The host gives `SetPropertyData` only the caller's pid. The driver helper, `Core Audio Driver
+(EQDriver.driver)`, runs outside coreaudiod's sandbox (`sandbox_check` on its pid says so on macOS
+26.6), so the plug-in asks the Security framework whether that pid's code meets:
+
+- Developer ID build: `identifier "com.servitola.eq" and anchor apple generic and certificate
+  leaf[subject.OU] = "<the plug-in's team>"`;
+- ad-hoc build: `identifier "com.servitola.eq"`, which anything signed ad hoc with that identifier
+  meets.
+
+Anything else gets `kAudioDevicePermissionsError`, and so does pid 0, which the host uses for its
+own requests. `eqTg` and `eqHd` stay open to any process, as in milestone 1.
