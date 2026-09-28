@@ -111,6 +111,15 @@ enum AudioDeviceManager {
 
     static let maxSampleRate = 1_536_000.0
 
+    /// The rate the device's clock really runs at, measured by the HAL once IO runs; nil before that.
+    static func actualSampleRate(_ id: AudioObjectID) -> Double? {
+        var addr = address(kAudioDevicePropertyActualSampleRate)
+        var value: Double = 0
+        var size = UInt32(MemoryLayout<Double>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
     static func tapFormat(_ id: AudioObjectID) -> AudioStreamBasicDescription? {
         var addr = address(kAudioTapPropertyFormat)
         var value = AudioStreamBasicDescription()

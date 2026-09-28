@@ -401,6 +401,7 @@ final class Daemon {
                     Log.write("running after \(attempt) attempts")
                 }
                 self.rebuilding = false
+                self.engine.logActualSampleRates()
                 self.setState(self.config.enabled ? .running : .bypassed, error: nil)
             } else if self.engine.state == .running {
                 Log.write("no IO callbacks after \(attempt) attempt(s) — rebuilding")

@@ -413,6 +413,14 @@ final class ProcessTapEngine {
         transition(to: .running)
     }
 
+    /// Once IO has run a while: the HAL measures the clocks only then. The tap's aggregate and the
+    /// device share one clock, so the two should agree; a gap is drift the ring has to absorb.
+    func logActualSampleRates() {
+        guard state == .running else { return }
+        func text(_ rate: Double?) -> String { rate.map { String(format: "%.3f Hz", $0) } ?? "unknown" }
+        Log.write("actual sample rate: aggregate \(text(AudioDeviceManager.actualSampleRate(aggregateID))), device \(text(AudioDeviceManager.actualSampleRate(targetDeviceID)))")
+    }
+
     func stop() {
         removeSampleRateListener()
         cleanup()
