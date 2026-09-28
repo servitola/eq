@@ -433,13 +433,6 @@ final class AgentCLITests: XCTestCase {
         XCTAssertEqual(json["loaded"] as? Bool, false)
     }
 
-    func testAgentInstallFromTheCaskIgnoresAProcessSerialNumber() throws {
-        let result = run(["agent", "install", "-psn_0_12345"])
-        XCTAssertEqual(result.exitCode, 0, result.output)
-        XCTAssertTrue(result.output.contains("started the eq daemon"), result.output)
-        XCTAssertEqual(agent.calls, ["register"])
-    }
-
     func testAgentInstallReplaceLegacy() throws {
         agent = FakeAgent.legacyRunning()
         context.agent = agent
@@ -475,12 +468,11 @@ final class AgentCLITests: XCTestCase {
         XCTAssertEqual(agent.calls, ["unregister", "register"])
     }
 
-    func testUninstallForAnUpgradeLeavesAutoStartOn() {
+    func testTheCaskOnlyFlagsAreGone() {
         agent.serviceStatus = .enabled
-        XCTAssertEqual(run(["agent", "uninstall", "--for-upgrade"]).exitCode, 0)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: optOutMarker.path))
-        run([])
-        XCTAssertEqual(agent.calls, ["unregister", "register"])
+        XCTAssertEqual(run(["agent", "uninstall", "--for-upgrade"]).exitCode, 2)
+        XCTAssertEqual(run(["agent", "install", "-psn_0_12345"]).exitCode, 2)
+        XCTAssertEqual(agent.calls, [])
     }
 
     func testAgentStaysOutOfHelpAndCompletions() {

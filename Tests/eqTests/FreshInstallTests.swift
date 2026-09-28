@@ -66,6 +66,23 @@ final class FreshInstallTests: XCTestCase {
         XCTAssertTrue(result.output.contains("+4.8"), result.output)
     }
 
+    /// The cask cannot start the daemon (its install steps cannot launch the app), so the first
+    /// `eq` after `brew install` registers the login item and still prints the curve.
+    func testTheFirstEqStartsTheDaemonAndStillShowsTheCurve() {
+        let agent = FakeAgent()
+        var warnings: [String] = []
+        context.agent = agent
+        context.checksDaemon = true
+        context.warn = { warnings.append($0) }
+        let result = CLI.run([], context: context)
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(agent.calls, ["register"])
+        XCTAssertEqual(warnings, ["started the eq daemon (login item \"EQ\") — allow System Audio Recording when macOS asks"])
+        XCTAssertTrue(result.output.contains("MacBook Pro Speakers (own profile)"), result.output)
+        XCTAssertTrue(result.output.contains("+4.8"), result.output)
+        XCTAssertFalse(configDirectoryExists)
+    }
+
     func testPresetCompletionOffersTheSeededPresets() {
         XCTAssertTrue(run("__complete", "presets").output.split(separator: "\n").contains("flat"))
     }

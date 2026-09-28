@@ -19,6 +19,10 @@ its entries under a dated version.
 - `brew upgrade` takes effect without a restart: the daemon notices its binary replaced, logs
   `binary replaced — restarting` and exits, and launchd starts the new one. When the binary is
   gone for a minute (`brew uninstall`), it logs `binary removed — exiting` and stops.
+- The cask no longer tries to start the daemon: Homebrew's install steps cannot launch an app
+  (`kLSUnknownErr`, -10810), so nothing was registered. The first `eq` you run starts it,
+  and still prints the curve. `eq agent uninstall --for-upgrade` is gone with the cask step
+  that used it.
 
 ## 2026.09.28.2 — 2026-09-28
 

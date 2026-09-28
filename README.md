@@ -31,8 +31,7 @@ brew install --cask servitola/tap/eq
 That is all. Homebrew wants third-party taps named in full; the line above trusts this one
 cask, no more.
 
-The install (or, failing that, the first `eq` you run) registers the daemon as a login item
-named **EQ**: macOS says "Background Items Added", and it is listed under System Settings →
+The first `eq` you run registers the daemon as a login item named **EQ**: macOS says "Background Items Added", and it is listed under System Settings →
 General → Login Items → Allow in the Background, where it can be switched off. From then on
 it starts at login and restarts if it dies. `eq agent uninstall` removes it for good: no later
 `eq` command registers it again until `eq agent install`.
@@ -565,8 +564,9 @@ into `~/Library/LaunchAgents`. It logs to
 `~/Library/Logs/eq.log`. `eq agent status` shows how it is launched. `eq agent uninstall`
 removes the login item, stops the daemon and leaves the empty marker `~/.cache/eq/agent-off`,
 so no later `eq` command starts it again; `eq agent install` deletes the marker and puts the
-login item back. `brew uninstall` removes the login item without leaving the marker, and
-`brew upgrade` does the same before registering the new version's.
+login item back. After `brew upgrade` the daemon sees its binary replaced and exits, and
+launchd starts the new one. After `brew uninstall` it exits once its binary has been gone for
+a minute; run `eq agent uninstall` first to remove the login item as well.
 
 It listens for the default output changing and rebuilds on the new device with that device's
 curve. Bluetooth devices arrive in two steps, so it waits for the IO callback to fire before
@@ -595,7 +595,7 @@ Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 
 | context switches | 189 /s | 191 /s |
 | status.json writes | 12 /min | ≤ 2 /min (30 s heartbeat + changes) |
 | log | unrotated | capped by the cleanup job |
-| `brew uninstall` | agent stays loaded | login item removed (an upgrade registers the new one); `--zap` also unloads a hand-installed plist and removes it |
+| `brew uninstall` | agent stays loaded | daemon exits with its binary; `eq agent uninstall` first removes the login item; `--zap` also unloads both jobs and removes a hand-installed plist |
 
 512 IO frames halves context switches but more than doubles CPU, so 256 stays the default;
 `EQ_IO_FRAMES` is the escape hatch to re-measure on other hardware (see "How it works" above).

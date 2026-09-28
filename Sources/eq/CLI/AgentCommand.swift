@@ -1,7 +1,7 @@
 import Foundation
 
-/// `eq agent install|uninstall|status`: hidden, for the cask and for troubleshooting. Every other
-/// command already registers the agent on its own when nothing runs the daemon.
+/// `eq agent install|uninstall|status`: hidden, for troubleshooting and the release script. Every
+/// other command already registers the agent on its own when nothing runs the daemon.
 extension CLI {
     struct AgentReport: Encodable {
         var launcher: Launcher
@@ -16,10 +16,8 @@ extension CLI {
     }
 
     static func agent(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        let usage = "eq agent install [--replace-legacy] | eq agent uninstall [--for-upgrade] | eq agent status"
+        let usage = "eq agent install [--replace-legacy] | eq agent uninstall | eq agent status"
         guard let agent = ctx.agent else { throw CLIError.agent("not available here") }
-        // LaunchServices may still append a process serial number when the cask opens EQ.app.
-        let args = args.filter { !$0.hasPrefix("-psn_") }
         switch (args.first, Array(args.dropFirst())) {
         case ("status", let rest) where rest.isEmpty:
             let report = agentReport(agent)
@@ -40,16 +38,14 @@ extension CLI {
             var lines = aside.map { ["moved the legacy plist to " + Paint.ink(.dim, LaunchAgent.abbreviate($0.path))] } ?? []
             lines.append(Paint.ink(.green, "started") + " the eq daemon (login item \"\(LaunchAgent.loginItemName)\") — \(LaunchAgent.permissionPrompt)")
             return Output(lines.joined(separator: "\n"), report)
-        // The cask's uninstall step runs on every upgrade too, so it leaves eq free to start again.
-        case ("uninstall", let rest) where rest.isEmpty || rest == ["--for-upgrade"]:
-            if rest.isEmpty { try optOut(ctx) }
+        case ("uninstall", let rest) where rest.isEmpty:
+            try optOut(ctx)
             let removed = try LaunchAgent.uninstall(agent)
             var report = agentReport(agent)
             report.action = removed ? "removed" : "none"
-            var text = removed ? Paint.ink(.green, "removed") + " the login item; the eq daemon is stopped"
+            let text = removed ? Paint.ink(.green, "removed") + " the login item; the eq daemon is stopped"
                                : "the bundled login item was not registered"
-            if rest.isEmpty { text += "; it stays off until eq agent install" }
-            return Output(text, report)
+            return Output(text + "; it stays off until eq agent install", report)
         default:
             throw CLIError.usage(usage)
         }
