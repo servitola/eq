@@ -318,6 +318,10 @@ final class ProcessTapEngine {
             for _ in 0..<30 where AudioDeviceManager.nominalSampleRate(aggregateID) != sampleRate {
                 usleep(10_000)
             }
+            let aggregateRate = AudioDeviceManager.nominalSampleRate(aggregateID)
+            if aggregateRate != sampleRate {
+                Log.write("aggregate still at \(aggregateRate) Hz after 300 ms, device at \(sampleRate) Hz")
+            }
         }
         guard let tapFormat = AudioDeviceManager.tapFormat(tapID),
               let inputChannels = AudioDeviceManager.inputStreamChannelCounts(aggregateID),
