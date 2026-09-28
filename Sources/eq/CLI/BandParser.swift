@@ -21,6 +21,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case importRefused(String)
     case network(String)
     case noSuchPreset(String)
+    case noSuchApp(String)
+    case noSuchAppRule(String)
     case badPresetName(String)
     case presetExists(String)
     case noBackup
@@ -60,6 +62,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .importRefused(let why): return "not imported: \(why)"
         case .network(let why): return "network: \(why)"
         case .noSuchPreset(let name): return "no preset \"\(name)\" — see `eq preset`"
+        case .noSuchApp(let name): return "no app \"\(name)\" is playing or installed — give its bundle ID, like com.spotify.client"
+        case .noSuchAppRule(let name): return "no app rule for \"\(name)\" — see `eq app`"
         case .badPresetName(let name): return "bad preset name \"\(name)\": 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ ."
         case .presetExists(let name): return "preset \"\(name)\" already exists"
         case .noBackup: return "nothing to undo — no backup of the config yet"

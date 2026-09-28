@@ -63,10 +63,12 @@ enum Doctor {
         let status = probes.readStatus()
         let live = status.flatMap { $0.isAlive() ? $0 : nil }
         let (audio, refreshed) = audioCheck(probes, live)
+        let apps = (try? probes.loadConfig()).flatMap { $0.followsApps ? appsCheck($0, live) : nil }
         let checks = [
             macOSCheck(probes),
             configCheck(probes),
             hooksCheck(probes),
+        ] + [apps].compactMap { $0 } + [
             outputCheck(probes),
             daemonCheck(live),
             permissionCheck(live),
@@ -125,6 +127,36 @@ enum Doctor {
             return DoctorCheck(name: "hooks", ok: false, detail: problems.joined(separator: "; "), warning: true)
         }
         return DoctorCheck(name: "hooks", ok: true, detail: hooks.keys.sorted().joined(separator: ", "), warning: false)
+    }
+
+    /// Present only while `experimental.apps` is on.
+    static func appsCheck(_ config: Config, _ live: Status?, now: Date = Date()) -> DoctorCheck {
+        let rules = config.apps ?? []
+        var problems = rules.filter { config.preset(named: $0.preset) == nil }.map { "\($0.app): no preset \"\($0.preset)\"" }
+        if rules.isEmpty { problems.append("on, but no rules — eq app set <app> <preset>") }
+        let detail: String
+        if let live {
+            if let apps = live.apps {
+                if !apps.listening { problems.append("the daemon cannot listen for playing apps") }
+                let count = "\(rules.count) rule\(rules.count == 1 ? "" : "s")"
+                if let heard = apps.overlay {
+                    detail = "listening, \(count); heard now: \(heard.label)"
+                } else if let last = apps.lastMatch, let at = apps.lastMatchAt {
+                    detail = "listening, \(count); last match \(last.label) \(Table.whole(now.timeIntervalSince(at) / 60)) min ago"
+                } else {
+                    detail = "listening, \(count); no match yet"
+                }
+            } else {
+                problems.append("the daemon does not follow apps — restart it: " + LaunchAgent.restartHint)
+                detail = "on"
+            }
+        } else {
+            detail = "on; daemon not running"
+        }
+        guard problems.isEmpty else {
+            return DoctorCheck(name: "apps", ok: false, detail: ([detail] + problems).joined(separator: "; "), warning: true)
+        }
+        return DoctorCheck(name: "apps", ok: true, detail: detail, warning: false)
     }
 
     /// The command's first word, unquoted; nil when it is empty. Only an absolute path can be

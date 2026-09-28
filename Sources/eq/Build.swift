@@ -1,6 +1,7 @@
 import Foundation
 
 enum Build {
+    static let bundleID = "com.servitola.eq"
     // Bundle.main looks next to the invoked path, and /opt/homebrew/bin/eq is a symlink with no
     // Info.plist beside it — so resolve to the real binary inside EQ.app first.
     static let version: String = {

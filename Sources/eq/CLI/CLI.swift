@@ -21,6 +21,9 @@ struct CLIContext {
     /// Off in tests and sandboxed runs: whether a command may start the daemon and warn about it.
     var checksDaemon = false
     var warn: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
+    /// Apps with audio open, for `eq app set` and completion; only read, never tapped.
+    var audioApps: () -> [PlayingApp] = { [] }
+    var findApp: (String) -> PlayingApp? = { _ in nil }
 
     /// `~/.cache/eq` (or EQ_CACHE): eq's own markers live here, beside the downloads, and not in
     /// the config directory, which a fresh Mac does not have until a change needs it.
@@ -50,7 +53,9 @@ struct CLIContext {
                 return formatter.string(from: Date())
             },
             agent: LiveLaunchAgent(),
-            checksDaemon: LiveLaunchAgent.autoStarts())
+            checksDaemon: LiveLaunchAgent.autoStarts(),
+            audioApps: CoreAudioProcesses.apps,
+            findApp: { InstalledApps.find($0) })
     }
 
 }
@@ -147,6 +152,7 @@ enum CLI {
         case "watch": return try watch(rest, ctx)
         case "zones": return try zones(rest, ctx)
         case "preset": return try preset(rest, ctx)
+        case "app": return try app(rest, ctx)
         case "undo": return try undo(rest, ctx)
         case "redo": return try redo(rest, ctx)
         case "history": return try history(rest, ctx)
@@ -191,8 +197,10 @@ enum CLI {
         let mark = presetMark(resolved.profile, config)
         let table = Table.profile(resolved.profile, header: "\(current.name) (\(sourceLabel))", preset: mark)
         let source = resolved.source == .device ? "device" : "default"
-        return Output(table, ProfileReport(device: DeviceRef(uid: current.uid, name: current.name), source: source,
-                                           profile: resolved.profile, preset: mark?.name))
+        let app = appLine(ctx)
+        return Output(([table] + [app.text].compactMap { $0 }).joined(separator: "\n"),
+                      ProfileReport(device: DeviceRef(uid: current.uid, name: current.name), source: source,
+                                    profile: resolved.profile, preset: mark?.name, app: app.apps?.overlay))
     }
 
     private static func initialise(_ ctx: CLIContext) throws -> Output {
@@ -525,6 +533,7 @@ enum CLI {
         let enabled = Paint.ink(status.enabled ? .green : .yellow, "\(status.enabled)")
         lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
         if let text = ringText(status) { lines.append("\(label("ring")) \(text)") }
+        if let apps = status.apps, let line = appLine(apps.overlay, held: apps.held) { lines.append(line) }
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
@@ -825,6 +834,10 @@ enum CLI {
         if config.default.preset?.lowercased() == needle { config.default.preset = new }
         for (uid, profile) in config.devices where profile.preset?.lowercased() == needle {
             config.devices[uid]?.preset = new
+        }
+        // A removed preset leaves its app rules in place: they match nothing until a preset of that name exists again.
+        if let new, let rules = config.apps {
+            config.apps = rules.map { $0.preset.lowercased() == needle ? AppRule(app: $0.app, preset: new) : $0 }
         }
     }
 

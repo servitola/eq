@@ -8,7 +8,7 @@ enum Completions {
 
     /// What an operand or a flag's value completes to.
     enum Kind: String {
-        case devices, outputs, presets, instruments, formats, bands, types, sources, files, none
+        case devices, outputs, presets, instruments, formats, apps, bands, types, sources, files, none
 
         var words: [String] {
             switch self {
@@ -29,7 +29,8 @@ enum Completions {
             case "<band>": return .bands
             case "<instrument>": return .instruments
             case "<type>": return .types
-            case "<name>" where path.first == "preset", "<old>" where path.first == "preset": return .presets
+            case "<name>" where path.first == "preset", "<old>" where path.first == "preset", "<preset>": return .presets
+            case "<app>": return .apps
             default: return .none
             }
         }
@@ -122,6 +123,9 @@ enum Completions {
         case .presets?: names = (config?.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
         case .instruments?: names = Instruments.all.map(\.name)
         case .formats?: names = ExportFormat.allCases.map(\.rawValue)
+        case .apps?:
+            let ids = ctx.audioApps().map(\.id) + (config?.apps ?? []).map(\.app)
+            names = Set(ids).sorted { $0.lowercased() < $1.lowercased() }
         default: names = []
         }
         return Output(names.joined(separator: "\n"), names)
@@ -149,7 +153,7 @@ enum Completions {
     private static func zsh() -> String {
         var lines = ["#compdef eq", "# " + String(format: header, "zsh", "zsh"), ""]
         lines += ["_eq_value() {", "  local -a values", "  case $1 in"]
-        for kind in [Kind.devices, .outputs, .presets, .instruments, .formats] {
+        for kind in [Kind.devices, .outputs, .presets, .instruments, .formats, .apps] {
             lines.append("    (\(kind.rawValue)) values=(\"${(@f)$(eq __complete \(kind.rawValue) 2>/dev/null)}\") ;;")
         }
         for kind in [Kind.bands, .types, .sources] { lines.append("    (\(kind.rawValue)) values=(\(kind.words.joined(separator: " "))) ;;") }
@@ -197,7 +201,7 @@ enum Completions {
                   "    [[ -n $line && $line == \"$word\"* ]] || continue", "    printf -v quoted '%q' \"$line\"", "    COMPREPLY+=(\"$quoted\")",
                   "  done", "}", ""]
         lines += ["_eq_value() {", "  case $1 in"]
-        for kind in [Kind.devices, .outputs, .presets, .instruments, .formats] {
+        for kind in [Kind.devices, .outputs, .presets, .instruments, .formats, .apps] {
             lines.append("    \(kind.rawValue)) _eq_add <<< \"$(eq __complete \(kind.rawValue) 2>/dev/null)\" ;;")
         }
         for kind in [Kind.bands, .types, .sources] {
@@ -243,7 +247,7 @@ enum Completions {
     private static func fish() -> String {
         var lines = ["# " + String(format: header, "fish", "fish"), ""]
         lines += ["function __eq_value", "    switch $argv[1]"]
-        for kind in [Kind.devices, .outputs, .presets, .instruments, .formats] {
+        for kind in [Kind.devices, .outputs, .presets, .instruments, .formats, .apps] {
             lines += ["        case \(kind.rawValue)", "            eq __complete \(kind.rawValue) 2>/dev/null"]
         }
         for kind in [Kind.bands, .types, .sources] {

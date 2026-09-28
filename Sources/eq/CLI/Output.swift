@@ -17,7 +17,7 @@ struct Output {
 }
 
 struct DeviceRef: Encodable { var uid: String; var name: String }
-struct ProfileReport: Encodable { var device: DeviceRef; var source: String; var profile: Profile; var preset: String? = nil }
+struct ProfileReport: Encodable { var device: DeviceRef; var source: String; var profile: Profile; var preset: String? = nil; var app: AppMatch? = nil }
 struct PresetEntry: Encodable { var name: String; var profile: Profile }
 struct PresetsReport: Encodable {
     var current: String?; var presets: [PresetEntry]
@@ -99,6 +99,8 @@ extension CLIError {
         case .importRefused: return "importRefused"
         case .network: return "network"
         case .noSuchPreset: return "noSuchPreset"
+        case .noSuchApp: return "noSuchApp"
+        case .noSuchAppRule: return "noSuchAppRule"
         case .badPresetName: return "badPresetName"
         case .presetExists: return "presetExists"
         case .noBackup: return "noBackup"

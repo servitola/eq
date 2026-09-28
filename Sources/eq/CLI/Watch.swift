@@ -213,8 +213,13 @@ enum Watch {
             ("\(rate) kHz", "\(rate) kHz"),
             ("preamp \(preamp) dB", "preamp \(Paint.ink(Paint.gain(f.preamp), preamp)) dB"),
         ]
-        if let preset { segments.append((preset.name + (preset.modified ? "*" : ""), Table.presetLabel(preset))) }
-        if let preference {
+        // While an app rule plays, the device's preset and layers are not what you hear, so they step aside.
+        if let app = f.app {
+            segments.append(("app: \(app.label)", "app: " + Paint.ink(.bold, app.name) + " → " + Paint.ink(.cyan, app.preset)))
+        } else if let preset {
+            segments.append((preset.name + (preset.modified ? "*" : ""), Table.presetLabel(preset)))
+        }
+        if f.app == nil, let preference {
             let parts = [("bass", preference.bass), ("treble", preference.treble), ("tilt", preference.tilt)].filter { $0.1 != 0 }
             if !parts.isEmpty {
                 segments.append((parts.map { "\($0.0) \(String(format: "%+g", $0.1))" }.joined(separator: " "),
@@ -226,7 +231,7 @@ enum Watch {
             let gain = knobs?[instrument.name] ?? 0
             return gain != 0 || instrument == focus ? (instrument.name, gain) : nil
         }
-        if !turned.isEmpty {
+        if f.app == nil, !turned.isEmpty {
             segments.append((turned.map { "\($0.0) \(String(format: "%+.1f", $0.1))" }.joined(separator: " "),
                              turned.map { "\($0.0) " + Paint.ink(Paint.gain($0.1), String(format: "%+.1f", $0.1)) }.joined(separator: " ")))
         }

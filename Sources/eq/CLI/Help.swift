@@ -1,7 +1,7 @@
 import Foundation
 
 struct CommandHelp {
-    enum Group: String, CaseIterable { case look, tune, device, preset, filter, `import`, setup }
+    enum Group: String, CaseIterable { case look, tune, device, preset, app, filter, `import`, setup }
 
     enum Token: Equatable {
         case word(String), flag(String), placeholder(String), punctuation(String)
@@ -80,7 +80,7 @@ struct CommandHelp {
                     "write the curve for another tool: apo (default, Equalizer APO / Peace / SoundSource text), graphiceq (AutoEq's 127 points, for Wavelet), eqmac (bands only), camilla (CamillaDSP YAML), json (eq's own profile); to stdout, or atomically to FILE, which must not exist unless --force",
                     examples: ["eq export > config.txt", "eq export --format graphiceq --out GraphicEQ.txt", "eq export --format camilla --device JBL"]),
         CommandHelp(.look, "eq stream", "meter frames as JSON lines, 30 per second, until Ctrl-C"),
-        CommandHelp(.look, "eq events", "state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon; never meter ticks",
+        CommandHelp(.look, "eq events", "state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app; never meter ticks",
                     examples: ["eq events | jq -r 'select(.event == \"device\") | .device'"]),
         CommandHelp(.tune, "eq set [--device DEVICE] <band> <gain> …", "change bands on the current device, or on DEVICE", writes: true,
                     examples: ["eq set 64hz +4 1khz -3", "eq set --device JBL 16khz +1"]),
@@ -111,6 +111,11 @@ struct CommandHelp {
         CommandHelp(.preset, "eq preset show <name>", "show a preset"),
         CommandHelp(.preset, "eq preset rm <name>", "delete a preset", writes: true),
         CommandHelp(.preset, "eq preset rename <old> <new>", "rename a preset; devices using it follow", writes: true),
+        CommandHelp(.app, "eq app [list]", "app rules, experimental: while an app plays, its preset is heard instead of the device's curve; the one heard now marked *"),
+        CommandHelp(.app, "eq app set <app> <preset>", "while <app>, a bundle ID or an app's name, plays, hear <preset>; the first rule wins when two play at once",
+                    writes: true, examples: ["eq app set Spotify favourite", "eq app set com.google.Chrome flat"]),
+        CommandHelp(.app, "eq app rm <app>", "remove the rule for <app>", writes: true),
+        CommandHelp(.app, "eq app on|off", "follow playing apps, or stop; off by default", writes: true),
         CommandHelp(.filter, "eq filter [list] [--device DEVICE]", "list the parametric filters, numbered as eq shows them"),
         CommandHelp(.filter, "eq filter add <type> <freq> <gain> [<q>] [--device DEVICE]",
                     "add a filter: peak lowshelf highshelf lowpass highpass notch bandpass; Q defaults to 1.41 for peak, notch and bandpass, 0.707 otherwise",

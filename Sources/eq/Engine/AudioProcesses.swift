@@ -38,6 +38,21 @@ final class CoreAudioProcesses: AudioProcessSource {
         return AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr ? value : nil
     }
 
+    /// Every app with audio open, playing or not, as a person would name it. System daemons outside
+    /// any `.app` and eq itself (this process, or the daemon in EQ.app) are left out.
+    static func apps() -> [PlayingApp] {
+        var apps: [PlayingApp] = []
+        for id in processObjects() {
+            guard var process = process(id), process.pid != getpid() else { continue }
+            process.path = process.path ?? executablePath(process.pid)
+            guard process.path.flatMap(AppIdentity.outermostApp) != nil,
+                  let app = AppIdentity.identify(process, bundleInfo: AppIdentity.liveBundleInfo),
+                  app.id != Build.bundleID, !apps.contains(app) else { continue }
+            apps.append(app)
+        }
+        return apps
+    }
+
     static func process(_ id: AudioObjectID) -> AudioProcess? {
         var addr = address(kAudioProcessPropertyPID)
         var pid: pid_t = 0

@@ -59,6 +59,7 @@ final class CompletionTests: XCTestCase {
             XCTAssertTrue(text.contains("__complete presets"), shell)
             XCTAssertTrue(text.contains("__complete instruments"), shell)
             XCTAssertTrue(text.contains("__complete formats"), shell)
+            XCTAssertTrue(text.contains("__complete apps"), shell)
         }
         XCTAssertTrue(script("zsh").hasPrefix("#compdef eq\n"))
         XCTAssertTrue(script("bash").contains("complete -F _eq eq"))
@@ -98,6 +99,7 @@ final class CompletionTests: XCTestCase {
             presets) printf '%s\\n' favourite flat 'club mix' ;;
             instruments) printf '%s\\n' kick voice ;;
             formats) printf '%s\\n' apo json ;;
+            apps) printf '%s\\n' com.spotify.client com.google.Chrome ;;
           esac
         }
         source '\(file.path)'
@@ -128,6 +130,10 @@ final class CompletionTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(bashComplete(["eq", "status", "--"])).contains("--dry-run"))
         XCTAssertEqual(try bashComplete(["eq", "set", "--device", "JBL\\ B"]), ["JBL\\ Big"])
         XCTAssertEqual(try bashComplete(["eq", "copy", "--to", "Mac"]), ["MacBook\\ Pro\\ Speakers"])
+        XCTAssertEqual(Set(try XCTUnwrap(bashComplete(["eq", "app", ""]))), ["list", "set", "rm", "on", "off"])
+        XCTAssertEqual(try bashComplete(["eq", "app", "set", "com.sp"]), ["com.spotify.client"])
+        XCTAssertEqual(try bashComplete(["eq", "app", "set", "Spotify", "fa"]), ["favourite"])
+        XCTAssertEqual(try bashComplete(["eq", "app", "rm", "com.g"]), ["com.google.Chrome"])
     }
 
     func testBashFileCompletionDoesNotGlob() throws {

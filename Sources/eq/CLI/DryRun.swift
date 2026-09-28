@@ -7,6 +7,9 @@ enum DryRun {
         var enabled: Bool
         var devices: [ProfileReport]
         var presets: [String: Profile]?
+        /// Only when a command changed them.
+        var apps: [AppRule]? = nil
+        var followsApps: Bool? = nil
     }
 
     struct Report: Encodable {
@@ -85,6 +88,13 @@ enum DryRun {
         if before.enabled != after.enabled {
             lines.append("eq " + toggle(before.enabled) + " → " + toggle(after.enabled))
         }
+        if before.followsApps != after.followsApps {
+            lines.append("apps " + (before.followsApps ? "on" : "off") + " → " + Paint.ink(.bold, after.followsApps ? "on" : "off"))
+        }
+        if appsChanged(before, after) {
+            lines.append(Paint.ink(.dim, "app rules before: ") + rules(before))
+            lines.append(Paint.ink(.bold, "app rules after:  ") + rules(after))
+        }
         for name in changedPresets(before, after) {
             let verb = before.preset(named: name) == nil ? "added" : (after.preset(named: name) == nil ? "removed" : "changed")
             lines.append("preset " + Paint.ink(.bold, name) + ": " + Paint.ink(verb == "removed" ? .magenta : .green, verb))
@@ -95,8 +105,18 @@ enum DryRun {
             lines.append(Paint.ink(.bold, "after"))
             lines.append(table(after, target))
         }
-        return Output(lines.joined(separator: "\n"), Report(before: side(before, targets, ctx, presets: changedPresets(before, after)),
-                                                            after: side(after, targets, ctx, presets: changedPresets(before, after))))
+        let apps = (rules: appsChanged(before, after), flag: before.followsApps != after.followsApps)
+        return Output(lines.joined(separator: "\n"), Report(before: side(before, targets, ctx, presets: changedPresets(before, after), apps: apps),
+                                                            after: side(after, targets, ctx, presets: changedPresets(before, after), apps: apps)))
+    }
+
+    private static func appsChanged(_ before: Config, _ after: Config) -> Bool {
+        (before.apps ?? []) != (after.apps ?? [])
+    }
+
+    private static func rules(_ config: Config) -> String {
+        let rules = config.apps ?? []
+        return rules.isEmpty ? "none" : rules.map { "\($0.app) → \($0.preset)" }.joined(separator: ", ")
     }
 
     private static func use(_ args: [String], _ ctx: CLIContext) throws -> Output {
@@ -141,8 +161,10 @@ enum DryRun {
                              profile: resolved.profile, preset: CLI.presetMark(resolved.profile, config)?.name)
     }
 
-    private static func side(_ config: Config, _ targets: [CLI.Target], _ ctx: CLIContext, presets names: [String] = []) -> AnyEncodable? {
+    private static func side(_ config: Config, _ targets: [CLI.Target], _ ctx: CLIContext, presets names: [String] = [],
+                             apps: (rules: Bool, flag: Bool) = (false, false)) -> AnyEncodable? {
         let presets = names.isEmpty ? nil : names.reduce(into: [String: Profile]()) { $0[$1] = config.presets?[$1] }
-        return AnyEncodable(Side(enabled: config.enabled, devices: targets.map { report(config, $0) }, presets: presets))
+        return AnyEncodable(Side(enabled: config.enabled, devices: targets.map { report(config, $0) }, presets: presets,
+                                 apps: apps.rules ? config.apps ?? [] : nil, followsApps: apps.flag ? config.followsApps : nil))
     }
 }
