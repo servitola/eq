@@ -5,6 +5,11 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Changed
+
+- The IO buffer is 128 frames instead of 256: eq now holds audio 5.8 ms instead of 11.6 ms at
+  44.1 kHz, measured from the IO callback's timestamps.
+
 ### Added
 
 - `eq status` splits the latency: `latency 432 ms (device 210, eq adds 23)`. The device share is
