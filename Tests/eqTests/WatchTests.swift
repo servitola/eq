@@ -199,7 +199,7 @@ final class WatchTests: XCTestCase {
         for ctx in [context(tty: true), context(tty: true, cols: 20, rows: 6)] {
             let result = CLI.run(["watch"], context: ctx)
             XCTAssertEqual(result.exitCode, 1)
-            XCTAssertTrue(result.output.contains("not serving"), result.output)
+            XCTAssertTrue(result.output.contains("daemon is not running"), result.output)
         }
     }
 

@@ -634,7 +634,7 @@ final class CLITests: XCTestCase {
         context.meterSocketURL = dir.appendingPathComponent("meter.sock")
         let result = runCLI("stream")
         XCTAssertEqual(result.exitCode, 1)
-        XCTAssertTrue(result.output.contains("not serving"), result.output)
+        XCTAssertTrue(result.output.contains("daemon is not running"), result.output)
     }
 
     func testStreamPrintsLines() throws {
