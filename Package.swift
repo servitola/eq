@@ -5,8 +5,10 @@ let package = Package(
     name: "eq",
     platforms: [.macOS("14.4")],
     targets: [
+        .target(name: "EQAtomics", path: "Sources/EQAtomics"),
         .executableTarget(
             name: "eq",
+            dependencies: ["EQAtomics"],
             path: "Sources/eq",
             swiftSettings: [.unsafeFlags(["-warnings-as-errors"])]
         ),
