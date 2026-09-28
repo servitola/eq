@@ -25,22 +25,28 @@ process that follows the output device and a file with ten numbers per device.
 ## Install
 
 ```sh
-brew install servitola/tap/eq
+brew install --cask servitola/tap/eq
 ```
 
-Homebrew wants third-party taps named in full; the line above trusts this one cask, no more.
-Then:
+That is all. Homebrew wants third-party taps named in full; the line above trusts this one
+cask, no more.
 
-```sh
-eq init                                   # writes ~/.config/eq/eq.json with a starting curve
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.servitola.eq.plist
-```
+The install (or, failing that, the first `eq` you run) registers the daemon as a login item
+named **EQ**: macOS says "Background Items Added", and it is listed under System Settings →
+General → Login Items → Allow in the Background, where it can be switched off. From then on
+it starts at login and restarts if it dies.
 
-The first start asks for **System Audio Recording** once (System Settings → Privacy &
-Security). Grant it to *EQ*, then `eq status` says `running`.
+Its first start asks once for **System Audio Recording**. Grant it to *EQ*, and `eq status`
+says `running`. Until then `eq` says on stderr that it is not equalising and where to allow it.
 
-The LaunchAgent plist is in my [dotfiles](https://github.com/servitola/dotfiles/tree/main/launchagents);
-it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it if it dies.
+No config file is needed: every command works on the default curve until you change
+something, and that first change writes `~/.config/eq/eq.json`. `eq init` writes it right away
+if you want a file to edit by hand.
+
+If you started eq with a hand-made `~/Library/LaunchAgents/com.servitola.eq.plist` before the
+app carried its own, that plist keeps working and eq never registers a second daemon beside
+it; `eq doctor` names it as `legacy`. `eq agent install --replace-legacy` boots it out, moves
+the plist to the Trash and starts the bundled login item instead.
 
 ## Commands
 
@@ -93,7 +99,7 @@ Setup:
 
 | Command | |
 | --- | --- |
-| `eq init` | write the default config if there is none |
+| `eq init` | write the default config now; optional, the first change writes it anyway |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
 | `eq completions zsh\|bash\|fish` | the shell completion script |
 | `eq man` | the man page, as roff |
@@ -551,6 +557,11 @@ The daemon opens a Core Audio process tap on the system mix (macOS 14.4+), which
 original output and hands the audio to the daemon. Ten peaking biquads plus the imported
 filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. Latency is
 shown in `eq status`; Bluetooth adds the headset's own buffering. Volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
+
+The daemon is a LaunchAgent inside the app, `EQ.app/Contents/Library/LaunchAgents/com.servitola.eq.plist`,
+registered through `SMAppService`; nothing is copied into `~/Library/LaunchAgents`. It logs to
+`~/Library/Logs/eq.log`. `eq agent status` shows how it is launched, `eq agent uninstall`
+removes the login item and stops it, `eq agent install` puts it back.
 
 It listens for the default output changing and rebuilds on the new device with that device's
 curve. Bluetooth devices arrive in two steps, so it waits for the IO callback to fire before

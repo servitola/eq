@@ -3,6 +3,30 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Changed
+
+- Works right after `brew install --cask servitola/tap/eq`, with no setup. No config file is
+  needed: every command reads the default curve `eq init` would write, and the first change
+  writes `~/.config/eq/eq.json`. `eq history` says there is no history yet, `eq doctor` shows
+  `config — defaults (no file yet)`, `--dry-run` compares against the defaults, and the daemon
+  runs on them without writing anything, picking up the file whenever it appears. Deleting
+  `eq.json` now means the defaults again. `eq init` is optional.
+- EQ.app carries its own LaunchAgent and registers it as the login item "EQ": the cask does it
+  on install, and any `eq` command does it when no daemon runs, printing one dim line the
+  first time. The daemon logs to `~/Library/Logs/eq.log`. A hand-installed
+  `~/Library/LaunchAgents/com.servitola.eq.plist` keeps working and blocks the bundled one;
+  `eq doctor` names the launcher in use, and `eq agent install --replace-legacy` switches.
+- While the daemon lacks System Audio Recording, every command says so on stderr and where to
+  allow it; while the login item waits for approval, where that is.
+
+### Added
+
+- `eq agent install [--replace-legacy]|uninstall|status`, hidden, for the cask and for
+  troubleshooting; `status` reports the SMAppService state (`notRegistered`, `enabled`,
+  `requiresApproval`, `notFound`).
+
 ## 2026.09.28.1 — 2026-09-28
 
 ### Added
