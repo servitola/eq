@@ -72,6 +72,18 @@ final class AppIdentityTests: XCTestCase {
         XCTAssertNil(identify(AudioProcess(pid: 5, bundleID: "", path: nil, playing: true)))
     }
 
+    func testControlCharactersInAnotherBundlesNameNeverReachTheTerminal() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-bundle-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let app = dir.appendingPathComponent("Evil.app")
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        let info: [String: Any] = ["CFBundleIdentifier": "com.example.evil", "CFBundleName": "Ev\u{1B}[2Jil\u{7F}\u{85}\u{9B}31m Player\n"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+        XCTAssertEqual(AppIdentity.liveBundleInfo(app.path), PlayingApp(id: "com.example.evil", name: "Ev[2Jil31m Player"))
+        XCTAssertEqual(AppIdentity.printable("Café\u{0}\t Ω"), "Café Ω")
+    }
+
     func testOutermostApp() {
         XCTAssertEqual(AppIdentity.outermostApp("/Applications/A.app/Contents/Frameworks/B.app/Contents/MacOS/B"), "/Applications/A.app")
         XCTAssertEqual(AppIdentity.outermostApp("/Applications/A.app"), "/Applications/A.app")

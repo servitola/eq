@@ -51,15 +51,21 @@ enum AppIdentity {
         if let path = process.path, let app = outermostApp(path), let host = bundleInfo(app) { return host }
         guard let own = process.bundleID, !own.isEmpty else { return nil }
         let id = strippingHelper(own)
-        return PlayingApp(id: id, name: process.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? id)
+        return PlayingApp(id: id, name: printable(process.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? id))
     }
 
+    /// Another app's bundle writes these names, and they reach the log and the terminal.
     static func liveBundleInfo(_ appPath: String) -> PlayingApp? {
         guard let bundle = Bundle(path: appPath), let id = bundle.bundleIdentifier else { return nil }
         let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? URL(fileURLWithPath: appPath).deletingPathExtension().lastPathComponent
-        return PlayingApp(id: id, name: name)
+        return PlayingApp(id: printable(id), name: printable(name))
+    }
+
+    /// Without C0, DEL and C1, so no escape sequence gets through.
+    static func printable(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter { !($0.value < 0x20 || (0x7F...0x9F).contains($0.value)) }))
     }
 }
 
