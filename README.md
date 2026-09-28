@@ -385,7 +385,8 @@ backend of its own site, with no stated terms.
   (routing, crossfeed, bass and treble, …) are named in a warning and not imported.
 - **CamillaDSP** config (YAML). The `pipeline:` decides what imports: the filters channel 0
   runs, in order, with a warning when channel 1 runs something else; `Gain` filters on it add
-  up to the preamp (`scale: linear` too); mixers and processors are named and skipped; with no
+  up to the preamp (`scale: linear` too); a step's channels are read in both CamillaDSP 2's
+`channel: 0` and 3's `channels: [0, 1]` form; mixers and processors are named and skipped; with no
   pipeline every filter under `filters:` imports. Biquads `Peaking`, `Lowshelf`, `Highshelf`,
   `Lowpass`, `Highpass`, `Notch` and `Bandpass` with `q`, a shelf `slope` in dB per octave or a
   `bandwidth` in octaves (warped at the config's own sample rate, as CamillaDSP does); first-order,
@@ -427,7 +428,7 @@ into place, so nothing ever sees half a file, and refuses a file that already ex
 | `apo` (default) | Equalizer APO `config.txt`: a comment naming eq, the device and the date, `Preamp:`, then one `Filter N: ON …` per band (a `PK` at each of the ten centres, Q 1.41), filter and bass/treble/tilt shelf — the same list eq runs. Shelves are written `LSC`/`HSC … Q` and passes `LPQ`/`HPQ`, the spellings APO reads as exactly the filter eq plays. Peace, REW and SoundSource's headphone EQ read the same file, and `eq import` reads it back to the same filters. |
 | `graphiceq` | AutoEq's `GraphicEQ.txt`: the whole response, preamp included, at AutoEq's 127 fixed frequencies (20–19871 Hz), the only grid Wavelet accepts. |
 | `eqmac` | an eqMac preset: the ten band gains and the preamp. eqMac holds nothing else, so a curve with filters or bass/treble/tilt is refused with a note saying which. |
-| `camilla` | CamillaDSP YAML: a `filters:` block (a `Gain` filter for the preamp, one `Biquad` per band and filter) and a `pipeline:` running them on channels 0 and 1, to merge into a config. |
+| `camilla` | CamillaDSP YAML: a `filters:` block (a `Gain` filter for the preamp, one `Biquad` per band and filter) and a `pipeline:` step running them on `channels: [0, 1]`, to merge into a config. That is CamillaDSP 3 and 4's syntax; for 2.x, split the step into `channel: 0` and `channel: 1`. |
 | `json` | eq's own profile, as it sits in `eq.json`. |
 
 ## How it works

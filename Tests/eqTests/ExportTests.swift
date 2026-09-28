@@ -165,8 +165,8 @@ final class ExportTests: XCTestCase {
                 if parts.count == 2, !parts[1].isEmpty { filters[current]![indent == 4 ? "kind" : parts[0]] = parts[1] }
             } else if trimmed == "- type: Filter" {
                 pipeline.append(("", []))
-            } else if trimmed.hasPrefix("channel: ") {
-                pipeline[pipeline.count - 1].channel = String(trimmed.dropFirst("channel: ".count))
+            } else if trimmed.hasPrefix("channels: ") {
+                pipeline[pipeline.count - 1].channel = String(trimmed.dropFirst("channels: ".count))
             } else if trimmed.hasPrefix("- ") {
                 pipeline[pipeline.count - 1].names.append(String(trimmed.dropFirst(2)))
             }
@@ -190,8 +190,8 @@ final class ExportTests: XCTestCase {
         XCTAssertEqual(yaml.order.count, Set(yaml.order).count)
         XCTAssertTrue(yaml.order.contains("eq_band_1khz") && yaml.order.contains("eq_filter_7") && yaml.order.contains("eq_bass_shelf")
             && yaml.order.contains("eq_tilt_4"), "\(yaml.order)")
-        XCTAssertEqual(yaml.pipeline.map(\.channel), ["0", "1"])
-        XCTAssertEqual(yaml.pipeline.map(\.names), [yaml.order, yaml.order])
+        XCTAssertEqual(yaml.pipeline.map(\.channel), ["[0, 1]"])
+        XCTAssertEqual(yaml.pipeline.map(\.names), [yaml.order])
     }
 
     func testCamillaSkipsAZeroPreamp() throws {

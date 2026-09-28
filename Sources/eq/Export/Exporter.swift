@@ -164,7 +164,8 @@ enum Exporter {
 
     static func camilla(_ profile: Profile, header: Header) -> String {
         var lines = [header.comment,
-                     "# Merge filters: into your config's filters: and the two steps into its pipeline:.",
+                     "# Merge filters: into your config's filters: and the step into its pipeline:.",
+                     "# CamillaDSP 3 and later; for 2.x, split the step into one with channel: 0 and one with channel: 1.",
                      "filters:"]
         var names: [String] = []
         if profile.preamp != 0 {
@@ -176,11 +177,9 @@ enum Exporter {
             lines += ["  \(name):", "    type: Biquad", "    parameters:"]
             lines += camillaParameters(band).map { "      \($0.0): \($0.1)" }
         }
-        lines.append("pipeline:")
-        for channel in 0...1 {
-            lines += ["  - type: Filter", "    channel: \(channel)", "    names:"]
-            lines += names.map { "      - \($0)" }
-        }
+        // CamillaDSP 3.0 replaced a step's `channel: n` with a `channels:` list; 4.x keeps the list.
+        lines += ["pipeline:", "  - type: Filter", "    channels: [0, 1]", "    names:"]
+        lines += names.map { "      - \($0)" }
         return lines.joined(separator: "\n")
     }
 }

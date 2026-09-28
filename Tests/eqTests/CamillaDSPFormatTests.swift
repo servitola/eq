@@ -19,6 +19,32 @@ final class CamillaDSPFormatTests: XCTestCase {
         ])
     }
 
+    /// `channel: n` (CamillaDSP 2.x) and a `channels:` list (3.0 on) both route a step; a step with
+    /// neither, or `channels: null`, runs on every channel, and an empty list on none.
+    func testPipelineStepsOfEveryCamillaVersionRoute() throws {
+        let filters = """
+            filters:
+              a: {type: Biquad, parameters: {type: Peaking, freq: 100, gain: 1, q: 1}}
+              b: {type: Biquad, parameters: {type: Peaking, freq: 200, gain: 2, q: 1}}
+              c: {type: Biquad, parameters: {type: Peaking, freq: 300, gain: 3, q: 1}}
+            pipeline:
+
+            """
+        let steps: [(String, [Double], Bool)] = [
+            ("  - {type: Filter, channel: 0, names: [a]}\n  - {type: Filter, channel: 1, names: [a]}", [100], false),
+            ("  - type: Filter\n    channels: [0, 1]\n    names:\n      - a\n      - b", [100, 200], false),
+            ("  - type: Filter\n    channels:\n      - 1\n      - 0\n    names: [b]", [200], false),
+            ("  - {type: Filter, names: [c]}\n  - {type: Filter, channels: null, names: [a]}", [300, 100], false),
+            ("  - {type: Filter, channels: [], names: [b]}\n  - {type: Filter, channels: [0], names: [a]}", [100], true),
+            ("  - {type: Filter, channels: [0, 1], bypassed: True, names: [b]}\n  - {type: Filter, channels: [0, 1], names: [a]}", [100], false),
+        ]
+        for (pipeline, frequencies, differ) in steps {
+            let r = try parse(filters + pipeline + "\n")
+            XCTAssertEqual(r.filters.map(\.frequency), frequencies, pipeline)
+            XCTAssertEqual(r.warnings.contains("left and right channels differ; imported the left channel (channel 0)"), differ, pipeline)
+        }
+    }
+
     func testEveryBiquadCamillaDefinesIsReadAsItsSourceComputesIt() throws {
         let r = try EQFormats.parse(try formatFixture("CamillaDSP all_biquads.yml"))
         XCTAssertEqual(r.filters.map(\.type), [.highPass, .lowPass, .highShelf, .highShelf, .lowShelf, .lowShelf, .peak, .peak, .notch, .notch, .bandPass, .bandPass])

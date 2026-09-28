@@ -62,7 +62,8 @@ enum CamillaDSPFormat: EQFormat {
                     if ignored.insert(kind).inserted { warnings.append("pipeline \(kind.isEmpty ? "steps without a type" : kind) steps ignored") }
                     continue
                 }
-                if entry["bypassed"]?.string == "true" { continue }
+                if entry["bypassed"]?.string?.lowercased() == "true" { continue }
+                // `channel: n` up to CamillaDSP 2.x, a `channels:` list since 3.0; neither (or null) means every channel.
                 let channels: [Int]?
                 if let one = entry["channel"]?.number {
                     channels = [ImportCheck.integer(one) ?? -1]
@@ -120,7 +121,7 @@ enum CamillaDSPFormat: EQFormat {
         case "Biquad": break
         case "Gain":
             guard let gain = parameters?["gain"]?.number else { return .skipped("a Gain filter without a number gain") }
-            if parameters?["mute"]?.string == "true" { return .skipped("a muted Gain filter") }
+            if parameters?["mute"]?.string?.lowercased() == "true" { return .skipped("a muted Gain filter") }
             if parameters?["scale"]?.string == "linear" {
                 guard gain > 0 else { return .skipped("a linear gain that is not positive") }
                 return .gain(20 * log10(gain))
