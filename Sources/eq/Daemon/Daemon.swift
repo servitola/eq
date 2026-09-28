@@ -150,6 +150,12 @@ final class Daemon {
     private var loggedFilterWarnings: Set<String> = []
     private let hooks: Hooks
     private lazy var events = EventTracker(enabled: config.enabled, hooks: hooks) { [weak self] in self?.meterServer?.publish($0) }
+    private lazy var apps = AppFollower(
+        source: CoreAudioProcesses(queue: queue),
+        identify: { AppIdentity.identify($0, bundleInfo: AppIdentity.liveBundleInfo) },
+        nowPlaying: NowPlaying.live(queue: queue),
+        schedule: { [queue] delay, work in queue.asyncAfter(deadline: .now() + delay, execute: work) },
+        onChange: { [weak self] in self?.appChanged($0, previous: $1) })
 
     init(store: ConfigStore, statusURL: URL, runHook: @escaping (HookRun) -> Void = HookRunner.live()) {
         self.store = store
@@ -201,6 +207,7 @@ final class Daemon {
         installListeners()
         installPowerHandler()
         startWatcher()
+        apps.configure(config)
         startStatusTimer()
         rebuild(attempt: 1)
         RunLoop.main.run()
@@ -321,7 +328,7 @@ final class Daemon {
 
     private func frame() -> MeterFrame {
         let processor = engine.processor
-        let profile = device.map { config.profile(forDeviceUID: $0.uid).profile }
+        let profile = device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }
         return MeterFrame(
             t: Date().timeIntervalSince1970,
             device: device?.name,
@@ -335,7 +342,12 @@ final class Daemon {
             enabled: config.enabled,
             // The daemon's copy, not the processor's: a rebuild clears the processor's for a moment,
             // and the watch would blink SOLO off and on.
-            solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: processor.sampleRate) })
+            solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: processor.sampleRate) },
+            app: apps.overlay)
+    }
+
+    private func heard(_ base: Profile) -> Profile {
+        AppOverlay.heard(base, apps.overlay, in: config)
     }
 
     // MARK: - Engine
@@ -441,16 +453,18 @@ final class Daemon {
         announcedUID = device.uid
         profileSource = resolved.source
         engine.processor.solo = solo
-        let unstable = engine.processor.apply(profile: resolved.profile, enabled: config.enabled)
+        let playing = heard(resolved.profile)
+        let unstable = engine.processor.apply(profile: playing, enabled: config.enabled)
         let rate = Int(engine.processor.sampleRate)
-        filterWarnings = unstable.map { "\(resolved.profile.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }
-        let profileName = resolved.source == .default ? "default" : resolved.profile.name ?? device.name
+        filterWarnings = unstable.map { "\(playing.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }
+        let profileName = apps.overlay.map { "preset \($0.preset)" } ?? (resolved.source == .default ? "default" : resolved.profile.name ?? device.name)
         for warning in filterWarnings where loggedFilterWarnings.insert("\(device.uid) \(warning)").inserted {
             Log.write("profile \"\(profileName)\": \(warning)")
         }
-        for name in resolved.profile.unknownInstruments where loggedFilterWarnings.insert("\(device.uid) instrument \(name)").inserted {
+        for name in playing.unknownInstruments where loggedFilterWarnings.insert("\(device.uid) instrument \(name)").inserted {
             Log.write("profile \"\(profileName)\": no instrument \"\(name)\" — its boost is ignored")
         }
+        // Profile events and hooks stay about the device's own curve; an app rule has its own event.
         if engine.state == .running {
             events.applied(device: Status.Device(uid: device.uid, name: device.name, transport: device.transportName),
                            rate: engine.processor.sampleRate, profile: resolved.profile, source: resolved.source)
@@ -563,8 +577,15 @@ final class Daemon {
                 return
             }
             let enabledChanged = fresh.enabled != config.enabled
+            let edited = device.map { AppOverlay.edited(config, fresh, uid: $0.uid) } ?? false
+            let held = edited ? apps.hold() : nil
             config = fresh
             hooks.configure(config.hooks)
+            apps.configure(config)
+            if let held {
+                Log.write("apps: the curve was edited while \(held.name) plays — the edit plays until it stops")
+                events.app(nil, previous: held)
+            }
             events.enabled(config.enabled)
             applyProfile()
             if enabledChanged, state == .running || state == .bypassed {
@@ -578,6 +599,19 @@ final class Daemon {
             Log.write(configError!)
             writeStatus()
         }
+    }
+
+    // MARK: - Apps
+
+    private func appChanged(_ match: AppMatch?, previous: AppMatch?) {
+        if let match {
+            Log.write("apps: \(match.name) plays — \(match.preset)")
+        } else if let previous {
+            Log.write("apps: \(previous.name) stopped — back to the device's curve")
+        }
+        events.app(match, previous: previous)
+        applyProfile()
+        writeStatus()
     }
 
     // MARK: - Status
@@ -702,7 +736,8 @@ final class Daemon {
             lastOnset: running ? engine.lastOnset : nil,
             underruns: running ? engine.underruns : nil,
             overruns: running ? engine.overruns : nil,
-            dropouts: running ? engine.dropouts : nil)
+            dropouts: running ? engine.dropouts : nil,
+            apps: apps.status)
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

@@ -47,6 +47,8 @@ struct Status: Codable, Equatable {
     var overruns: UInt64? = nil
     /// Buffers the engine dropped whole: a tap buffer the ring cannot take, an output buffer larger than eq prepared for.
     var dropouts: UInt64? = nil
+    /// Only while `experimental.apps` is on.
+    var apps: AppsStatus? = nil
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -90,7 +92,7 @@ struct Status: Codable, Equatable {
 extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
-        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts
+        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -119,5 +121,6 @@ extension Status {
         underruns = try c.decodeIfPresent(UInt64.self, forKey: .underruns)
         overruns = try c.decodeIfPresent(UInt64.self, forKey: .overruns)
         dropouts = try c.decodeIfPresent(UInt64.self, forKey: .dropouts)
+        apps = try c.decodeIfPresent(AppsStatus.self, forKey: .apps)
     }
 }

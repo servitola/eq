@@ -203,6 +203,26 @@ final class AppFollower {
     }
 }
 
+enum AppOverlay {
+    /// What plays while `match` is heard: its preset, as `eq preset use` would set it, never saved.
+    static func heard(_ base: Profile, _ match: AppMatch?, in config: Config) -> Profile {
+        guard let match, let preset = config.preset(named: match.preset) else { return base }
+        var profile = preset.profile
+        profile.name = base.name
+        profile.preset = preset.name
+        return profile
+    }
+
+    /// A change someone made to the curve `uid` plays; the daemon's own rename of the device is none.
+    static func edited(_ old: Config, _ new: Config, uid: String) -> Bool {
+        var before = old.profile(forDeviceUID: uid).profile
+        var after = new.profile(forDeviceUID: uid).profile
+        before.name = nil
+        after.name = nil
+        return before != after
+    }
+}
+
 struct AppsStatus: Codable, Equatable {
     var listening: Bool
     var overlay: AppMatch?

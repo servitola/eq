@@ -8,6 +8,7 @@ enum DaemonEvent: Equatable {
     case enabled(Bool)
     case solo(SoloRange?)
     case daemon(state: Status.State, version: String, error: String?)
+    case app(app: String, name: String, preset: String?)
 
     var kind: String {
         switch self {
@@ -17,6 +18,7 @@ enum DaemonEvent: Equatable {
         case .enabled: return "enabled"
         case .solo: return "solo"
         case .daemon: return "daemon"
+        case .app: return "app"
         }
     }
 
@@ -70,6 +72,10 @@ enum DaemonEvent: Equatable {
                 try c.encode(state, forKey: Key("state"))
                 try c.encode(version, forKey: Key("version"))
                 try c.encode(error, forKey: Key("error"))
+            case .app(let app, let name, let preset):
+                try c.encode(app, forKey: Key("app"))
+                try c.encode(name, forKey: Key("name"))
+                try c.encode(preset, forKey: Key("preset"))
             }
         }
     }
@@ -133,6 +139,12 @@ final class EventTracker {
         guard on != enabled else { return }
         enabled = on
         publish(.enabled(on))
+    }
+
+    /// The app rule heard now, or, with `match` nil, the one that just ended. Hooks never run for it.
+    func app(_ match: AppMatch?, previous: AppMatch?) {
+        guard let subject = match ?? previous else { return }
+        publish(.app(app: subject.app, name: subject.name, preset: match?.preset))
     }
 
     func solo(_ range: SoloRange?) {
