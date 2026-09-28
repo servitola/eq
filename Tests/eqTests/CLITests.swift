@@ -283,6 +283,47 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("lowShelf"))
     }
 
+    func testImportFileFollowsIncludeBesideItButAURLDoesNot() throws {
+        _ = runCLI("init")
+        let sub = dir.appendingPathComponent("apo")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        let config = "Preamp: -4 dB\nInclude: part.txt\nFilter: ON PK Fc 3000 Hz Gain 2 dB Q 1\n"
+        try config.write(to: sub.appendingPathComponent("config.txt"), atomically: true, encoding: .utf8)
+        try "Filter: ON LSC Fc 105 Hz Gain 3 dB Q 0.7\n".write(to: sub.appendingPathComponent("part.txt"), atomically: true, encoding: .utf8)
+        let file = runCLI("import", sub.appendingPathComponent("config.txt").path)
+        XCTAssertEqual(file.exitCode, 0, file.output)
+        XCTAssertFalse(file.output.contains("warning"), file.output)
+        XCTAssertEqual(try context.store.load().devices["BUILTIN"]?.filters.map(\.frequency), [105, 3000])
+
+        context.fetch = { _ in Data(config.utf8) }
+        let j = try json("import", "https://example.com/config.txt")
+        let warnings = try XCTUnwrap((j["import"] as? [String: Any])?["warnings"] as? [String])
+        XCTAssertEqual(warnings, ["line 2: not following Include: part.txt, only a file import can include other files"])
+        XCTAssertEqual(try context.store.load().devices["BUILTIN"]?.filters.map(\.frequency), [3000])
+    }
+
+    func testImportFixedBandEQSetsTheBandsAndIgnoresKeepBands() throws {
+        _ = runCLI("init")
+        let file = dir.appendingPathComponent("fixed.txt")
+        try fixtureText("Sony WH-1000XM4 FixedBandEQ").write(to: file, atomically: true, encoding: .utf8)
+        let result = runCLI("import", file.path, "--keep-bands")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertTrue(result.output.contains("--keep-bands ignored: AutoEq FixedBandEQ (10 bands) sets all ten bands."), result.output)
+        let profile = try XCTUnwrap(try context.store.load().devices["BUILTIN"])
+        XCTAssertEqual(profile.bands, [-4.3, -1.8, -5.8, -1.4, 0.5, -0.6, 6.0, -0.8, 1.0, -2.2])
+        XCTAssertEqual(profile.filters, [])
+        XCTAssertEqual(profile.preamp, -5.8)
+    }
+
+    func testImportRefusesAPreampOutsideTheRange() throws {
+        _ = runCLI("init")
+        let file = dir.appendingPathComponent("loud.txt")
+        try "Preamp: -40 dB\nFilter: ON PK Fc 1000 Hz Gain 1 dB Q 1\n".write(to: file, atomically: true, encoding: .utf8)
+        let result = runCLI("import", file.path)
+        XCTAssertNotEqual(result.exitCode, 0)
+        XCTAssertTrue(result.output.contains("not imported: \(file.path): preamp -40 dB is outside -30…12 dB"), result.output)
+    }
+
     func testImportKeepBands() throws {
         _ = runCLI("init")
         _ = runCLI("set", "64hz", "+2")

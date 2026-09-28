@@ -298,7 +298,7 @@ enum CLI {
         profile.filters = result.filters.prefix(room).map { var filter = $0; filter.origin = .import; return filter } + handFilters
         if let bands = result.bands {
             profile.bands = bands
-            if keepBands { warnings.append("--keep-bands ignored: a GraphicEQ import replaces the bands.") }
+            if keepBands { warnings.append("--keep-bands ignored: \(result.format) sets all ten bands.") }
         } else {
             profile.bands = keepBands ? profile.bands : Profile.flat.bands
         }
@@ -321,29 +321,33 @@ enum CLI {
 
     private static func resolveImportSource(
         _ query: String, sourceOption: String?, variant: String?, refresh: Bool, _ ctx: CLIContext
-    ) throws -> (result: AutoEqParser.Result, origin: String, attribution: String?) {
+    ) throws -> (result: ImportResult, origin: String, attribution: String?) {
         let isFile = FileManager.default.fileExists(atPath: query)
         let isURL = query.hasPrefix("http://") || query.hasPrefix("https://")
         if (isFile || isURL) && (sourceOption != nil || variant != nil || refresh) {
             throw CLIError.usage("--source, --variant and --refresh apply to a headphone name")
         }
-        func parse(_ text: String, _ what: String) throws -> AutoEqParser.Result {
-            do { return try AutoEqParser.parse(text) }
+        func parse(_ data: Data, _ what: String, filename: String?, context: ImportContext = .detached) throws -> ImportResult {
+            do { return try EQFormats.parse(data, filename: filename, context: context) }
+            catch ImportError.preampOutOfRange(let value) {
+                throw CLIError.importRefused("\(what): \(ImportError.preampOutOfRange(value))")
+            }
             catch { throw CLIError.importUnrecognized("\(what): \(error)") }
         }
         if isFile {
-            let text: String
-            do { text = try String(contentsOfFile: query, encoding: .utf8) }
+            let file = URL(fileURLWithPath: query)
+            let data: Data
+            do { data = try Data(contentsOf: file) }
             catch { throw CLIError.importUnrecognized("\(query): \(error)") }
-            let basename = URL(fileURLWithPath: query).deletingPathExtension().lastPathComponent
-            return (try parse(text, query), "file \(basename)", nil)
+            let basename = file.deletingPathExtension().lastPathComponent
+            return (try parse(data, query, filename: file.lastPathComponent, context: ImportContext(file: file)), "file \(basename)", nil)
         }
         if isURL {
             guard let url = URL(string: query) else { throw CLIError.importUnrecognized("\(query): not a valid URL") }
             let data: Data
             do { data = try ctx.fetch(url) }
             catch { throw CLIError.network("\(error)") }
-            return (try parse(String(decoding: data, as: UTF8.self), query), "url \(url.host ?? query)", nil)
+            return (try parse(data, query, filename: url.lastPathComponent), "url \(url.host ?? query)", nil)
         }
 
         let found = try HeadphoneLookup.resolve(
@@ -363,7 +367,7 @@ enum CLI {
             do { data = try ctx.fetch(AutoEqIndex.fileURL(for: entry)) }
             catch let error as URLError where error.code == .fileDoesNotExist { throw CLIError.importNotFound(what) }
             catch { throw CLIError.network("\(error)") }
-            return (try parse(String(decoding: data, as: UTF8.self), what), "AutoEq \(entry.source) · \(entry.name)", nil)
+            return (try parse(data, what, filename: AutoEqIndex.fileURL(for: entry).lastPathComponent), "AutoEq \(entry.source) · \(entry.name)", nil)
         }
     }
 

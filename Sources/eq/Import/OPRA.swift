@@ -124,7 +124,7 @@ enum OPRA {
         return nil
     }
 
-    static func result(_ entry: OPRAEntry) -> AutoEqParser.Result {
+    static func result(_ entry: OPRAEntry) -> ImportResult {
         var warnings: [String] = []
         var filters: [Filter] = []
         for band in entry.bands {
@@ -155,7 +155,7 @@ enum OPRA {
             warnings.append("OPRA preset has \(filters.count) filters; kept the first \(Config.maxFilters).")
             filters = Array(filters.prefix(Config.maxFilters))
         }
-        return AutoEqParser.Result(filters: filters, bands: nil, preamp: entry.preamp, format: "OPRA parametric", warnings: warnings)
+        return ImportResult(filters: filters, bands: nil, preamp: entry.preamp, format: "OPRA parametric", warnings: warnings)
     }
 
     static func attribution(_ entry: OPRAEntry) -> String {

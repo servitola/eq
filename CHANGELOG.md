@@ -5,6 +5,25 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq import` reads the whole Equalizer APO grammar: every filter type APO has (the four
+  shelf spellings `LS`/`LSC x dB`/`LS 6dB`/`LSC … Q`, pass, band-pass and notch filters),
+  `BW Oct`, kHz, several `Preamp:` lines, `Channel:` blocks (the left channel is imported, with
+  a warning when the right differs) and `Include:` beside an imported file. Shelves and
+  bandwidths get the Q APO itself would build. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`
+  and the like are named in one warning each instead of silently dropped.
+- AutoEq's `FixedBandEQ.txt` sets the ten bands instead of adding ten filters.
+- REW's text export (with its header and `ON None` slots) and squig.link's (CRLF, `Channel:
+  L`/`R`) import. The README has a new Formats section listing what imports.
+
+### Changed
+
+- A malformed or out-of-range filter line is skipped with a warning that names its line,
+  instead of being imported and refused later or dropped without a word; a total preamp
+  outside −30…12 dB refuses the import with that reason. GraphicEQ gains beyond ±12 dB say
+  they were limited.
+
 ## 2026.09.27.9 — 2026-09-27
 
 ### Added

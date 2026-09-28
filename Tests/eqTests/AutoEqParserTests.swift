@@ -27,17 +27,22 @@ final class AutoEqParserTests: XCTestCase {
         Filter 3: ON AP Fc 100 Hz Gain 0 dB Q 1
         Filter 4: ON LS 6dB Fc 80 Hz Gain 3 dB
         """
-        let r = try AutoEqParser.parseParametric(text)
+        let r = try AutoEqParser.parse(text)
         XCTAssertEqual(r.preamp, -3.5)
         XCTAssertEqual(r.filters.count, 2)
         XCTAssertEqual(r.filters[0].frequency, 1200)
-        XCTAssertEqual(r.filters[0].q, sqrt(2) / (2 - 1), accuracy: 1e-9)
-        XCTAssertEqual(r.filters[1], Filter(type: .lowShelf, frequency: 80, gain: 3, q: 0.707))
-        XCTAssertEqual(r.warnings, ["Skipped unsupported all-pass filter."])
+        XCTAssertEqual(r.filters[0].q, APOFormat.qFromBandwidth(1, frequency: 1200), accuracy: 1e-12)
+        XCTAssertEqual(r.filters[0].q, sqrt(2) / (2 - 1), accuracy: 0.01, "the 48 kHz warp is small at 1.2 kHz")
+        XCTAssertEqual(r.filters[1].type, .lowShelf)
+        // A 6 dB/oct corner shelf: S 0.5, moved up from its corner to the centre the biquad needs.
+        let a = pow(10, 3.0 / 40)
+        XCTAssertEqual(r.filters[1].q, 1 / sqrt((a + 1 / a) * (1 / 0.5 - 1) + 2), accuracy: 1e-12)
+        XCTAssertEqual(r.filters[1].frequency, 80 * pow(10, 3.0 / 80 / 0.5), accuracy: 1e-9)
+        XCTAssertEqual(r.warnings, ["line 4: skipped a filter: an all-pass filter is not supported"])
     }
 
     func testLeadingPlusIsAccepted() throws {
-        let r = try AutoEqParser.parseParametric("""
+        let r = try AutoEqParser.parse("""
         Preamp: +1 dB
         Filter 1: ON PK Fc 1000 Hz Gain +3.0 dB Q 1
         """)
@@ -55,11 +60,14 @@ final class AutoEqParserTests: XCTestCase {
         // preamp only compensates a boost (positive max band); this fixture is all-cut, so max(0, …) clamps it to 0.
         XCTAssertEqual(r.preamp, -(max(0, bands.max() ?? 0) * 10).rounded() / 10, accuracy: 1e-9)
         XCTAssertEqual(r.format, "GraphicEQ (reduced to 10 bands)")
-        XCTAssertEqual(r.warnings.count, 1)
+        XCTAssertEqual(r.warnings, [
+            "GraphicEQ has 127 points; reduced to 10 bands \u{2014} the model's ParametricEQ.txt is exact",
+            "GraphicEQ gains beyond ±12 dB were limited to it",   // the file dips to -12.3 dB at 128 Hz
+        ])
     }
 
     func testGraphicInterpolatesBetweenPoints() throws {
-        let r = try AutoEqParser.parseGraphic("GraphicEQ: 20 0; 40 6; 80 0; 20000 0")
+        let r = try AutoEqParser.parse("GraphicEQ: 20 0; 40 6; 80 0; 20000 0")
         let bands = try XCTUnwrap(r.bands)
         // accuracy 0.05: implementation rounds each band to 0.1, which can shift the raw log-linear value by up to half a step
         XCTAssertEqual(bands[0], 6 * log(32.0 / 20) / log(40.0 / 20), accuracy: 0.05)     // 32 Hz between 20 (0) and 40 (6), log-linear
@@ -68,7 +76,7 @@ final class AutoEqParserTests: XCTestCase {
     }
 
     func testGarbageIsRejected() {
-        XCTAssertThrowsError(try AutoEqParser.parse("hello")) { XCTAssertEqual($0 as? AutoEqParser.ParseError, .unrecognized) }
-        XCTAssertThrowsError(try AutoEqParser.parse("   ")) { XCTAssertEqual($0 as? AutoEqParser.ParseError, .empty) }
+        XCTAssertThrowsError(try AutoEqParser.parse("hello")) { XCTAssertEqual($0 as? ImportError, .unrecognized) }
+        XCTAssertThrowsError(try AutoEqParser.parse("   ")) { XCTAssertEqual($0 as? ImportError, .empty) }
     }
 }

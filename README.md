@@ -348,6 +348,39 @@ few of its entries under the same licence.
 [peqdb.com](https://peqdb.com) stays out: it has more reviewers, but its API is the private
 backend of its own site, with no stated terms.
 
+## Formats
+
+`eq import <file|url>` recognises a file by what is in it, not by its name. It reads:
+
+- **Equalizer APO** `config.txt`, the grammar the rest below write: `Preamp:` (several add
+  up), `Filter N:` or `Filter:` with `ON`/`OFF` and every biquad type APO has — `PK`/`PEQ`/
+  `Modal`, `LP`/`LPQ`, `HP`/`HPQ`, `BP`, `NO`, the shelves `LS`/`HS`, `LSC`/`HSC` with an
+  optional `x dB` slope, `LS 6dB`/`LS 12dB` (and `HS`), and `LSQ`/`HSQ` — with `Fc` in Hz or
+  kHz, `Gain`, and `Q` or `BW Oct`. Shelves and bandwidths become the same Q APO's own code
+  computes, including its default slope, its corner-frequency shift for `LS`/`HS` with a slope
+  or a Q, and its bandwidth warp (taken at 48 kHz). A decimal comma works.
+- **AutoEq** `ParametricEQ.txt` and `GraphicEQ.txt`, and `FixedBandEQ.txt`, whose ten peaks
+  at Q 1.41 land on the ten bands directly instead of as filters.
+- **REW** "Export filter settings as text", with its header, its column spacing and its
+  `ON None` empty slots.
+- **squig.link**, **peqdb** and **SoundSource** headphone-EQ text, which are the same grammar;
+  squig.link's CRLF line endings and `Channel: L`/`Channel: R` blocks included.
+
+`Channel:` scopes what follows, as in APO. eq is one curve for both ears, so it imports the
+left channel and warns when the right one differs; filters only for other channels (`C`,
+`LFE`, …) are skipped with a count. `Include:` is followed from a file, relative to the file
+that names it, at most four levels deep, never in a circle, and never from a URL or a
+headphone name. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`/`Else:`, `Delay:` and
+`Convolution:` have no meaning for eq; each is named once in a warning and the filters around
+it are imported. All-pass and `IIR` filters are skipped with a warning.
+
+Every number is checked before it becomes a filter: a frequency outside 10–24000 Hz, a gain
+outside ±30 dB, a Q outside 0.1–30, a filter that would be unstable at 48 kHz, or a line that
+does not parse is skipped with a warning naming its line. A total preamp outside −30…12 dB
+refuses the import. The preamp is the file's own: AutoEq's `.txt` files carry the peak of the
+whole cascade, 0.1 dB less cautious than the README tables beside them, and eq does not
+recompute it.
+
 ## How it works
 
 The daemon opens a Core Audio process tap on the system mix (macOS 14.4+), which mutes the
