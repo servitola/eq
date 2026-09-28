@@ -1,5 +1,6 @@
-import Foundation
 import CoreAudio
+import EQCore
+import Foundation
 
 enum DaemonPolicy {
     static let rebuildAttempts = 5
@@ -23,6 +24,10 @@ enum DaemonPolicy {
     // KeepAlive restarts an exited daemon after ThrottleInterval (5 s); a refused one waits
     // first, so a lasting conflict costs a log line a minute, not twelve.
     static let refusedExitDelay: TimeInterval = 60
+    // A coreaudiod restart takes every device away for a moment; the tap only takes over from an EQ
+    // device that stays gone longer than that.
+    static let driverGoneGrace: TimeInterval = 3
+    static let driverRetry: TimeInterval = 30
 
     static func shouldWriteStatus(changed: Bool, sinceLastWrite: TimeInterval) -> Bool {
         changed || sinceLastWrite >= heartbeat
@@ -150,6 +155,19 @@ final class Daemon {
     private var loggedFilterWarnings: Set<String> = []
     private let hooks: Hooks
     private lazy var events = EventTracker(enabled: config.enabled, hooks: hooks) { [weak self] in self?.meterServer?.publish($0) }
+    private let audio: AudioSystem = LiveAudioSystem()
+    private var session: DriverSession?
+    // Why the tap runs while the config asks for the driver; nil otherwise.
+    private var fallbackReason: String?
+    private var driverGone: DispatchWorkItem?
+    private var driverSeen = true
+    private var tapModeTidied = false
+    private var lastDriverAttempt = Date.distantPast
+    private lazy var paths = AudioPaths(
+        startTap: { [unowned self] in self.rebuild(attempt: 1) },
+        stopTap: { [unowned self] in self.stopTap() },
+        startDriver: { [unowned self] in self.startDriver() },
+        stopDriver: { [unowned self] in self.stopDriver(restoring: $0) })
     private lazy var apps = AppFollower(
         source: CoreAudioProcesses(queue: queue),
         identify: { AppIdentity.identify($0, bundleInfo: AppIdentity.liveBundleInfo) },
@@ -209,7 +227,7 @@ final class Daemon {
         startWatcher()
         apps.configure(config)
         startStatusTimer()
-        rebuild(attempt: 1)
+        choosePath()
         RunLoop.main.run()
         exit(0)
     }
@@ -291,6 +309,7 @@ final class Daemon {
     }
 
     private func setSolo(_ range: SoloRange?) -> Bool {
+        if paths.active == .driver { return setDriverSolo(range) }
         let processor = engine.processor
         guard let range else {
             if solo != nil { logSolo("solo off") }
@@ -302,6 +321,23 @@ final class Daemon {
         guard processor.setSolo(low: range.low, high: range.high), let effective = processor.effectiveSolo else { return false }
         if solo != range { logSolo(String(format: "solo %.0f–%.0f Hz", effective.low, effective.high)) }
         solo = range
+        events.solo(effective)
+        return true
+    }
+
+    /// The plug-in plays a solo it is sent but never stores one, so it ends with the daemon.
+    private func setDriverSolo(_ range: SoloRange?) -> Bool {
+        guard let range else {
+            if solo != nil { logSolo("solo off") }
+            solo = nil
+            session?.push()
+            events.solo(nil)
+            return true
+        }
+        guard let effective = EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: session?.health?.sampleRate ?? 0) else { return false }
+        if solo != range { logSolo(String(format: "solo %.0f–%.0f Hz", effective.low, effective.high)) }
+        solo = range
+        session?.push()
         events.solo(effective)
         return true
     }
@@ -327,6 +363,7 @@ final class Daemon {
     }
 
     private func frame() -> MeterFrame {
+        if paths.active == .driver { return driverFrame() }
         let processor = engine.processor
         let profile = device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }
         return MeterFrame(
@@ -347,20 +384,42 @@ final class Daemon {
             comp: compReduction(profile).map(MeterFrame.round1))
     }
 
+    /// The same frame from the plug-in's `eqMt`, read on the meter server's ticks, so only while a meter client listens.
+    private func driverFrame() -> MeterFrame {
+        let meter = session?.meter()
+        let rate = session?.health?.sampleRate ?? 0
+        let profile = device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }
+        let floor = Array(repeating: EQC_METER_FLOOR_DB, count: Config.bandFrequencies.count)
+        return MeterFrame(
+            t: Date().timeIntervalSince1970,
+            device: device?.name,
+            rate: rate,
+            in: (meter?.inputDB ?? floor).map(MeterFrame.round1),
+            out: (meter?.outputDB ?? floor).map(MeterFrame.round1),
+            peak: MeterFrame.round1(meter?.peakDB ?? EQC_METER_FLOOR_DB),
+            limiting: meter?.limiting ?? false,
+            gains: (profile?.bands ?? []).map(MeterFrame.round1),
+            preamp: MeterFrame.round1(profile?.preamp ?? 0),
+            enabled: config.enabled,
+            solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: rate) },
+            app: apps.overlay,
+            comp: config.enabled && profile?.dynamics?.comp != nil ? meter.map { MeterFrame.round1($0.compressorReductionDB) } : nil)
+    }
+
     private func heard(_ base: Profile) -> Profile {
         AppOverlay.heard(base, apps.overlay, in: config)
     }
 
     /// Only while a compressor runs: a bypassed or compressor-less curve has no reduction to report.
     private func compReduction(_ profile: Profile?) -> Double? {
-        guard config.enabled, engine.state == .running, profile?.dynamics?.comp != nil else { return nil }
+        guard paths.active == .tap, config.enabled, engine.state == .running, profile?.dynamics?.comp != nil else { return nil }
         return Double(engine.processor.compressorReductionDB)
     }
 
     // MARK: - Engine
 
     private func rebuild(attempt: Int) {
-        guard !asleep else { return }
+        guard !asleep, paths.active != .driver else { return }
         retryWork?.cancel()
         rebuilding = true
         if state == .running || state == .bypassed { setState(.starting, error: nil) }
@@ -373,6 +432,11 @@ final class Daemon {
             Log.write("default output is a stale eq aggregate — destroying it")
             AudioDeviceManager.destroyStaleAggregates()
             fail("Default output was a stale aggregate.", retryIn: DaemonPolicy.rebuildDelay)
+            return
+        }
+        if device.isEQDevice {
+            // A tap on it would run the curve twice; the driver path or `eq mode tap` moves the default off it.
+            fail("the default output is the EQ device — pick a real output, or: eq mode driver", retryIn: DaemonPolicy.failedRetry)
             return
         }
         self.device = device
@@ -451,7 +515,7 @@ final class Daemon {
         scheduleRebuild(attempt: 1, after: delay)
     }
 
-    private func applyProfile() {
+    private func applyProfile(push: Bool = true) {
         guard let device else { return }
         let resolved = config.profile(forDeviceUID: device.uid)
         if resolved.source == .default, announcedUID != device.uid {
@@ -459,11 +523,17 @@ final class Daemon {
         }
         announcedUID = device.uid
         profileSource = resolved.source
-        engine.processor.solo = solo
         let playing = heard(resolved.profile)
-        let unstable = engine.processor.apply(profile: playing, enabled: config.enabled)
-        let rate = Int(engine.processor.sampleRate)
-        filterWarnings = unstable.map { "\(playing.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }
+        if paths.active == .driver {
+            // The plug-in bypasses an unstable band by itself and has no way to say which.
+            filterWarnings = []
+            if push { session?.push() }
+        } else {
+            engine.processor.solo = solo
+            let unstable = engine.processor.apply(profile: playing, enabled: config.enabled)
+            let rate = Int(engine.processor.sampleRate)
+            filterWarnings = unstable.map { "\(playing.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }
+        }
         let profileName = apps.overlay.map { "preset \($0.preset)" } ?? (resolved.source == .default ? "default" : resolved.profile.name ?? device.name)
         for warning in filterWarnings where loggedFilterWarnings.insert("\(device.uid) \(warning)").inserted {
             Log.write("profile \"\(profileName)\": \(warning)")
@@ -475,7 +545,10 @@ final class Daemon {
             Log.write("profile \"\(profileName)\": no \(part) — ignored")
         }
         // Profile events and hooks stay about the device's own curve; an app rule has its own event.
-        if engine.state == .running {
+        if paths.active == .driver, let rate = session?.health?.sampleRate, rate > 0 {
+            events.applied(device: Status.Device(uid: device.uid, name: device.name, transport: device.transportName),
+                           rate: rate, profile: resolved.profile, source: resolved.source)
+        } else if paths.active == .tap, engine.state == .running {
             events.applied(device: Status.Device(uid: device.uid, name: device.name, transport: device.transportName),
                            rate: engine.processor.sampleRate, profile: resolved.profile, source: resolved.source)
         }
@@ -490,13 +563,187 @@ final class Daemon {
         }
     }
 
+    // MARK: - Paths
+
+    /// Driver mode needs the EQ device; without it the tap plays, so the user is never left without EQ.
+    private func choosePath() {
+        let present = driverPresent()
+        if config.audioMode == .driver {
+            lastDriverAttempt = Date()
+            if !present {
+                if fallbackReason == nil { Log.write("driver mode: the EQ device is missing — the tap plays until it is back") }
+                fallbackReason = "the EQ device is missing"
+            }
+        }
+        let wanted = AudioPaths.wanted(config.audioMode, driverPresent: present)
+        // Before the tap starts, so it never starts on the EQ device only to be moved off it.
+        if wanted == .tap, config.audioMode == .tap, paths.active == nil { tidyTapMode(present: present) }
+        paths.run(wanted)
+        if paths.active == .tap, config.audioMode == .tap { tidyTapMode(present: present) }
+        noteMode()
+        writeStatus()
+    }
+
+    private func noteMode() {
+        guard let active = paths.active else { return }
+        events.mode(active == .driver ? .driver : .tap, target: active == .driver ? session?.target : nil,
+                    reason: active == .tap && config.audioMode == .driver ? fallbackReason : nil)
+    }
+
+    private func driverPresent() -> Bool {
+        ((Deadline.run(2) { DriverControl.find() }).flatMap { try? $0.get() } ?? nil) != nil
+    }
+
+    private func stopTap() {
+        settle.cancel()
+        retryWork?.cancel()
+        engine.stop()
+        rebuilding = false
+        filterWarnings = []
+        tapSilence.reset()
+    }
+
+    private func startDriver() -> Bool {
+        lastDriverAttempt = Date()
+        let session = DriverSession(
+            env: DriverSession.Environment(
+                system: audio,
+                driver: { DriverControl.find() },
+                schedule: { [queue] delay, work in queue.asyncAfter(deadline: .now() + delay, execute: work) },
+                stillDriverMode: { [weak self] in
+                    guard let self else { return false }
+                    return ((try? self.store.load()) ?? self.config).audioMode == .driver
+                }),
+            hideWhileDefault: config.hidesWhileDefault,
+            settings: { [weak self] in self?.driverSettings($0) },
+            onTarget: { [weak self] in self?.driverTarget($0) })
+        do {
+            try session.start()
+        } catch {
+            if fallbackReason != "\(error)" { Log.write("driver mode: \(error) — the tap plays instead") }
+            fallbackReason = "\(error)"
+            return false
+        }
+        self.session = session
+        fallbackReason = nil
+        driverSeen = true
+        tapModeTidied = false
+        if let target = session.target { driverTarget(target) }
+        setState(config.enabled ? .running : .bypassed, error: nil)
+        return true
+    }
+
+    /// The daemon leaving driver mode because the config says tap restores the default output first;
+    /// an EQ device that went away leaves nothing to restore.
+    private func stopDriver(restoring: Bool) {
+        let target = session?.target
+        session?.stop()
+        session = nil
+        driverGone?.cancel()
+        driverGone = nil
+        guard restoring else { return }
+        let left = ModeSwitch(system: audio, driver: { DriverControl.find() }).leave(remembered: target?.uid)
+        if let output = left.output { Log.write("tap mode: the default output is \(output.name) again") }
+        for problem in left.problems { Log.write("tap mode: \(problem)") }
+        if left.output == nil { Log.write("tap mode: sound may be gone — " + ModeSwitch.recovery.replacingOccurrences(of: "\n", with: "; ")) }
+        tapModeTidied = left.hidden
+    }
+
+    /// The record for one target: its curve as the tap would play it, solo included.
+    private func driverSettings(_ uid: String) -> eqc_settings? {
+        var settings = EQProcessor.settings(profile: heard(config.profile(forDeviceUID: uid).profile), enabled: config.enabled)
+        if let solo {
+            settings.solo = true
+            settings.soloLow = solo.low
+            settings.soloHigh = solo.high
+        }
+        return settings
+    }
+
+    /// The session already sent the new target its curve.
+    private func driverTarget(_ target: AudioOutputDevice) {
+        device = target
+        guard self.session != nil else { return }
+        applyProfile(push: false)
+        noteMode()
+        writeStatus()
+    }
+
+    private func driverDevicesChanged() {
+        switch (config.audioMode, paths.active) {
+        case (.driver, .driver?):
+            if driverPresent() {
+                driverGone?.cancel()
+                driverGone = nil
+                if !driverSeen {
+                    // Back after a coreaudiod restart: it kept the curve, but maybe not the default output.
+                    driverSeen = true
+                    Log.write("driver: the EQ device is back")
+                    do { try session?.start() } catch {
+                        fallbackReason = "\(error)"
+                        paths.run(.tap, restoring: false)
+                        noteMode()
+                    }
+                } else {
+                    session?.refresh()
+                }
+                writeStatus()
+            } else if driverGone == nil {
+                driverSeen = false
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self, self.paths.active == .driver, !self.driverPresent() else { return }
+                    self.driverGone = nil
+                    self.fallbackReason = "the EQ device went away"
+                    Log.write("driver mode: the EQ device went away — the tap plays until it is back")
+                    self.paths.run(.tap, restoring: false)
+                    self.noteMode()
+                    self.writeStatus()
+                }
+                driverGone = work
+                queue.asyncAfter(deadline: .now() + DaemonPolicy.driverGoneGrace, execute: work)
+            }
+        case (.driver, .tap?):
+            if driverPresent() { choosePath() }
+        case (.tap, _):
+            tidyTapMode(present: driverPresent())
+        default:
+            break
+        }
+    }
+
+    /// Decision 3: in tap mode the EQ device is hidden, and never left the default output.
+    private func tidyTapMode(present: Bool) {
+        guard present else {
+            tapModeTidied = false
+            return
+        }
+        guard !tapModeTidied else { return }
+        let left = ModeSwitch(system: audio, driver: { DriverControl.find() }).leave(remembered: nil)
+        for problem in left.problems { Log.write("tap mode: \(problem)") }
+        tapModeTidied = left.hidden
+        if left.hidden { Log.write("tap mode: the EQ device is hidden") }
+    }
+
+    private func driverTick() {
+        let before = session?.health
+        session?.refresh()
+        let changed = session?.health?.ioRunning != before?.ioRunning || session?.health?.eqActive != before?.eqActive
+        if DaemonPolicy.shouldWriteStatus(changed: changed, sinceLastWrite: Date().timeIntervalSince(lastStatusWrite)) {
+            writeStatus()
+        }
+    }
+
     // MARK: - Device listeners
 
     private func installListeners() {
-        for selector in [kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices] {
+        let handlers: [(AudioObjectPropertySelector, () -> Void)] = [
+            (kAudioHardwarePropertyDefaultOutputDevice, { [weak self] in self?.defaultOutputChanged() }),
+            (kAudioHardwarePropertyDevices, { [weak self] in self?.devicesChanged() }),
+        ]
+        for (selector, handler) in handlers {
             var addr = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                                   mElement: kAudioObjectPropertyElementMain)
-            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.settle.trigger() }
+            let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
             if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, queue, block) == noErr {
                 listeners.append((addr, block))
             } else {
@@ -505,9 +752,18 @@ final class Daemon {
         }
     }
 
+    private func defaultOutputChanged() {
+        if paths.active == .driver { session?.defaultOutputChanged() } else { settle.trigger() }
+    }
+
+    private func devicesChanged() {
+        if paths.active != .driver { settle.trigger() }
+        driverDevicesChanged()
+    }
+
     // OnlyEQ #23: the device list can change before the default does, so every event only arms one reconcile that reads the settled truth.
     private func reconcile() {
-        guard !asleep else { return }
+        guard !asleep, paths.active == .tap else { return }
         // Mid-rebuild the engine may be torn down; the device being built is what a new default must differ from.
         let target = rebuilding ? device?.id ?? 0 : engine.targetDeviceID
         let deviceRate = engine.state == .running ? AudioDeviceManager.nominalSampleRate(engine.targetDeviceID) : nil
@@ -549,6 +805,10 @@ final class Daemon {
     }
 
     private func willSleep() {
+        if paths.active == .driver {
+            Log.write("system going to sleep — the EQ device sleeps with its target")
+            return
+        }
         Log.write("system going to sleep — stopping the engine")
         settle.cancel()
         retryWork?.cancel()
@@ -563,6 +823,11 @@ final class Daemon {
     }
 
     private func hasPoweredOn() {
+        if paths.active == .driver {
+            session?.refresh()
+            writeStatus()
+            return
+        }
         Log.write("system woke — rebuilding in \(Int(DaemonPolicy.wakeDelay)) s")
         asleep = false
         asleepSince = nil
@@ -587,6 +852,8 @@ final class Daemon {
                 return
             }
             let enabledChanged = fresh.enabled != config.enabled
+            let modeChanged = fresh.audioMode != config.audioMode
+            let hidingChanged = fresh.hidesWhileDefault != config.hidesWhileDefault
             let edited = device.map { AppOverlay.edited(config, fresh, uid: $0.uid) } ?? false
             let held = edited ? apps.hold() : nil
             config = fresh
@@ -597,6 +864,17 @@ final class Daemon {
                 events.app(nil, previous: held)
             }
             events.enabled(config.enabled)
+            if modeChanged {
+                Log.write("config reloaded: mode \(config.audioMode.rawValue)")
+                choosePath()
+                return
+            }
+            if hidingChanged, paths.active == .driver {
+                Log.write("config reloaded: driver.hideWhileDefault \(config.hidesWhileDefault)")
+                paths.restart()
+                noteMode()
+                return
+            }
             applyProfile()
             if enabledChanged, state == .running || state == .bypassed {
                 setState(config.enabled ? .running : .bypassed, error: nil)
@@ -646,6 +924,13 @@ final class Daemon {
                 self.asleepSince = nil
                 self.rebuild(attempt: 1)
                 return
+            }
+            if self.paths.active == .driver {
+                self.driverTick()
+                return
+            }
+            if self.config.audioMode == .driver, Date().timeIntervalSince(self.lastDriverAttempt) >= DaemonPolicy.driverRetry {
+                self.choosePath()
             }
             if self.state == .running || self.state == .bypassed {
                 let output = DaemonPolicy.stalled(previous: self.lastCallbacks, current: self.engine.callbacks, unchangedTicks: self.unchangedTicks)
@@ -722,9 +1007,13 @@ final class Daemon {
 
     private func writeStatus() {
         statusWrites += 1
+        if paths.active == .driver {
+            writeDriverStatus()
+            return
+        }
         let running = engine.state == .running
         let added = engine.addedLatency
-        let status = Status(
+        var status = Status(
             state: state,
             device: device.map { Status.Device(uid: $0.uid, name: $0.name, transport: $0.transportName) },
             sampleRate: engine.processor.sampleRate,
@@ -748,7 +1037,52 @@ final class Daemon {
             overruns: running ? engine.overruns : nil,
             dropouts: running ? engine.dropouts : nil,
             apps: apps.status,
-            compReductionDB: compReduction(device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }).map(MeterFrame.round1))
+            compReductionDB: compReduction(device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }).map(MeterFrame.round1),
+            mode: paths.active == nil ? nil : .tap)
+        if config.audioMode == .driver, let fallbackReason {
+            status.warnings = (status.warnings ?? []) + ["driver mode: \(fallbackReason) — the tap plays instead"]
+        }
+        save(status)
+    }
+
+    private func writeDriverStatus() {
+        let health = session?.health
+        let target = session?.target
+        let current = (Deadline.run(2) { self.audio.defaultOutput() }).flatMap { try? $0.get() } ?? nil
+        let driver = Status.DriverStatus(
+            deviceName: target.map { "\($0.name) · EQ" } ?? "EQ",
+            target: target.map { Status.Device(uid: $0.uid, name: $0.name, transport: $0.transportName) },
+            isDefault: current?.isEQDevice == true,
+            ioRunning: health?.ioRunning ?? false,
+            eqActive: health?.eqActive ?? false,
+            underruns: health?.underruns ?? 0,
+            overruns: health?.overruns ?? 0,
+            clockPpm: health?.clockPpm ?? 0,
+            latencyMs: health?.latencyMs,
+            hidden: health?.hidden ?? false,
+            hiddenDefault: session?.hiddenDefault)
+        let status = Status(
+            state: state,
+            device: target.map { Status.Device(uid: $0.uid, name: $0.name, transport: $0.transportName) },
+            sampleRate: health?.sampleRate ?? 0,
+            profile: profileSource,
+            framesProcessed: 0,
+            callbacks: 0,
+            writes: statusWrites,
+            enabled: config.enabled,
+            error: session?.error ?? lastError ?? configError,
+            pid: getpid(),
+            version: Build.version,
+            updatedAt: Date(),
+            latencyMs: health?.latencyMs,
+            warnings: filterWarnings,
+            apps: apps.status,
+            mode: .driver,
+            driver: driver)
+        save(status)
+    }
+
+    private func save(_ status: Status) {
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

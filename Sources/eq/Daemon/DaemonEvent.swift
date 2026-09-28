@@ -9,6 +9,10 @@ enum DaemonEvent: Equatable {
     case solo(SoloRange?)
     case daemon(state: Status.State, version: String, error: String?)
     case app(app: String, name: String, preset: String?)
+    /// The path that runs now; `target` is the real device the EQ device plays on, in driver mode only.
+    case mode(AudioMode, target: String?, reason: String?)
+    /// The EQ device moved to another real device.
+    case target(name: String, uid: String)
 
     var kind: String {
         switch self {
@@ -19,6 +23,8 @@ enum DaemonEvent: Equatable {
         case .solo: return "solo"
         case .daemon: return "daemon"
         case .app: return "app"
+        case .mode: return "mode"
+        case .target: return "target"
         }
     }
 
@@ -76,6 +82,13 @@ enum DaemonEvent: Equatable {
                 try c.encode(app, forKey: Key("app"))
                 try c.encode(name, forKey: Key("name"))
                 try c.encode(preset, forKey: Key("preset"))
+            case .mode(let mode, let target, let reason):
+                try c.encode(mode, forKey: Key("mode"))
+                try c.encode(target, forKey: Key("target"))
+                try c.encode(reason, forKey: Key("reason"))
+            case .target(let name, let uid):
+                try c.encode(name, forKey: Key("device"))
+                try c.encode(uid, forKey: Key("uid"))
             }
         }
     }
@@ -145,6 +158,21 @@ final class EventTracker {
     func app(_ match: AppMatch?, previous: AppMatch?) {
         guard let subject = match ?? previous else { return }
         publish(.app(app: subject.app, name: subject.name, preset: match?.preset))
+    }
+
+    private var mode: AudioMode?
+    private var target: String?
+
+    func mode(_ new: AudioMode, target newTarget: AudioOutputDevice?, reason: String?) {
+        guard new != mode || newTarget?.uid != target else { return }
+        let modeChanged = new != mode
+        mode = new
+        target = newTarget?.uid
+        if modeChanged {
+            publish(.mode(new, target: newTarget?.name, reason: reason))
+        } else if let newTarget {
+            publish(.target(name: newTarget.name, uid: newTarget.uid))
+        }
     }
 
     func solo(_ range: SoloRange?) {

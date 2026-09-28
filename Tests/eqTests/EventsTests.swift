@@ -299,3 +299,31 @@ final class EventsCLITests: XCTestCase {
         wait(for: [daemon.served], timeout: 2)
     }
 }
+
+final class ModeEventTests: XCTestCase {
+    func testLines() throws {
+        func text(_ event: DaemonEvent) throws -> String { String(decoding: try DaemonEvent.encodeLine(event, at: 1.5), as: UTF8.self) }
+        XCTAssertEqual(try text(.mode(.driver, target: "BE-RCA", reason: nil)),
+                       #"{"event":"mode","mode":"driver","reason":null,"t":1.5,"target":"BE-RCA"}"# + "\n")
+        XCTAssertEqual(try text(.mode(.tap, target: nil, reason: "the EQ device is missing")),
+                       #"{"event":"mode","mode":"tap","reason":"the EQ device is missing","t":1.5,"target":null}"# + "\n")
+        XCTAssertEqual(try text(.target(name: "DAC", uid: "USB-DAC")), #"{"device":"DAC","event":"target","t":1.5,"uid":"USB-DAC"}"# + "\n")
+    }
+
+    func testTrackerPublishesModeThenTargets() {
+        var published: [DaemonEvent] = []
+        let tracker = EventTracker(enabled: true, hooks: Hooks(schedule: { _, _ in }, run: { _ in })) { published.append($0) }
+        tracker.mode(.tap, target: nil, reason: nil)
+        tracker.mode(.tap, target: nil, reason: nil)
+        tracker.mode(.driver, target: FakeAudioSystem.speaker, reason: nil)
+        tracker.mode(.driver, target: FakeAudioSystem.speaker, reason: nil)
+        tracker.mode(.driver, target: FakeAudioSystem.headphones, reason: nil)
+        tracker.mode(.tap, target: nil, reason: "the EQ device went away")
+        XCTAssertEqual(published, [
+            .mode(.tap, target: nil, reason: nil),
+            .mode(.driver, target: "BE-RCA", reason: nil),
+            .target(name: "DAC", uid: "USB-DAC"),
+            .mode(.tap, target: nil, reason: "the EQ device went away"),
+        ])
+    }
+}

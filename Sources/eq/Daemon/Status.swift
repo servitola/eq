@@ -51,6 +51,27 @@ struct Status: Codable, Equatable {
     var apps: AppsStatus? = nil
     /// The compressor's gain change in dB when the status was written, 0 or below; nil while it is off.
     var compReductionDB: Double? = nil
+    /// The path that runs, which is tap while driver mode waits for a missing EQ device; nil from a daemon before driver mode.
+    var mode: AudioMode? = nil
+    /// Only while the driver path runs.
+    var driver: DriverStatus? = nil
+
+    struct DriverStatus: Codable, Equatable {
+        /// "BE-RCA · EQ", as the Sound menu shows it.
+        var deviceName: String
+        var target: Device?
+        var isDefault: Bool
+        var ioRunning: Bool
+        var eqActive: Bool
+        var underruns: UInt64
+        var overruns: UInt64
+        var clockPpm: Double
+        /// What the EQ device reports, so what a player compensates for.
+        var latencyMs: Double?
+        var hidden: Bool
+        /// The hide-while-default experiment's answer, once tried.
+        var hiddenDefault: DriverSession.HiddenDefault? = nil
+    }
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -94,7 +115,7 @@ struct Status: Codable, Equatable {
 extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
-        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps, compReductionDB
+        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps, compReductionDB, mode, driver
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -125,5 +146,7 @@ extension Status {
         dropouts = try c.decodeIfPresent(UInt64.self, forKey: .dropouts)
         apps = try c.decodeIfPresent(AppsStatus.self, forKey: .apps)
         compReductionDB = try c.decodeIfPresent(Double.self, forKey: .compReductionDB)
+        mode = try? c.decodeIfPresent(AudioMode.self, forKey: .mode)
+        driver = try? c.decodeIfPresent(DriverStatus.self, forKey: .driver)
     }
 }
