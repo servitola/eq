@@ -113,6 +113,7 @@ extension CLIError {
         case .switchFailed: return "switchFailed"
         case .agent: return "agent"
         case .driver: return "driver"
+        case .mode: return "mode"
         case .legacyAgent: return "legacyAgent"
         }
     }

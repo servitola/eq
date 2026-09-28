@@ -35,6 +35,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case switchFailed(String)
     case agent(String)
     case driver(String)
+    case mode(String)
     case legacyAgent(String)
 
     var description: String {
@@ -81,6 +82,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .switchFailed(let why): return "could not switch the output: \(why)"
         case .agent(let why): return "launch agent: \(why)"
         case .driver(let why): return "driver: \(why)"
+        case .mode(let why): return "mode: \(why)"
         case .legacyAgent(let path):
             return "\(LaunchAgent.abbreviate(path)) already starts eq at login; to switch to the bundled login item: eq agent install --replace-legacy"
         }

@@ -25,6 +25,7 @@ enum DryRun {
 
     static func run(_ args: [String], _ ctx: CLIContext, dispatch: ([String], CLIContext) throws -> Output) throws -> Output {
         if args.starts(with: ["device", "use"]) { return try use(Array(args.dropFirst(2)), ctx) }
+        if args.first == "mode" { return try CLI.mode(Array(args.dropFirst()), ctx, dryRun: true) }
         let files = FileManager.default
         let sandbox = files.temporaryDirectory.appendingPathComponent("eq-dry-run-\(UUID().uuidString)")
         try files.createDirectory(at: sandbox, withIntermediateDirectories: true)

@@ -28,6 +28,10 @@ struct CLIContext {
     var driver: () -> DriverPort? = { nil }
     /// Tells the plug-in which write it plays; any increasing number does.
     var driverSerial: () -> UInt64 = { UInt64(Date().timeIntervalSince1970 * 1000) }
+    /// What `eq mode` moves the default output with; nothing in tests unless a fake is given.
+    var audioSystem: AudioSystem = NoAudioSystem()
+    var modeDeadline: TimeInterval = 2
+    var modeWait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
 
     /// `~/.cache/eq` (or EQ_CACHE): eq's own markers live here, beside the downloads, and not in
     /// the config directory, which a fresh Mac does not have until a change needs it.
@@ -60,7 +64,8 @@ struct CLIContext {
             checksDaemon: LiveLaunchAgent.autoStarts(),
             audioApps: CoreAudioProcesses.apps,
             findApp: { InstalledApps.find($0) },
-            driver: { DriverControl.find() })
+            driver: { DriverControl.find() },
+            audioSystem: LiveAudioSystem())
     }
 
 }
@@ -165,13 +170,15 @@ enum CLI {
         case "history": return try history(rest, ctx)
         case "agent": return try agent(rest, ctx)
         case "driver": return try driver(rest, ctx)
+        case "mode": return try mode(rest, ctx)
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
     }
 
     /// Commands that never start the daemon: completion runs on every Tab, and help, the man page
-    /// and `eq agent` itself must not have side effects; `eq driver` talks to the plug-in alone.
-    private static let leavesDaemonAlone: Set<String> = ["agent", "driver", "__complete", "completions", "man", "help", "-h", "--help"]
+    /// and `eq agent` itself must not have side effects; `eq driver` talks to the plug-in alone, and
+    /// `eq mode` moves the default output itself, which a daemon starting up in the old mode would fight.
+    private static let leavesDaemonAlone: Set<String> = ["agent", "driver", "mode", "__complete", "completions", "man", "help", "-h", "--help"]
 
     /// Starts the bundled daemon when nothing runs one, and says so once on stderr; points at the
     /// System Audio Recording grant while the daemon waits for it.
@@ -523,7 +530,9 @@ enum CLI {
         guard let status = Status.read(from: ctx.statusURL), status.isAlive() else { throw CLIError.daemonNotRunning }
         func label(_ text: String) -> String { Paint.ink(.dim, text + ":") }
         var lines = ["\(label("state")) \(Paint.ink(Paint.state(status.state), status.state.rawValue))"]
-        if let device = status.device {
+        if let driver = status.driver, status.mode == .driver {
+            lines += driverStatusLines(status, driver, label)
+        } else if let device = status.device {
             let hz = Paint.ink(.yellow, "\(Table.whole(status.sampleRate)) Hz")
             let transport = Paint.ink(.dim, "[\(device.transport)]")
             let profile: String
@@ -540,7 +549,8 @@ enum CLI {
         let pid = Paint.ink(.yellow, "\(status.pid)")
         let version = Paint.ink(.yellow, status.version ?? "-")
         let enabled = Paint.ink(status.enabled ? .green : .yellow, "\(status.enabled)")
-        lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
+        let counts = status.mode == .driver ? "" : "\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  "
+        lines.append("\(counts)\(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
         if let text = ringText(status) { lines.append("\(label("ring")) \(text)") }
         if let apps = status.apps, let line = appLine(apps.overlay, held: apps.held) { lines.append(line) }
         if let reduction = status.compReductionDB { lines.append("\(label("comp")) \(Paint.ink(.yellow, String(format: "%.1f dB", reduction == 0 ? 0 : reduction)))") }
@@ -548,6 +558,26 @@ enum CLI {
         lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
+    }
+
+    /// `mode: driver (BE-RCA · EQ → BE-RCA)`, then the target and what the plug-in reports about playing on it.
+    static func driverStatusLines(_ status: Status, _ driver: Status.DriverStatus, _ label: (String) -> String) -> [String] {
+        let target = driver.target?.name ?? "no target"
+        var lines = ["\(label("mode")) \(Paint.ink(.bold, "driver")) (\(driver.deviceName) → \(target))"]
+        if let device = driver.target {
+            let hz = Paint.ink(.yellow, "\(Table.whole(status.sampleRate)) Hz")
+            let latency = driver.latencyMs.map { ", latency " + Paint.ink(.yellow, "\(Table.whole($0)) ms") + " (reported to players)" } ?? ""
+            let profile = status.profile == .device ? Paint.ink(.green, "device profile") : Paint.ink(.yellow, "default profile")
+            lines.append("\(label("device")) \(Paint.ink(.bold, device.name)) \(Paint.ink(.dim, "[\(device.transport)]")) \(hz)\(latency), \(profile)")
+        }
+        let io = driver.ioRunning ? Paint.ink(.green, "IO running") : Paint.ink(.yellow, "IO idle")
+        let eq = driver.eqActive ? Paint.ink(.green, "EQ active") : Paint.ink(.yellow, "no curve")
+        let slips = driver.underruns + driver.overruns > 0 ? Paint.ink(.yellow, "\(driver.underruns) underruns, \(driver.overruns) overruns")
+            : "\(driver.underruns) underruns, \(driver.overruns) overruns"
+        let clock = String(format: "clock %+.1f ppm", driver.clockPpm)
+        lines.append("\(label("driver")) \(io), \(eq), \(slips), \(clock)")
+        if !driver.isDefault { lines.append("\(Paint.ink(.yellow, "warning:")) \(driver.deviceName) is not the default output") }
+        return lines
     }
 
     /// Only when something went wrong: a healthy ring never under- or overruns, and a healthy engine drops nothing.
@@ -1002,6 +1032,10 @@ enum CLI {
             return (device.uid, device.name)
         }
         guard let device = ctx.defaultOutput() else { throw CLIError.noCurrentDevice }
+        // The EQ device has no curve of its own: its target's is the one heard.
+        if device.uid == DriverControl.deviceUID, let health = (try? ctx.driver()?.health()).map(DriverHealth.init), !health.target.isEmpty {
+            return (health.target, health.targetName.isEmpty ? health.target : health.targetName)
+        }
         return device
     }
 
