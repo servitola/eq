@@ -25,3 +25,10 @@
 ## Follow-ups from the v7 review
 - A stray UTF-8 lead byte delays the next ASCII key until enough bytes arrive.
 - A same-user connect flood keeps the accept loop busy (accept-and-close until EAGAIN).
+
+## Follow-ups from the Round D release
+- `eq --version` (and `-V`) — today only `eq status` and `eq doctor` show the version.
+- After a restart on BE-RCA (Bluetooth) with nothing playing, the engine got no IO callbacks for
+  ~70 s and rebuilt every ~15 s ("IO stalled for 10 s") until a sound woke the device. Check whether
+  a silent Bluetooth output that never starts IO should be waited on instead of rebuilt.
+- fish completions are unvalidated (fish is not installed here).
