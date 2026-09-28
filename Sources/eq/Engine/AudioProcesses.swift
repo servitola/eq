@@ -1,0 +1,104 @@
+import Foundation
+import CoreAudio
+
+/// The HAL's client processes, with listeners on the list and on each process.
+/// On macOS 26.6 `kAudioProcessPropertyIsRunningOutput` never notified when a process started or
+/// stopped playing, while `kAudioProcessPropertyIsRunning` did, both ways; both are watched, and
+/// every event re-reads the output flag, so either one is enough.
+final class CoreAudioProcesses: AudioProcessSource {
+    private let queue: DispatchQueue
+    private var changed: (() -> Void)?
+    private var listListener: AudioObjectPropertyListenerBlock?
+    private var processListeners: [AudioObjectID: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)]] = [:]
+
+    private static let watched = [kAudioProcessPropertyIsRunning, kAudioProcessPropertyIsRunningOutput]
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+    }
+
+    private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    }
+
+    static func processObjects() -> [AudioObjectID] {
+        var addr = address(kAudioHardwarePropertyProcessObjectList)
+        var size: UInt32 = 0
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        guard AudioObjectGetPropertyDataSize(system, &addr, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids
+    }
+
+    private static func uint32(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> UInt32? {
+        var addr = address(selector)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr ? value : nil
+    }
+
+    static func process(_ id: AudioObjectID) -> AudioProcess? {
+        var addr = address(kAudioProcessPropertyPID)
+        var pid: pid_t = 0
+        var size = UInt32(MemoryLayout<pid_t>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &pid) == noErr, pid > 0 else { return nil }
+        let playing = (uint32(id, kAudioProcessPropertyIsRunningOutput) ?? 0) != 0
+        return AudioProcess(pid: pid, bundleID: AudioDeviceManager.stringProperty(id, kAudioProcessPropertyBundleID),
+                            path: playing ? executablePath(pid) : nil, playing: playing)
+    }
+
+    static func executablePath(_ pid: pid_t) -> String? {
+        var buffer = [Int8](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    func snapshot() -> [AudioProcess] {
+        Self.processObjects().compactMap(Self.process)
+    }
+
+    func start(_ changed: @escaping () -> Void) -> Bool {
+        guard listListener == nil else { return true }
+        self.changed = changed
+        var addr = Self.address(kAudioHardwarePropertyProcessObjectList)
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.watchProcesses()
+            self?.changed?()
+        }
+        guard AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, queue, block) == noErr else { return false }
+        listListener = block
+        watchProcesses()
+        return true
+    }
+
+    func stop() {
+        if let block = listListener {
+            var addr = Self.address(kAudioHardwarePropertyProcessObjectList)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, queue, block)
+        }
+        listListener = nil
+        changed = nil
+        for id in Array(processListeners.keys) { unwatch(id) }
+    }
+
+    private func watchProcesses() {
+        let current = Set(Self.processObjects())
+        for id in processListeners.keys where !current.contains(id) { unwatch(id) }
+        for id in current where processListeners[id] == nil {
+            processListeners[id] = Self.watched.compactMap { selector in
+                var addr = Self.address(selector)
+                let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.changed?() }
+                return AudioObjectAddPropertyListenerBlock(id, &addr, queue, block) == noErr ? (addr, block) : nil
+            }
+        }
+    }
+
+    // A process that exited took its object along; removing from it fails harmlessly.
+    private func unwatch(_ id: AudioObjectID) {
+        for (address, block) in processListeners.removeValue(forKey: id) ?? [] {
+            var addr = address
+            AudioObjectRemovePropertyListenerBlock(id, &addr, queue, block)
+        }
+    }
+}
