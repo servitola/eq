@@ -248,12 +248,19 @@ final class LiveLaunchAgent: LaunchAgentControl {
     private func target(_ label: String) -> String { "gui/\(getuid())/\(label)" }
 
     var serviceStatus: AgentServiceStatus {
-        switch service.status {
+        let plist = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchAgents/\(LaunchAgent.plistName)")
+        return Self.status(service.status, plistShipped: FileManager.default.fileExists(atPath: plist.path))
+    }
+
+    /// An agent that was never registered reports `.notFound` on macOS 26 (seen on a fresh
+    /// install), not `.notRegistered`; only a missing plist means there is nothing to register.
+    static func status(_ status: SMAppService.Status, plistShipped: Bool) -> AgentServiceStatus {
+        switch status {
         case .notRegistered: return .notRegistered
         case .enabled: return .enabled
         case .requiresApproval: return .requiresApproval
-        case .notFound: return .notFound
-        @unknown default: return .notFound
+        case .notFound: return plistShipped ? .notRegistered : .notFound
+        @unknown default: return plistShipped ? .notRegistered : .notFound
         }
     }
 

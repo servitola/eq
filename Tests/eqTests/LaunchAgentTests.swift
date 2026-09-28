@@ -1,5 +1,6 @@
 import Darwin
 import XCTest
+import ServiceManagement
 @testable import eq
 
 final class FakeAgent: LaunchAgentControl {
@@ -478,5 +479,21 @@ final class AgentCLITests: XCTestCase {
     func testAgentStaysOutOfHelpAndCompletions() {
         XCTAssertFalse(HelpRenderer.plain(width: 200).contains("eq agent"))
         for shell in ["zsh", "bash", "fish"] { XCTAssertFalse(run(["completions", shell]).output.contains("agent"), shell) }
+    }
+}
+
+final class ServiceStatusMappingTests: XCTestCase {
+    func testNotFoundWithTheShippedPlistMeansNotYetRegistered() {
+        XCTAssertEqual(LiveLaunchAgent.status(.notFound, plistShipped: true), .notRegistered)
+    }
+
+    func testNotFoundWithoutThePlistStaysNotFound() {
+        XCTAssertEqual(LiveLaunchAgent.status(.notFound, plistShipped: false), .notFound)
+    }
+
+    func testOtherStatusesPassThrough() {
+        XCTAssertEqual(LiveLaunchAgent.status(.enabled, plistShipped: true), .enabled)
+        XCTAssertEqual(LiveLaunchAgent.status(.requiresApproval, plistShipped: true), .requiresApproval)
+        XCTAssertEqual(LiveLaunchAgent.status(.notRegistered, plistShipped: false), .notRegistered)
     }
 }
