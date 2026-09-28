@@ -1,0 +1,13 @@
+eq
+Copyright (c) 2026 servitola, MIT License (see LICENSE)
+
+This product includes code from the following projects. Their licence texts are in LICENSES.md.
+
+OnlyEQ (https://github.com/zollans/OnlyEQ) @ 6569655, Unlicense
+  Sources/eq/Engine and Sources/eq/Import files marked "Vendored from zollans/OnlyEQ".
+
+Proxy Audio Device (https://github.com/briankendall/proxy-audio-device) v1.1.0b1, Unlicense
+  Driver/: the AudioServerPlugIn object model, target lookup and default-target choice
+  (Driver/Source/Driver.cpp, Driver/Source/HAL.h), the clock servo and timeline checks
+  (Driver/Source/Core/Clock.h, from vlasky's pull request #74) and the ring buffer
+  (Driver/Source/Core/FrameRing.h, made lock-free after the marrusl fork). Renamed and reworked.
