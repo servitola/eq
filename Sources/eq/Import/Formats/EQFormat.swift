@@ -52,7 +52,7 @@ extension EQFormat {
 
 enum EQFormats {
     /// Tried in order; the first whose sniff accepts the data and whose parse succeeds wins.
-    static let all: [any EQFormat.Type] = [EqMacFormat.self, PowerampFormat.self, APOFormat.self]
+    static let all: [any EQFormat.Type] = [EqMacFormat.self, PowerampFormat.self, EasyEffectsFormat.self, PeaceFormat.self, APOFormat.self]
 
     static func parse(_ data: Data, filename: String? = nil, context: ImportContext = .detached) throws -> ImportResult {
         let text = ImportText.decode(data)

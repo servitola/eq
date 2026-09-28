@@ -28,6 +28,14 @@ enum APOFormat: EQFormat {
         return try parser.finish(isREW: text.contains("Room EQ") || text.contains("Filter Settings file"))
     }
 
+    /// For a format that wraps APO lines (Peace): `places[i]` names line i in warnings instead of its number.
+    static func parse(text: String, places: [String]) throws -> ImportResult {
+        var parser = Parser()
+        parser.places = places
+        parser.read(text, file: nil, label: nil, depth: 0)
+        return try parser.finish(isREW: false)
+    }
+
     // MARK: - Lines
 
     /// Swift reads CRLF as one character, so squig.link's and Windows' line numbers stay right.
@@ -290,6 +298,7 @@ enum APOFormat: EQFormat {
         /// Paths, not URLs: a URL made relative to its includer never equals the same file reached otherwise.
         var stack: [String] = []
         var includedFiles = 0
+        var places: [String] = []
 
         static let ignored: [String: String] = [
             "device": "Device: ignored, every filter is imported whatever device it names",
@@ -319,7 +328,7 @@ enum APOFormat: EQFormat {
             defer { if file != nil { stack.removeLast() } }
             for (index, raw) in lines(text).enumerated() {
                 guard let line = Line(String(raw)) else { continue }
-                let place = (label.map { "\($0) " } ?? "") + "line \(index + 1)"
+                let place = depth == 0 && index < places.count ? places[index] : (label.map { "\($0) " } ?? "") + "line \(index + 1)"
                 switch line.command {
                 case "filter":
                     switch APOFormat.filter(line.parameters) {

@@ -372,6 +372,16 @@ backend of its own site, with no stated terms.
 - **Poweramp** preset (JSON). Graphic mode's sliders become the ten bands (other slider counts
   are reduced to ten), its tone shelves come in only when they are not at 0 dB; parametric mode
   keeps every band as a filter. Bands for one channel only are skipped.
+- **EasyEffects** preset (JSON), its equaliser plugin (`equalizer` or `equalizer#0`): Bell,
+  shelves, low- and high-pass, notch and band-pass bands with their Q; input and output gain
+  add up to the preamp. With `split-channels` the left channel is imported, with a warning when
+  the right differs. Allpass, Resonance and Ladder bands are skipped; a slope steeper than `x1`
+  comes in as one filter, with a warning.
+- **Peace** `.peace` configurations. eq writes the same Equalizer APO lines Peace itself writes
+  for each slider (its filter types, including its Butterworth and Linkwitz-Riley cascades
+  whose Quality is the order, and its GraphicEQ mode) and reads them as above, so speaker groups
+  work like `Channel:`. Commands from Peace's command window are read too. Peace's effects
+  (routing, crossfeed, bass and treble, …) are named in a warning and not imported.
 
 `Channel:` scopes what follows, as in APO. eq is one curve for both ears, so it imports the
 left channel and warns when the right one differs; filters only for other channels (`C`,

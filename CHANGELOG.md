@@ -18,6 +18,8 @@ its entries under a dated version.
   L`/`R`) import. The README has a new Formats section listing what imports.
 - `eq import` reads eqMac's preset export (Advanced presets set the ten bands, Expert presets
   become filters) and Poweramp's preset JSON (graphic sliders or parametric bands).
+- `eq import` reads EasyEffects presets (the equaliser plugin, left channel) and Peace `.peace`
+  configurations, turned into the Equalizer APO lines Peace itself would write.
 
 ### Changed
 
