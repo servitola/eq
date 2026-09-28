@@ -53,6 +53,14 @@ final class DynamicsCLITests: XCTestCase {
         XCTAssertNil(try layer())
     }
 
+    func testNoneTurnsTheCompressorOffInAnyCase() throws {
+        for word in ["none", "NONE", "None", "Off"] {
+            run("comp", "gentle")
+            XCTAssertEqual(run("comp", word).exitCode, 0, word)
+            XCTAssertNil(try layer(), word)
+        }
+    }
+
     func testBadInputIsAUsageError() throws {
         for args in [["comp"], ["comp", "loud"], ["comp", "gentle", "night"], ["color", "tape"], ["color", "warm", "0.3"],
                      ["color", "tape", "1.5"], ["color", "tube", "-0.1"], ["color", "tape", "much"], ["color"]] {
@@ -202,10 +210,10 @@ final class DynamicsCLITests: XCTestCase {
 
     func testHelpCompletionsAndManPageComeFromTheTable() {
         let zsh = Completions.script(.zsh)
-        XCTAssertTrue(zsh.contains("(comp) subs=(gentle night off)"), zsh)
+        XCTAssertTrue(zsh.contains("(comp) subs=(gentle night off none)"), zsh)
         XCTAssertTrue(zsh.contains("(color) subs=(tape tube off)"), zsh)
         XCTAssertTrue(zsh.contains("('color tape') flags=(--device --dry-run); operands=(none)"), zsh)
-        XCTAssertTrue(ManPage.render(version: "dev").contains("eq comp gentle|night|off"))
+        XCTAssertTrue(ManPage.render(version: "dev").contains("eq comp gentle|night|off|none"))
         XCTAssertTrue(run("comp", "--help").output.contains("night is 4:1"))
         XCTAssertEqual(CommandHelp.form(matching: ["color", "tube", "0.5"])?.writes, true)
     }

@@ -228,7 +228,7 @@ kind this eq does not know, from a newer version or a hand edit, does not reject
 runs nothing, stays in the file, is logged once by the daemon and flagged by `eq doctor`, and
 `eq comp` or `eq color` replaces it.
 
-`eq comp gentle|night|off` is a feed-forward compressor, linked across channels so the stereo
+`eq comp gentle|night|off` (or `none`, in any case) is a feed-forward compressor, linked across channels so the stereo
 image stays put: the loudest channel sets one gain for all, so dialogue on the centre of 5.1
 alone is compressed as it would be on both sides of stereo. Its detector listens through a 100 Hz high-pass (24 dB per octave), so bass
 does not pump the gain: a 40 Hz tone at −10 dBFS is not compressed at all, the same level at

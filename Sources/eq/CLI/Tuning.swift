@@ -181,15 +181,16 @@ extension CLI {
         }
     }
 
-    static let compUsage = "eq comp gentle|night|off [--device DEVICE]"
+    static let compUsage = "eq comp gentle|night|off|none [--device DEVICE]"
 
-    /// `eq comp gentle|night|off`: the compressor after the EQ.
+    /// `eq comp gentle|night|off|none`: the compressor after the EQ.
     static func comp(_ args: [String], _ ctx: CLIContext) throws -> Output {
         let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
         guard rest.count == 1 else { throw CLIError.usage(compUsage) }
-        let mode = Dynamics.Compressor(rawValue: rest[0].lowercased())
-        guard mode != nil || rest[0].lowercased() == "off" else {
-            throw CLIError.usage("unknown mode \"\(rest[0])\" — use one of \(Dynamics.Compressor.allCases.map(\.rawValue).joined(separator: " ")) off")
+        let word = rest[0].lowercased()
+        let mode = Dynamics.Compressor(rawValue: word)
+        guard mode != nil || ["off", "none"].contains(word) else {
+            throw CLIError.usage("unknown mode \"\(rest[0])\" — use one of \(Dynamics.Compressor.allCases.map(\.rawValue).joined(separator: " ")) off none")
         }
         return try editProfile(explicit, ctx) { profile in
             profile.setDynamics { $0.comp = mode }
