@@ -352,6 +352,23 @@ final class MeterServerTests: XCTestCase {
         XCTAssertEqual(signal(SIGPIPE, SIG_DFL).map { unsafeBitCast($0, to: Int.self) }, unsafeBitCast(SIG_IGN, to: Int.self))
     }
 
+    /// A write that fails on the subscribe drops the client; a solo line read in the same chunk
+    /// must not then take ownership for a descriptor nobody can speak for any more.
+    func testLinesAfterADropInTheSameReadAreIgnored() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        XCTAssertTrue(waitUntil(0.5) { observedChanges() == [1] }, "accepted and decided: \(observedChanges())")
+        queue.suspend()
+        send(fd, "{\"subscribe\":\"events\"}\n{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        close(fd)
+        queue.resume()
+        usleep(100_000)
+        let solos = observedSolos()
+        XCTAssertTrue(solos.isEmpty || solos.last == .some(nil), "no solo left behind: \(solos)")
+    }
+
     func testStalePathIsReplaced() throws {
         try Data("stale".utf8).write(to: socketURL)
         let server = makeServer()

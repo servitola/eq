@@ -174,6 +174,7 @@ final class MeterServer {
             let n = read(fd, &buffer, buffer.count)
             if n > 0 {
                 receive(fd, buffer[0..<n])
+                guard clientFDs.contains(fd) else { return }
                 continue
             }
             if n < 0, errno == EAGAIN || errno == EINTR { return }
@@ -190,6 +191,8 @@ final class MeterServer {
             input.removeSubrange(...newline)
             if discarding.remove(fd) != nil { continue }
             handle(line, from: fd)
+            // A failed write in handle drops the client; what it sent after that speaks for nobody.
+            guard clientFDs.contains(fd) else { return }
         }
         if input.count > Self.maxRequestLine {
             input.removeAll()
