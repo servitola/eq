@@ -356,15 +356,19 @@ enum Watch {
             refresh()
         }
         func request(_ range: HzRange?) -> Bool {
-            requestedAt = last?.rate
+            // At 0 Hz the daemon refuses any range, so the frame loop asks once a rate arrives; a solo
+            // already sounding is cleared now, or the daemon would carry it across the rebuild.
+            let deferred = range != nil && last?.rate == 0
+            requestedAt = deferred ? nil : last?.rate
+            if deferred, !listening { return true }
             do {
-                try send(soloRequest(range))
+                try send(soloRequest(deferred ? nil : range))
             } catch {
                 show("listen: the daemon did not take the request")
                 return false
             }
             // The daemon refuses silently (and drops the previous solo); the same clamp here says why.
-            if let range, let rate = last?.rate, let instrument = focused,
+            if !deferred, let range, let rate = last?.rate, let instrument = focused,
                EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: rate) == nil {
                 show(cannotListen(instrument))
             }
@@ -444,10 +448,15 @@ enum Watch {
         let eof = source.lines(maxLines: nil) { line in
             let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8))
             if let f {
+                let hadSolo = last?.solo != nil
                 last = f
-                // A device settling at 0 Hz refuses the solo; ask again once the rate moves.
-                if listening, let instrument = focused, requestedAt != f.rate {
-                    listening = request(instrument.characterRange)
+                // The daemon keeps a solo across a device switch, so only a frame without one asks again:
+                // once per rate, or once when it vanished at a rate the range can play (refused at a 0 Hz
+                // moment no frame showed).
+                if listening, let instrument = focused, f.solo == nil, f.rate > 0 {
+                    let range = instrument.characterRange
+                    let dropped = hadSolo && EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: f.rate) != nil
+                    if requestedAt != f.rate || dropped { listening = request(range) }
                 }
                 framesSinceMark += 1
                 if framesSinceMark >= markFrames { refresh() }

@@ -13,10 +13,10 @@ final class WatchLoopTests: XCTestCase {
         }
     }
 
-    private func frameLine(rate: Double = 44100) throws -> String {
+    private func frameLine(rate: Double = 44100, solo: SoloRange? = nil) throws -> String {
         let f = MeterFrame(t: 0, device: "BE-RCA", rate: rate, in: Array(repeating: -60, count: 10),
                            out: Array(repeating: -30, count: 10), peak: -6, limiting: false,
-                           gains: Array(repeating: 0, count: 10), preamp: 0, enabled: true)
+                           gains: Array(repeating: 0, count: 10), preamp: 0, enabled: true, solo: solo)
         return String(decoding: try MeterFrame.encodeLine(f).dropLast(), as: UTF8.self)
     }
 
@@ -27,7 +27,43 @@ final class WatchLoopTests: XCTestCase {
         _ = Watch.run(source: Source(lines: [settling, settling, settling, settled, settled, settled, settled]), hintDismissed: true,
                       emit: { _ in }, readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
         let kick = #"{"solo":{"low":50,"high":100}}"#, bass = #"{"solo":{"low":700,"high":1200}}"#
-        XCTAssertEqual(sent, [kick, kick, bass], "sent at 0 Hz, again once the rate settles, then follows the focus")
+        XCTAssertEqual(sent, [kick, bass], "held back at 0 Hz, sent once the rate settles, then follows the focus")
+    }
+
+    private static let kick = #"{"solo":{"low":50,"high":100}}"#, bass = #"{"solo":{"low":700,"high":1200}}"#
+    private static let kickSolo = SoloRange(low: 50, high: 100), bassSolo = SoloRange(low: 700, high: 1200)
+
+    private func soloRun(_ frames: [String], keys: [String?]) -> (sent: [String], drawn: [String]) {
+        var keys = keys
+        var sent: [String] = [], drawn: [String] = []
+        _ = Watch.run(source: Source(lines: frames), hintDismissed: true,
+                      emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
+                      readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
+        return (sent, drawn)
+    }
+
+    func testADeviceSwitchKeepsTheDaemonsSoloWithoutAskingAgain() throws {
+        let r = soloRun([try frameLine(rate: 48000), try frameLine(rate: 48000, solo: Self.kickSolo),
+                         try frameLine(rate: 0), try frameLine(rate: 44100, solo: Self.kickSolo)],
+                        keys: ["]l"])
+        XCTAssertEqual(r.sent, [Self.kick], "the daemon carries the solo across the rebuild")
+        XCTAssertFalse(r.drawn.contains { $0.contains("can't listen") })
+    }
+
+    func testARefocusAtZeroHertzClearsTheOldSoloAndAsksOnceARateArrives() throws {
+        let r = soloRun([try frameLine(), try frameLine(solo: Self.kickSolo), try frameLine(rate: 0),
+                         try frameLine(), try frameLine()],
+                        keys: ["]l", nil, "]"])
+        XCTAssertEqual(r.sent, [Self.kick, #"{"solo":null}"#, Self.bass],
+                       "kick must not keep sounding under the bass focus; bass goes out once, at 44.1 kHz")
+        XCTAssertFalse(r.drawn.contains { $0.contains("can't listen") })
+    }
+
+    func testASoloDroppedBetweenFramesIsAskedForOnce() throws {
+        // The refocus reached the daemon during a 0 Hz moment no frame showed, so it was refused.
+        let r = soloRun([try frameLine(), try frameLine(solo: Self.kickSolo), try frameLine(), try frameLine(), try frameLine()],
+                        keys: ["]l", "]"])
+        XCTAssertEqual(r.sent, [Self.kick, Self.bass, Self.bass])
     }
 
     func testKeysBetweenFramesAreHandledAndRedrawn() throws {
