@@ -93,10 +93,11 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertEqual(try profile(ctx).preamp, -30)
     }
 
-    func testEditWithoutConfigThrows() throws {
+    func testFirstEditWithoutConfigWritesIt() throws {
         var ctx = try context()
         ctx.store = ConfigStore(url: ctx.store.url.deletingLastPathComponent().appendingPathComponent("none.json"))
-        XCTAssertThrowsError(try CLI.watchEdit(.bandStep(0, 0.5), ctx))
+        try CLI.watchEdit(.bandStep(0, 0.5), ctx)
+        XCTAssertTrue(ctx.store.exists())
     }
 
     func testHintOnFirstFrameUntilAnyKey() throws {

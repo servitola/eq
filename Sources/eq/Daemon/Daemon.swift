@@ -126,11 +126,8 @@ final class Daemon {
         hooks = Hooks(queue: queue, run: runHook)
         let builtIn = AudioDeviceManager.builtInOutputDevice()
         do {
-            config = try store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
-            // Reload right before seeding rather than trusting the copy loadOrCreate returned,
-            // so seeding always acts on what is actually on disk.
-            if let onDisk = try? store.load() { config = onDisk }
-            if config.seedPresetsIfNeeded() {
+            config = try store.loadOrDefault { builtIn.map { ($0.uid, $0.name) } }
+            if store.exists(), config.seedPresetsIfNeeded() {
                 // .edit — this is the one-time pre-v5 migration, so the file as it was
                 // before presets existed stays recoverable as eq.json.1.
                 do { try store.save(config, as: .edit) } catch { Log.write("cannot seed presets: \(error)") }
@@ -488,7 +485,8 @@ final class Daemon {
 
     private func reloadConfig() {
         do {
-            let fresh = try store.load()
+            // A deleted file means the defaults again, exactly as if it had never been written.
+            let fresh = try store.loadOrDefault { AudioDeviceManager.builtInOutputDevice().map { ($0.uid, $0.name) } }
             let hadError = configError != nil
             configError = nil
             guard fresh != config else {

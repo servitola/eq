@@ -49,11 +49,6 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(result.output.contains("preamp"))
     }
 
-    func testShowWithoutConfigHintsInit() {
-        let result = runCLI()
-        XCTAssertEqual(result.exitCode, 2)
-        XCTAssertTrue(result.output.contains("eq init"), result.output)
-    }
 
     func testShowPrefersDaemonDeviceWhenStatusIsFresh() throws {
         _ = runCLI("init")

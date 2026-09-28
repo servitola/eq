@@ -126,7 +126,7 @@ struct CommandHelp {
                     "list the headphones a name matches in AutoEq and OPRA, with source and variant, without importing",
                     examples: ["eq import --search wh1000xm4"]),
         CommandHelp(.import, "eq import --clear [--device DEVICE]", "drop the imported correction, keep hand-tuned bands and filters", writes: true),
-        CommandHelp(.setup, "eq init", "write the default config if none exists", writes: true),
+        CommandHelp(.setup, "eq init", "write the default config now (optional: the first change writes it)", writes: true),
         CommandHelp(.setup, "eq doctor", "diagnose config, daemon, permission and audio"),
         CommandHelp(.setup, "eq completions zsh|bash|fish", "print the shell completion script; the Homebrew cask installs all three",
                     examples: ["eq completions zsh > ~/.zfunc/_eq"]),

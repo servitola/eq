@@ -112,7 +112,7 @@ enum Completions {
     }
 
     static func list(_ args: [String], _ ctx: CLIContext) -> Output {
-        let config = try? ctx.store.load()
+        let config = try? CLI.loadConfig(ctx)
         let names: [String]
         switch args.first.flatMap(Kind.init(rawValue:)) {
         case .devices?:

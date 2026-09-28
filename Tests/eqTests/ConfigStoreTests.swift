@@ -74,6 +74,21 @@ final class ConfigStoreTests: XCTestCase {
         wait(for: [fired], timeout: 2)
     }
 
+    func testLoadOrDefaultWritesNothing() throws {
+        let store = ConfigStore(url: dir.appendingPathComponent("missing/eq.json"))
+        let config = try store.loadOrDefault { ("B", "Built-in") }
+        XCTAssertEqual(config, Config.initial(builtInUID: "B", builtInName: "Built-in"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("missing").path))
+    }
+
+    func testLoadOrDefaultReadsAnExistingFileWithoutAskingForTheBuiltIn() throws {
+        let store = ConfigStore(url: dir.appendingPathComponent("eq.json"))
+        var saved = Config.initial(builtInUID: nil, builtInName: nil)
+        saved.enabled = false
+        try store.save(saved)
+        XCTAssertEqual(try store.loadOrDefault { XCTFail("device lookup on an existing file"); return nil }, saved)
+    }
+
     func testWatcherCreatesNoDirectoryAndSeesAConfigWrittenLater() throws {
         let store = ConfigStore(url: dir.appendingPathComponent("config/eq/eq.json"))
         let fired = expectation(description: "onChange")

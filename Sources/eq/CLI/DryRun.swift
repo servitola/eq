@@ -34,8 +34,12 @@ enum DryRun {
             let real = ctx.cacheDirectory.deletingLastPathComponent().path
             throw CLIError.network(message.replacingOccurrences(of: copy.cacheDirectory.deletingLastPathComponent().path, with: real))
         }
-        let before = ctx.store.exists() ? try ctx.store.load() : nil
-        let after = copy.store.exists() ? try copy.store.load() : nil
+        let before = try CLI.loadConfig(ctx)
+        let after = try CLI.loadConfig(copy)
+        if before == after, !ctx.store.exists(), copy.store.exists() {
+            return Output(Paint.ink(.yellow, "dry run") + ": would write \(ctx.store.displayPath) with the defaults already in use",
+                          Report(before: side(before, [], ctx), after: side(after, [], ctx)))
+        }
         return compare(before, after, ctx)
     }
 
@@ -67,30 +71,29 @@ enum DryRun {
 
     private static var heading: String { Paint.ink(.yellow, "dry run") + ": nothing written" }
 
-    private static func compare(_ before: Config?, _ after: Config?, _ ctx: CLIContext) -> Output {
+    private static func compare(_ before: Config, _ after: Config, _ ctx: CLIContext) -> Output {
         guard before != after else {
             return Output(Paint.ink(.yellow, "dry run") + ": nothing would change", Report(before: side(before, [], ctx), after: side(after, [], ctx)))
         }
         let current = try? CLI.currentDevice(ctx)
-        var uids = Set((before?.devices.keys).map(Array.init) ?? []).union((after?.devices.keys).map(Array.init) ?? [])
-            .filter { before?.devices[$0] != after?.devices[$0] }
-        if before?.default != after?.default, let current { uids.insert(current.uid) }
+        var uids = Set(before.devices.keys).union(after.devices.keys).filter { before.devices[$0] != after.devices[$0] }
+        if before.default != after.default, let current { uids.insert(current.uid) }
         let ordered = uids.sorted { name(of: $0, before, after, ctx).lowercased() < name(of: $1, before, after, ctx).lowercased() }
         let targets = ordered.map { (uid: $0, name: name(of: $0, before, after, ctx)) }
 
         var lines = [heading]
-        if let before, let after, before.enabled != after.enabled {
+        if before.enabled != after.enabled {
             lines.append("eq " + toggle(before.enabled) + " → " + toggle(after.enabled))
         }
         for name in changedPresets(before, after) {
-            let verb = before?.preset(named: name) == nil ? "added" : (after?.preset(named: name) == nil ? "removed" : "changed")
+            let verb = before.preset(named: name) == nil ? "added" : (after.preset(named: name) == nil ? "removed" : "changed")
             lines.append("preset " + Paint.ink(.bold, name) + ": " + Paint.ink(verb == "removed" ? .magenta : .green, verb))
         }
         for target in targets {
             lines.append(Paint.ink(.dim, "before"))
-            lines.append(before.map { table($0, target) } ?? Paint.ink(.dim, "  no config"))
+            lines.append(table(before, target))
             lines.append(Paint.ink(.bold, "after"))
-            lines.append(after.map { table($0, target) } ?? Paint.ink(.dim, "  no config"))
+            lines.append(table(after, target))
         }
         return Output(lines.joined(separator: "\n"), Report(before: side(before, targets, ctx, presets: changedPresets(before, after)),
                                                             after: side(after, targets, ctx, presets: changedPresets(before, after))))
@@ -117,13 +120,13 @@ enum DryRun {
         enabled ? Paint.ink(.green, "on") : Paint.ink(.yellow, "off (bypass)")
     }
 
-    private static func changedPresets(_ before: Config?, _ after: Config?) -> [String] {
-        let names = Set((before?.presets ?? [:]).keys).union((after?.presets ?? [:]).keys)
-        return names.filter { before?.presets?[$0] != after?.presets?[$0] }.sorted { $0.lowercased() < $1.lowercased() }
+    private static func changedPresets(_ before: Config, _ after: Config) -> [String] {
+        let names = Set((before.presets ?? [:]).keys).union((after.presets ?? [:]).keys)
+        return names.filter { before.presets?[$0] != after.presets?[$0] }.sorted { $0.lowercased() < $1.lowercased() }
     }
 
-    private static func name(of uid: String, _ before: Config?, _ after: Config?, _ ctx: CLIContext) -> String {
-        after?.devices[uid]?.name ?? before?.devices[uid]?.name ?? ctx.connectedDevices().first { $0.uid == uid }?.name ?? uid
+    private static func name(of uid: String, _ before: Config, _ after: Config, _ ctx: CLIContext) -> String {
+        after.devices[uid]?.name ?? before.devices[uid]?.name ?? ctx.connectedDevices().first { $0.uid == uid }?.name ?? uid
     }
 
     private static func table(_ config: Config, _ target: CLI.Target) -> String {
@@ -138,8 +141,7 @@ enum DryRun {
                              profile: resolved.profile, preset: CLI.presetMark(resolved.profile, config)?.name)
     }
 
-    private static func side(_ config: Config?, _ targets: [CLI.Target], _ ctx: CLIContext, presets names: [String] = []) -> AnyEncodable? {
-        guard let config else { return nil }
+    private static func side(_ config: Config, _ targets: [CLI.Target], _ ctx: CLIContext, presets names: [String] = []) -> AnyEncodable? {
         let presets = names.isEmpty ? nil : names.reduce(into: [String: Profile]()) { $0[$1] = config.presets?[$1] }
         return AnyEncodable(Side(enabled: config.enabled, devices: targets.map { report(config, $0) }, presets: presets))
     }

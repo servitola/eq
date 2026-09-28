@@ -195,7 +195,7 @@ final class CLIShapeTests: XCTestCase {
         let result = run("init", "--dry-run")
         XCTAssertEqual(result.exitCode, 0, result.output)
         XCTAssertFalse(context.store.exists())
-        XCTAssertTrue(result.output.contains("no config"), result.output)
+        XCTAssertTrue(result.output.contains("would write \(context.store.url.path)"), result.output)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [])
     }
 
@@ -258,9 +258,8 @@ final class CLIShapeTests: XCTestCase {
     }
 
     func testDryRunErrorsNameTheRealConfig() {
-        let result = run("set", "1khz", "-3", "--dry-run")
-        XCTAssertNotEqual(result.exitCode, 0)
-        XCTAssertTrue(result.output.contains("no config at \(context.store.url.path)"), result.output)
+        let result = run("init", "--dry-run")
+        XCTAssertTrue(result.output.contains(context.store.url.path), result.output)
         XCTAssertFalse(result.output.contains("eq-dry-run"), result.output)
         run("init")
         let offline = run("import", "hd 600", "--dry-run")

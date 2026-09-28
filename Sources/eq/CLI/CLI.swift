@@ -593,7 +593,7 @@ enum CLI {
         init(_ ctx: CLIContext) { self.ctx = ctx }
 
         func header() -> Watch.Header {
-            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return Watch.Header() }
+            guard let config = try? loadConfig(ctx), let target = try? currentDevice(ctx) else { return Watch.Header() }
             let profile = config.profile(forDeviceUID: target.uid).profile
             return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments)
         }
@@ -770,8 +770,8 @@ enum CLI {
 
     private static func undo(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty || args == ["--list"] else { throw CLIError.usage("eq undo [--list]") }
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
         if args == ["--list"] { return try history([], ctx) }
+        guard ctx.store.exists() else { throw CLIError.noBackup }
         let note = try ctx.store.reconcileHistory()
         let target = ctx.store.historyPosition() + 1
         do {
@@ -784,7 +784,7 @@ enum CLI {
 
     private static func redo(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq redo") }
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
+        guard ctx.store.exists() else { throw CLIError.noRedo }
         let note = try ctx.store.reconcileHistory()
         let target = max(ctx.store.historyPosition() - 1, 0)
         do {
@@ -824,7 +824,10 @@ enum CLI {
     /// currently sit. `eq undo --list` is an alias kept for muscle memory.
     private static func history(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq history") }
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
+        guard ctx.store.exists() else {
+            return Output(Paint.ink(.dim, "no history yet — the defaults are in use and nothing has been saved"),
+                          HistoryReport(position: 0, entries: [], warning: nil))
+        }
         // Without it a hand edit mid-undo and a stash left by an interrupted step are missing from the list.
         let note = try ctx.store.reconcileHistory()
         let position = ctx.store.historyPosition()
@@ -886,8 +889,7 @@ enum CLI {
     typealias Target = (uid: String, name: String)
 
     static func loadConfig(_ ctx: CLIContext) throws -> Config {
-        guard ctx.store.exists() else { throw CLIError.usage("no config at \(ctx.store.displayPath) — run `eq init` first") }
-        return try ctx.store.load()
+        try ctx.store.loadOrDefault { ctx.connectedDevices().first { $0.transport == "builtin" }.map { ($0.uid, $0.name) } }
     }
 
     static func currentDevice(_ ctx: CLIContext) throws -> Target {

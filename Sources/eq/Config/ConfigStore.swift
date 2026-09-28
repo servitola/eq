@@ -272,6 +272,14 @@ struct ConfigStore {
         return (target, date)
     }
 
+    /// A missing file stands for the config `eq init` would write; it stays in memory until
+    /// something changes it, and that save creates the file.
+    func loadOrDefault(builtIn: () -> (uid: String, name: String)?) throws -> Config {
+        if exists() { return try load() }
+        let device = builtIn()
+        return Config.initial(builtInUID: device?.uid, builtInName: device?.name)
+    }
+
     func loadOrCreate(builtInUID: String?, builtInName: String?) throws -> Config {
         if exists() { return try load() }
         let config = Config.initial(builtInUID: builtInUID, builtInName: builtInName)

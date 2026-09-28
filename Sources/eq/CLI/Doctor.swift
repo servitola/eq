@@ -12,6 +12,7 @@ struct DefaultOutput: Equatable {
 struct DoctorProbes {
     var osVersion: () -> OperatingSystemVersion
     var loadConfig: () throws -> Config
+    var configFileExists: () -> Bool = { true }
     var readStatus: () -> Status?
     var defaultOutput: () -> DefaultOutput?
     var launchAgentLoaded: () -> Bool
@@ -23,10 +24,8 @@ struct DoctorProbes {
     static func live(store: ConfigStore, statusURL: URL) -> DoctorProbes {
         DoctorProbes(
             osVersion: { ProcessInfo.processInfo.operatingSystemVersion },
-            loadConfig: {
-                guard store.exists() else { throw CLIError.usage("no config at \(store.displayPath) — run `eq init` first") }
-                return try store.load()
-            },
+            loadConfig: { try store.loadOrDefault { nil } },
+            configFileExists: store.exists,
             readStatus: { Status.read(from: statusURL) },
             defaultOutput: {
                 guard let id = AudioDeviceManager.defaultOutputDeviceID() else { return nil }
@@ -114,7 +113,7 @@ enum Doctor {
     private static func configCheck(_ probes: DoctorProbes) -> DoctorCheck {
         do {
             _ = try probes.loadConfig()
-            return DoctorCheck(name: "config", ok: true, detail: "ok", warning: false)
+            return DoctorCheck(name: "config", ok: true, detail: probes.configFileExists() ? "ok" : "defaults (no file yet)", warning: false)
         } catch {
             return DoctorCheck(name: "config", ok: false, detail: "\(error)", warning: false)
         }
