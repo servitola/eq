@@ -14,6 +14,9 @@ enum WatchAction: Equatable {
 
 enum WatchKeys {
     static let step = 0.5
+    /// A CSI's parameter and intermediate bytes, then the final byte that ends it.
+    static let parameters: ClosedRange<UInt8> = 0x20...0x3F
+    static let finals: ClosedRange<UInt8> = 0x40...0x7E
 
     private static let digits = Array("1234567890")
     private static let usShifted = Array("!@#$%^&*()")
@@ -53,9 +56,9 @@ enum WatchKeys {
 
     /// Complete keys as `KeyBuffer` hands them over. Arrows arrive as `ESC [ A`…`D`, or `ESC O A`…`D`
     /// when the terminal is in application-cursor mode; any other escape sequence is skipped whole,
-    /// so its tail never reads as letter commands. A trailing bare `ESC`, or `ESC [`/`ESC O` with
-    /// no final byte, is the Esc key and whatever was typed after it: the buffer only lets such a
-    /// tail through once nothing followed it.
+    /// so its tail never reads as letter commands. A bare `ESC`, or `ESC [`/`ESC O` whose parameters
+    /// run into anything but a final byte (the end, another `ESC`), is the Esc key and whatever was
+    /// typed after it: the buffer only lets such a tail through once nothing followed it.
     static func actions(for keys: String) -> [WatchAction] {
         let chars = Array(keys)
         var result: [WatchAction] = []
@@ -72,9 +75,8 @@ enum WatchKeys {
             i += 1
             guard introducer == "[" || introducer == "O" else { continue }
             let start = i
-            // CSI parameters and intermediates run until the final byte, @ through ~.
-            while i < chars.count, !(chars[i].asciiValue.map { (0x40...0x7E).contains($0) } ?? false) { i += 1 }
-            guard i < chars.count else {
+            while i < chars.count, let byte = chars[i].asciiValue, Self.parameters.contains(byte) { i += 1 }
+            guard i < chars.count, let byte = chars[i].asciiValue, Self.finals.contains(byte) else {
                 result.append(.unfocus)
                 i = start - 1
                 continue
@@ -100,11 +102,13 @@ struct KeyBuffer {
     // Longer than any sequence a terminal sends for a key; a tail this long is not a key.
     static let maxTail = 32
 
-    /// `bytes` is everything one read drained, possibly nothing. A lone `ESC`, or `ESC [`/`ESC O`,
-    /// left over from the previous read is the Esc key (and `[`/`O`) only when this read brought
-    /// nothing after it; a terminal writes a whole sequence at once, a person does not.
+    /// `bytes` is everything one read drained, possibly nothing. A lone `ESC`, or `ESC [`/`ESC O`
+    /// and parameters, left over from the previous read is the Esc key and what was typed after it
+    /// only when this read brought nothing more; a terminal writes a whole sequence at once, a
+    /// person does not.
     mutating func feed(_ bytes: [UInt8]) -> String? {
-        if bytes.isEmpty, pending == [0x1B] || pending == [0x1B, UInt8(ascii: "[")] || pending == [0x1B, UInt8(ascii: "O")] {
+        if bytes.isEmpty, pending.first == 0x1B,
+           pending.count == 1 || pending[1] == UInt8(ascii: "[") || pending[1] == UInt8(ascii: "O") {
             defer { pending = [] }
             return String(decoding: pending, as: UTF8.self)
         }
@@ -124,10 +128,11 @@ struct KeyBuffer {
         guard b[i + 1] == UInt8(ascii: "[") || b[i + 1] == UInt8(ascii: "O") else {
             return character(b, at: i + 1).map { $0 + 1 }
         }
-        // CSI parameters and intermediates run until the final byte, @ through ~.
         var j = i + 2
-        while j < b.count, !(0x40...0x7E).contains(b[j]) { j += 1 }
-        return j < b.count ? j - i + 1 : nil
+        while j < b.count, WatchKeys.parameters.contains(b[j]) { j += 1 }
+        guard j < b.count else { return nil }
+        // Anything but a final byte (another ESC, a letter) ends a sequence a person typed, unfinished.
+        return WatchKeys.finals.contains(b[j]) ? j - i + 1 : j - i
     }
 
     private static func character(_ b: [UInt8], at i: Int) -> Int? {

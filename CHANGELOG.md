@@ -35,8 +35,8 @@ its entries under a dated version.
 
 - `eq watch` keys work while the daemon sends no frames: input and the meter socket are
   waited on together.
-- Esc followed quickly by `[` or `O` no longer waits for an escape sequence and swallows the
-  next key.
+- Esc followed quickly by `[` or `O`, with or without digits after it, no longer waits for an
+  escape sequence and swallows the next key; an arrow right after it still turns the knob.
 - Focusing another instrument while listening and while the device settles at 0 Hz no longer
   leaves the watch listening without a solo: it asks once the rate arrives. A device switch
   keeps the solo without a `can't listen` note.

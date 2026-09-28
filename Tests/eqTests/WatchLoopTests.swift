@@ -87,8 +87,25 @@ final class WatchLoopTests: XCTestCase {
         XCTAssertEqual(actions("\u{1B}O"), [])
         XCTAssertEqual(actions(""), [.unfocus])
         XCTAssertEqual(actions("\u{1B}[1;"), [])
-        XCTAssertEqual(actions(""), [], "a sequence with parameters waits for its final byte")
-        XCTAssertEqual(actions("C"), [.knob(0.5)])
+        XCTAssertEqual(actions(""), [.unfocus, .focusPrevious, .bandStep(0, 0.5), .bandStep(3, -0.5)],
+                       "`;` is ⇧4 on a Russian layout; a terminal writes parameters and final byte together, so these were typed")
+        XCTAssertEqual(actions("\u{1B}[1"), [])
+        XCTAssertEqual(actions(""), [.unfocus, .focusPrevious, .bandStep(0, 0.5)])
+        XCTAssertEqual(actions("2q"), [.bandStep(1, 0.5), .quit], "later digits and q are not held back")
+        XCTAssertEqual(actions("\u{1B}[1;"), [])
+        XCTAssertEqual(actions("5C"), [.knob(0.5)], "a sequence split across reads still completes")
+    }
+
+    func testAnEscInsideAPendingSequenceStartsANewKey() {
+        let expected: [WatchAction] = [.unfocus, .focusPrevious, .knob(0.5)]
+        XCTAssertEqual(WatchKeys.actions(for: "\u{1B}[\u{1B}[C"), expected)
+        var buffer = KeyBuffer()
+        func actions(_ bytes: String) -> [WatchAction] { WatchKeys.actions(for: buffer.feed(Array(bytes.utf8)) ?? "") }
+        XCTAssertEqual(actions("\u{1B}[\u{1B}[C"), expected)
+        XCTAssertEqual(actions("\u{1B}["), [])
+        XCTAssertEqual(actions("\u{1B}[C"), expected, "split across reads too")
+        XCTAssertEqual(actions("\u{1B}[1\u{1B}OD"), [.unfocus, .focusPrevious, .bandStep(0, 0.5), .knob(-0.5)])
+        XCTAssertEqual(actions("\u{1B}[B\u{1B}[D"), [.cyclePreset, .knob(-0.5)], "whole arrows in one read are unchanged")
     }
 
     func testTheClientWakesForInputWhileNoFramesArrive() throws {
