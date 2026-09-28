@@ -37,8 +37,8 @@ xcrun swiftc -O scripts/click.swift -o "$scratch/click"
 field() { /usr/bin/python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print("-" if v is None else v)' "$EQ_STATUS" "$1" 2>/dev/null || echo -; }
 refresh() { kill -USR1 $pid; sleep 0.3; }
 
-for drift in 1 0; do
-  for frames in 512 256 128; do
+for drift in ${=DRIFTS:-1 0}; do
+  for frames in ${=FRAMES:-512 256 128}; do
     run=$scratch/drift$drift-io$frames
     mkdir "$run"
     export EQ_CONFIG=$run/eq.json EQ_STATUS=$run/status.json
@@ -60,7 +60,7 @@ for drift in 1 0; do
     fi
     sleep 3
     refresh
-    grep -h "path latency frames" "$run/daemon.log" | tail -1 | sed 's/^/   /'
+    grep -hE "path latency frames|tap latency|IO buffer" "$run/daemon.log" | tail -6 | sed 's/^/   /'
     echo "   io: eq adds $(field addedLatencyMs) ms ($(field addedLatencyFrames) frames); path estimate $(field latencyMs) ms, device $(field deviceLatencyMs) ms"
 
     stop_tone
