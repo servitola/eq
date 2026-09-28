@@ -230,17 +230,35 @@ runs nothing, stays in the file, is logged once by the daemon and flagged by `eq
 
 `eq comp gentle|night|off` (or `none`, in any case) is a feed-forward compressor, linked across channels so the stereo
 image stays put: the loudest channel sets one gain for all, so dialogue on the centre of 5.1
-alone is compressed as it would be on both sides of stereo. Its detector listens through a 100 Hz high-pass (24 dB per octave), so bass
-does not pump the gain: a 40 Hz tone at −10 dBFS is not compressed at all, the same level at
-1 kHz is. It measures RMS over 2.5 ms and smooths the gain in dB with the attack and release
-below, over a soft knee. Makeup gain is automatic: it gives back exactly what the compressor
-takes at the mode's reference level, so material at that level plays as loud as before and
-only what is louder or quieter moves.
+alone is compressed as it would be on both sides of stereo. Its detector listens the way a
+loudness meter does, through ITU-R BS.1770's K-weighting (a high-pass at 38 Hz and +4 dB above
+1.7 kHz), so the bass your curve boosts counts towards the level instead of being ignored. It
+measures RMS, over 50 ms for `gentle` and 2.5 ms for `night`, and smooths the gain in dB with the
+attack and release below, over a soft knee. A steady 40 Hz tone at −10 dBFS does not pump the
+gain: it moves by 0.001 dB (`gentle`) and 0.06 dB (`night`) over each cycle.
+
+Makeup gain is automatic. `gentle` gives back the reduction it has averaged over the last 3
+seconds, up to 6 dB, so a song ends up as loud as without it and only its dynamics within a
+phrase are tighter; a pause does not count, so the next song starts with the makeup the last one
+had. `night` adds a fixed makeup that gives back exactly what it takes from film dialogue at
+−24 dBFS RMS, so quiet dialogue comes up.
 
 | Mode | Ratio | Threshold | Knee | Attack | Release | Makeup | For |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gentle` | 2:1 | −18 dBFS | 6 dB | 30 ms | 250 ms | +3 dB (level at −12 dBFS RMS) | glue on music |
+| `gentle` | 2:1 | −18 dBFS | 6 dB | 30 ms | 250 ms | follows the reduction, 3 s, up to +6 dB | glue on music |
 | `night` | 4:1 | −30 dBFS | 10 dB | 5 ms | 400 ms | +4.5 dB (level at −24 dBFS RMS, film dialogue) | quiet dialogue up, explosions down |
+
+The RMS window and the attack add up on a step: `gentle` reaches 63 % of its reduction in
+about 65 ms, `night` in 6 ms.
+
+What `gentle` does to a whole mix, on the `favourite` curve, measured offline by
+`CompressorBalanceTests` against the same chain with the compressor off:
+
+| Material | Loudness | Bass (32–125 Hz) against mids (0.5–2 kHz) | Widest gap between octave bands | Reduction on loud parts |
+| --- | --- | --- | --- | --- |
+| music at −14 LUFS | −0.3 LU | −0.1 dB | 0.3 dB | 3.6 dB |
+| music at −20 LUFS | −0.0 LU | +0.0 dB | 0.3 dB | 0.9 dB |
+| pink noise swinging 12 dB | −0.7 LU | −0.0 dB | 0.1 dB | 0.9 dB (mean) |
 
 `eq color tape|tube <amount>` shapes the waveform. `tape` is a symmetric soft clip,
 `tanh(k·x)/k`, which adds odd harmonics only; `tube` biases the same curve off centre, which

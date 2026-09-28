@@ -97,7 +97,12 @@ final class EQProcessor {
     func resetRenderState() {
         for index in snapshot.states.indices { snapshot.states[index] = BiquadState() }
         limiterEnvelope = 0
+        // A following makeup keeps what it learned across the pause between two songs: starting
+        // the next from 0 would play its first seconds quieter. The makeup itself still glides in
+        // with the reduction, as on a switch-on.
+        let averageReductionDB = dynamicsState.averageReductionDB
         resetDynamics()
+        dynamicsState.averageReductionDB = averageReductionDB
         meter.reset()
     }
 
@@ -110,6 +115,7 @@ final class EQProcessor {
 
     private func resetDetector() {
         dynamicsState.meanSquare = 0
+        dynamicsState.averageReductionDB = 0
         detectorStates.update(repeating: BiquadState(), count: 2 * TapFormat.maxChannels)
     }
 

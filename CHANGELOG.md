@@ -3,6 +3,19 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Fixed
+
+- `eq comp gentle` no longer tilts the mix towards bass. Its detector ignored everything below
+  100 Hz, so on a curve that boosts bass it heard the mix as quieter than it is, took little off,
+  and its fixed +3 dB makeup then played it up to 3 LU louder than with the compressor off, which
+  on such a curve is heard as more bass. The detector now hears through BS.1770's K-weighting,
+  and gentle's makeup gives back the reduction it averaged over the last 3 seconds instead of a
+  fixed amount: on the `favourite` curve, test music and pink noise now move by less than 1 LU
+  and no octave band by more than 0.4 dB against the others. `night` hears bass too now, so explosions
+  come down further against dialogue.
+
 ## 2026.09.28.8 — 2026-09-28
 
 ### Added

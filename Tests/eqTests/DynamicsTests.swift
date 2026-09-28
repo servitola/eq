@@ -68,26 +68,53 @@ final class DynamicsTests: XCTestCase {
             XCTAssertEqual(gr(s.threshold + s.knee / 2), (1 / s.ratio - 1) * s.knee / 2, accuracy: 1e-5, "\(mode) knee ends")
             let above = s.threshold + s.knee
             XCTAssertEqual(gr(above + 10) - gr(above), 10 * (1 / s.ratio - 1), accuracy: 1e-4, "\(mode) ratio")
-            XCTAssertEqual(Double(c.makeupDB), -gr(s.reference), accuracy: 1e-5)
+            if let reference = s.reference { XCTAssertEqual(Double(c.makeupDB), -gr(reference), accuracy: 1e-5) }
         }
-        XCTAssertEqual(DynamicsCoefficients.make(Dynamics(comp: .gentle), sampleRate: rate).makeupDB, 3)
-        XCTAssertEqual(DynamicsCoefficients.make(Dynamics(comp: .night), sampleRate: rate).makeupDB, 4.5)
+        let gentle = DynamicsCoefficients.make(Dynamics(comp: .gentle), sampleRate: rate)
+        XCTAssertEqual(gentle.makeupDB, 0)
+        XCTAssertGreaterThan(gentle.makeupFollow, 0)
+        let night = DynamicsCoefficients.make(Dynamics(comp: .night), sampleRate: rate)
+        XCTAssertEqual(night.makeupDB, 4.5)
+        XCTAssertEqual(night.makeupFollow, 0)
     }
 
-    /// A steady 1 kHz tone settles to the static curve plus makeup: the detector reads a sine's RMS.
+    /// What the detector's K-weighting adds at a frequency.
+    private func weighting(_ mode: Dynamics.Compressor, _ frequency: Double) -> Double {
+        let c = DynamicsCoefficients.make(Dynamics(comp: mode), sampleRate: rate)
+        return c.detectorShelf.magnitudeDB(at: frequency, sampleRate: rate) + c.detectorHighPass.magnitudeDB(at: frequency, sampleRate: rate)
+    }
+
+    /// A steady 1 kHz tone settles to the static curve at its K-weighted RMS. Night adds its fixed
+    /// makeup on top; gentle's makeup gives the reduction back within seconds, up to 6 dB.
     func testSteadyToneFollowsTheCurve() {
         for mode in Dynamics.Compressor.allCases {
             let c = DynamicsCoefficients.make(Dynamics(comp: mode), sampleRate: rate)
             for peak in [-50.0, -30.0, -20.0, -12.0, -6.0] {
-                let input = sine(1000, peakDB: peak, seconds: 3)
-                let output = run(processor(Dynamics(comp: mode)), input)
+                let input = sine(1000, peakDB: peak, seconds: mode == .gentle ? 15 : 3)
+                let processor = processor(Dynamics(comp: mode))
+                let output = run(processor, input)
                 let tail = input.count - Int(rate / 2)
                 let gain = rmsDB(output[tail...]) - rmsDB(input[tail...])
-                let level = Float(peak - 10 * log10(2.0))
-                let expected = Double(DynamicsCoefficients.reduction(level: level, threshold: c.threshold, knee: c.knee, slope: c.slope) + c.makeupDB)
-                XCTAssertEqual(gain, expected, accuracy: 0.3, "\(mode) at \(peak) dBFS")
+                let level = Float(peak - 10 * log10(2.0) + weighting(mode, 1000))
+                let reduction = DynamicsCoefficients.reduction(level: level, threshold: c.threshold, knee: c.knee, slope: c.slope)
+                XCTAssertEqual(processor.compressorReductionDB, reduction, accuracy: 0.3, "\(mode) at \(peak) dBFS")
+                let makeup = mode == .gentle ? min(-reduction, DynamicsCoefficients.maxMakeupDB) : c.makeupDB
+                XCTAssertEqual(gain, Double(reduction + makeup), accuracy: 0.3, "\(mode) at \(peak) dBFS")
             }
         }
+    }
+
+    /// A pause freezes gentle's makeup, and so does the engine's reset after a second of silence:
+    /// the next song starts with the makeup the last one ended with, not from 0.
+    func testGentleKeepsItsMakeupOverAPause() {
+        let processor = processor(Dynamics(comp: .gentle))
+        _ = run(processor, sine(1000, peakDB: -6, seconds: 12))
+        _ = run(processor, [Float](repeating: 0, count: Int(3 * rate)))
+        processor.resetRenderState()
+        let output = run(processor, sine(1000, peakDB: -6, seconds: 1))
+        let gain = rmsDB(output[Int(rate / 2)...]) - rmsDB(sine(1000, peakDB: -6, seconds: 1)[Int(rate / 2)...])
+        print(String(format: "gentle after a pause: %+.2f dB", gain))
+        XCTAssertEqual(gain, 0, accuracy: 0.5)
     }
 
     /// Linked by the loudest channel: dialogue on the centre of 5.1 alone is compressed as if it
@@ -115,7 +142,8 @@ final class DynamicsTests: XCTestCase {
         }
     }
 
-    /// The time from a step to 63 % of the reduction's change: the attack or release time constant.
+    /// The time from a step to 63 % of the reduction's change. The detector's window and the
+    /// attack or release are one-pole smoothers in series, so it measures about their sum.
     private func stepTimes(_ mode: Dynamics.Compressor) -> (attack: Double, release: Double) {
         let quiet = sine(1000, peakDB: -50, seconds: 1)
         let loud = sine(1000, peakDB: -6, seconds: 2)
@@ -133,23 +161,33 @@ final class DynamicsTests: XCTestCase {
         for mode in Dynamics.Compressor.allCases {
             let s = mode.settings
             let measured = stepTimes(mode)
-            print("\(mode): attack \(measured.attack * 1000) ms (nominal \(s.attack * 1000)), release \(measured.release * 1000) ms (nominal \(s.release * 1000))")
-            XCTAssertEqual(measured.attack, s.attack, accuracy: s.attack * 0.35, "\(mode) attack")
-            XCTAssertEqual(measured.release, s.release, accuracy: s.release * 0.2, "\(mode) release")
+            let attack = s.attack + s.window, release = s.release + s.window
+            print("\(mode): attack \(measured.attack * 1000) ms (\(attack * 1000) with the window), release \(measured.release * 1000) ms (\(release * 1000))")
+            XCTAssertEqual(measured.attack, attack, accuracy: attack * 0.35, "\(mode) attack")
+            XCTAssertEqual(measured.release, release, accuracy: release * 0.2, "\(mode) release")
         }
     }
 
-    func testDetectorIgnoresDeepBass() {
+    /// The detector hears deep bass at its loudness, so a bass-heavy mix or an explosion is
+    /// compressed like anything else, but a steady 40 Hz tone at −10 dBFS holds the gain still
+    /// instead of pumping it at the waveform's rate. Night reads it up to 1.5 dB louder than its
+    /// RMS: the 5 ms attack catches each half-cycle's crest through the 2.5 ms window, and the
+    /// 400 ms release barely lets go in between.
+    func testDeepBassCompressesWithoutPumping() {
         for mode in Dynamics.Compressor.allCases {
-            func reduction(_ frequency: Double) -> Double {
-                let processor = processor(Dynamics(comp: mode))
-                _ = run(processor, sine(frequency, peakDB: -10, seconds: 2))
-                return Double(processor.compressorReductionDB)
+            let c = DynamicsCoefficients.make(Dynamics(comp: mode), sampleRate: rate)
+            let processor = processor(Dynamics(comp: mode))
+            var trace: [Float] = []
+            _ = run(processor, sine(40, peakDB: -10, seconds: 3), block: 16) { done in
+                if done > Int(2 * self.rate) { trace.append(processor.compressorReductionDB) }
             }
-            let bass = reduction(40), mid = reduction(1000)
-            print("\(mode): -10 dBFS at 40 Hz reduces \(bass) dB, at 1 kHz \(mid) dB")
-            XCTAssertGreaterThan(bass, -0.2, "\(mode) 40 Hz")
-            XCTAssertLessThan(mid, -2, "\(mode) 1 kHz")
+            let level = Float(-10 - 10 * log10(2.0) + weighting(mode, 40))
+            let expected = DynamicsCoefficients.reduction(level: level, threshold: c.threshold, knee: c.knee, slope: c.slope)
+            let ripple = trace.max()! - trace.min()!
+            print(String(format: "\(mode): 40 Hz at -10 dBFS reduces %.2f dB (curve %.2f), ripple %.3f dB", trace.last!, expected, ripple))
+            XCTAssertLessThan(trace.last!, expected + 0.3, "\(mode)")
+            XCTAssertGreaterThan(trace.last!, expected - (mode == .night ? 1.5 : 0.3), "\(mode)")
+            XCTAssertLessThan(ripple, 0.15, "\(mode)")
         }
     }
 
@@ -157,7 +195,7 @@ final class DynamicsTests: XCTestCase {
     /// window and the attack keep it small down to where the high-pass lets bass in.
     func testCompressorBarelyDistortsBass() {
         for mode in Dynamics.Compressor.allCases {
-            for frequency in [100.0, 200.0] {
+            for frequency in [40.0, 100.0, 200.0] {
                 let output = run(processor(Dynamics(comp: mode)), sine(frequency, peakDB: -6, seconds: 2))
                 let distortion = thd(harmonics(output[Int(rate)...].prefix(Int(rate)), frequency))
                 print(String(format: "\(mode) %.0f Hz at -6 dBFS: THD %.3f %%", frequency, distortion * 100))
