@@ -5,6 +5,15 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- Driver mode, experimental: `eq mode driver` plays through the EQ device from `Driver/` instead of
+  a process tap, so no recording permission and no Privacy indicator. The daemon keeps the EQ device
+  the default output and follows the real device you pick in the Sound menu; `eq mode tap` goes back,
+  moving the default output first and never waiting more than 2 s on the plug-in. `eq status`,
+  `eq doctor`, `eq watch` and `eq events` cover it. Install the plug-in with `Driver/dev-install.sh`
+  for now.
+
 ### Fixed
 
 - One NaN or infinite sample from an app no longer leaves eq silent until a long pause resets it.

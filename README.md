@@ -58,7 +58,7 @@ the plist to the Trash and starts the bundled login item instead.
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
-| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app; never meter ticks |
+| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app, mode, target; never meter ticks |
 
 Tune the curve:
 
@@ -105,6 +105,7 @@ Setup:
 | --- | --- |
 | `eq init` | write the default config now; optional, the first change writes it anyway |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
+| `eq mode [driver\|tap]` | show or switch the audio path; see [Driver mode](#driver-mode-experimental) |
 | `eq completions zsh\|bash\|fish` | the shell completion script |
 | `eq man` | the man page, as roff |
 
@@ -118,7 +119,8 @@ unchanged.
 after, in the same form as `eq`, and writes nothing — no save, no backup, no history entry.
 With `--json` the answer is `{"before": …, "after": …}`. It runs the real command against a
 copy of `eq.json` and its history, so a bad band or an unreadable backup fails exactly as it
-would for real. `eq device use --dry-run` shows both curves and leaves the output alone.
+would for real. `eq device use --dry-run` shows both curves and leaves the output alone;
+`eq mode driver|tap --dry-run` says what the switch would do.
 
 The Homebrew cask installs zsh, bash and fish completions and the man page (`man eq`). From a
 source build, `eq completions zsh > ~/.zfunc/_eq` (a directory in `fpath`), `eq completions
@@ -483,6 +485,8 @@ is not running or predates events. Every line has `t` (Unix seconds) and `event`
 | `enabled` | `enabled` | `eq on` / `eq off` |
 | `solo` | `solo`: `{"low":L,"high":H}` or `null` | a watch starts or stops listening to one range |
 | `app` | `app`, `name`, `preset` (or `null`) | an app rule starts or stops being heard (experimental) |
+| `mode` | `mode` (`tap` or `driver`), `target` (or `null`), `reason` (or `null`) | the path changes; `reason` says why the tap runs in driver mode |
+| `target` | `device`, `uid` | in driver mode, the EQ device plays on another real device |
 
 ```sh
 eq events | jq -r --unbuffered 'select(.event == "device") | "\(.device) at \(.rate) Hz"'
@@ -711,6 +715,65 @@ The IO buffer is 128 frames on both sides; `EQ_IO_FRAMES` (daemon only, 64–409
 it. Core Audio keeps the buffer size per process, so other apps keep their own buffer size
 when eq asks the shared output device for 128 frames. A smaller buffer wakes the daemon more
 often: two IO threads, each about 345 times a second at 128 frames and 44.1 kHz.
+
+## Driver mode (experimental)
+
+Tap mode, the default, needs the System Audio Recording permission, and macOS shows its Privacy
+indicator while eq runs. Driver mode plays through a virtual output device instead, **"BE-RCA · EQ"**
+(named after the real device it plays on), from a Core Audio plug-in in `Driver/`: apps play to it,
+and the plug-in runs the same EQ, compressor, colour and limiter on the real device. Nothing
+records audio, so there is no permission and no indicator, and the device reports its whole latency,
+so video players keep lip sync. It breaks Apple's rule that a plug-in may not use the HAL client
+API, which is how it plays on the real device; see `docs/research/06a–06c`.
+
+Install it from this repository until the `eq-driver` cask exists:
+
+```sh
+Driver/build.sh && sudo Driver/dev-install.sh   # copies to /Library/Audio/Plug-Ins/HAL, restarts coreaudiod
+eq mode driver                                   # needs eq from a signed EQ.app, which the plug-in lets write curves
+```
+
+`eq mode driver` refuses, and says how to install, when the EQ device is missing or older than this
+eq. Otherwise it shows the device, points it at the current output, sends it that output's curve,
+makes it the default output and writes `"mode": "driver"` to `eq.json`; the daemon then stops its
+tap. `eq mode` shows the mode, `--dry-run` says what a switch would do.
+
+While the daemon runs in driver mode:
+
+- Keep picking real devices in the Sound menu. When the default output becomes a real device, eq
+  plays on it with its curve and makes the EQ device the default again, 0.4 s after the last change,
+  so clicking through the menu costs one switch. Virtual devices, aggregates and AirPlay are left
+  alone as the default, and if something moves the default more than three times in 10 s, eq stops
+  taking it back for 30 s.
+- Every change to the config, a preset, an app rule, `eq on|off`, the dynamics or a solo is sent to
+  the plug-in, which keeps the last curve per device and plays it without the daemon, across
+  coreaudiod restarts.
+- `eq status` shows `mode: driver (BE-RCA · EQ → BE-RCA)`, the latency the device reports, and the
+  plug-in's IO, underruns, overruns, clock correction and whether it plays a curve; `eq watch`
+  reads the plug-in's meter; `eq events` adds `mode` and `target` events; `eq doctor` adds driver rows.
+- If the EQ device is missing when the daemon starts, or stays gone for 3 s, the daemon runs the
+  tap and says why in `eq status`, `eq mode` and `eq doctor`, rather than leave you without EQ; it
+  goes back to the driver when the device returns.
+
+In tap mode the EQ device is hidden and never the default output. `"driver": {"hideWhileDefault":
+true}` tries hiding it while it is the default too; `eq doctor` reports whether macOS kept it.
+
+### Back to tap mode, and recovery
+
+```sh
+eq mode tap
+```
+
+It writes the mode first, moves the default output back to the real device, then hides the EQ
+device, each step giving up after 2 s, so a hung plug-in cannot hang it. If the default output
+cannot be moved, it says so and prints the next steps. In order, stop at the first that brings sound back:
+
+1. `sudo killall coreaudiod` (launchd starts it again).
+2. Disable the plug-in with its kill file:
+   `sudo touch /Library/Audio/Plug-Ins/HAL/EQDriver.driver/Contents/Resources/disabled && sudo killall coreaudiod`.
+3. Remove it: `sudo Driver/dev-uninstall.sh`, or `sudo rm -rf /Library/Audio/Plug-Ins/HAL/EQDriver.driver && sudo killall coreaudiod`.
+
+`Driver/README.md` has more on the plug-in.
 
 ## Footprint
 
