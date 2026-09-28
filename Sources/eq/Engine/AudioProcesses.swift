@@ -6,15 +6,37 @@ import CoreAudio
 /// stopped playing, while `kAudioProcessPropertyIsRunning` did, both ways; both are watched, and
 /// every event re-reads the output flag, so either one is enough.
 final class CoreAudioProcesses: AudioProcessSource {
-    private let queue: DispatchQueue
+    struct HAL {
+        var objects: () -> [AudioObjectID]
+        var add: (AudioObjectID, AudioObjectPropertyAddress, @escaping AudioObjectPropertyListenerBlock) -> Bool
+        var remove: (AudioObjectID, AudioObjectPropertyAddress, @escaping AudioObjectPropertyListenerBlock) -> Void
+
+        static func live(queue: DispatchQueue) -> HAL {
+            HAL(objects: processObjects,
+                add: { id, address, block in
+                    var addr = address
+                    return AudioObjectAddPropertyListenerBlock(id, &addr, queue, block) == noErr
+                },
+                remove: { id, address, block in
+                    var addr = address
+                    AudioObjectRemovePropertyListenerBlock(id, &addr, queue, block)
+                })
+        }
+    }
+
+    private let hal: HAL
     private var changed: (() -> Void)?
     private var listListener: AudioObjectPropertyListenerBlock?
     private var processListeners: [AudioObjectID: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)]] = [:]
 
     private static let watched = [kAudioProcessPropertyIsRunning, kAudioProcessPropertyIsRunningOutput]
 
-    init(queue: DispatchQueue) {
-        self.queue = queue
+    init(hal: HAL) {
+        self.hal = hal
+    }
+
+    convenience init(queue: DispatchQueue) {
+        self.init(hal: .live(queue: queue))
     }
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
@@ -70,18 +92,19 @@ final class CoreAudioProcesses: AudioProcessSource {
     }
 
     func snapshot() -> [AudioProcess] {
-        Self.processObjects().compactMap(Self.process)
+        hal.objects().compactMap(Self.process)
     }
 
     func start(_ changed: @escaping () -> Void) -> Bool {
         guard listListener == nil else { return true }
         self.changed = changed
-        var addr = Self.address(kAudioHardwarePropertyProcessObjectList)
+        // Removing a listener does not cancel a block the HAL already queued, so one may run after `stop`.
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.watchProcesses()
-            self?.changed?()
+            guard let self, self.listListener != nil else { return }
+            self.watchProcesses()
+            self.changed?()
         }
-        guard AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, queue, block) == noErr else { return false }
+        guard hal.add(AudioObjectID(kAudioObjectSystemObject), Self.address(kAudioHardwarePropertyProcessObjectList), block) else { return false }
         listListener = block
         watchProcesses()
         return true
@@ -89,8 +112,7 @@ final class CoreAudioProcesses: AudioProcessSource {
 
     func stop() {
         if let block = listListener {
-            var addr = Self.address(kAudioHardwarePropertyProcessObjectList)
-            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, queue, block)
+            hal.remove(AudioObjectID(kAudioObjectSystemObject), Self.address(kAudioHardwarePropertyProcessObjectList), block)
         }
         listListener = nil
         changed = nil
@@ -98,22 +120,20 @@ final class CoreAudioProcesses: AudioProcessSource {
     }
 
     private func watchProcesses() {
-        let current = Set(Self.processObjects())
+        guard listListener != nil else { return }
+        let current = Set(hal.objects())
         for id in processListeners.keys where !current.contains(id) { unwatch(id) }
         for id in current where processListeners[id] == nil {
             processListeners[id] = Self.watched.compactMap { selector in
-                var addr = Self.address(selector)
+                let addr = Self.address(selector)
                 let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.changed?() }
-                return AudioObjectAddPropertyListenerBlock(id, &addr, queue, block) == noErr ? (addr, block) : nil
+                return hal.add(id, addr, block) ? (addr, block) : nil
             }
         }
     }
 
     // A process that exited took its object along; removing from it fails harmlessly.
     private func unwatch(_ id: AudioObjectID) {
-        for (address, block) in processListeners.removeValue(forKey: id) ?? [] {
-            var addr = address
-            AudioObjectRemovePropertyListenerBlock(id, &addr, queue, block)
-        }
+        for (address, block) in processListeners.removeValue(forKey: id) ?? [] { hal.remove(id, address, block) }
     }
 }

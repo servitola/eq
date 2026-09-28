@@ -1,4 +1,5 @@
 import XCTest
+import CoreAudio
 @testable import eq
 
 private final class FakeProcesses: AudioProcessSource {
@@ -340,5 +341,55 @@ final class NowPlayingTests: XCTestCase {
         var answered: [String?] = ["unset"]
         NowPlaying.live(queue: .main, binary: dir.appendingPathComponent("absent").path)({ answered = [$0] })
         XCTAssertEqual(answered, [nil])
+    }
+}
+
+final class CoreAudioProcessesTests: XCTestCase {
+    private var objects: [AudioObjectID] = [10]
+    private var listeners: [(id: AudioObjectID, block: AudioObjectPropertyListenerBlock)] = []
+    private var removed: [AudioObjectID] = []
+    private var processes: CoreAudioProcesses!
+
+    override func setUp() {
+        objects = [10]
+        listeners = []
+        removed = []
+        processes = CoreAudioProcesses(hal: CoreAudioProcesses.HAL(
+            objects: { [unowned self] in self.objects },
+            add: { [unowned self] id, _, block in self.listeners.append((id, block)); return true },
+            remove: { [unowned self] id, _, _ in self.removed.append(id) }))
+    }
+
+    private func fire(_ block: AudioObjectPropertyListenerBlock) {
+        var address = AudioObjectPropertyAddress()
+        withUnsafePointer(to: &address) { block(1, $0) }
+    }
+
+    private var listBlock: AudioObjectPropertyListenerBlock {
+        listeners.first { $0.id == AudioObjectID(kAudioObjectSystemObject) }!.block
+    }
+
+    func testANewProcessIsWatchedAndStopRemovesEverything() {
+        var changes = 0
+        XCTAssertTrue(processes.start { changes += 1 })
+        XCTAssertEqual(listeners.map(\.id), [AudioObjectID(kAudioObjectSystemObject), 10, 10])
+        objects = [10, 11]
+        fire(listBlock)
+        XCTAssertEqual(listeners.map(\.id).filter { $0 == 11 }.count, 2)
+        XCTAssertEqual(changes, 1)
+        processes.stop()
+        XCTAssertEqual(removed.sorted(), [AudioObjectID(kAudioObjectSystemObject), 10, 10, 11, 11].sorted())
+    }
+
+    func testAListChangeQueuedBeforeStopAddsNothingAfterIt() {
+        var changes = 0
+        XCTAssertTrue(processes.start { changes += 1 })
+        let queued = listBlock
+        let installed = listeners.count
+        processes.stop()
+        objects = [10, 11]
+        fire(queued)
+        XCTAssertEqual(listeners.count, installed, "removing a HAL listener does not cancel its queued blocks")
+        XCTAssertEqual(changes, 0)
     }
 }
