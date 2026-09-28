@@ -366,6 +366,32 @@ backend of its own site, with no stated terms.
   `ON None` empty slots.
 - **squig.link**, **peqdb** and **SoundSource** headphone-EQ text, which are the same grammar;
   squig.link's CRLF line endings and `Channel: L`/`Channel: R` blocks included.
+- **eqMac** preset export (JSON). An Advanced preset's ten gains are eqMac's ten bands, the
+  same centres as eq's, and its global gain is the preamp; gains beyond ±12 dB come in as ten
+  peak filters instead, so the curve still sounds the same. An Expert preset's bands become
+  filters, bandwidth in octaves turned into Q. A file of several presets imports the first.
+- **Poweramp** preset (JSON). Graphic mode's sliders become the ten bands (other slider counts
+  are reduced to ten), its tone shelves come in only when they are not at 0 dB; parametric mode
+  keeps every band as a filter. Bands for one channel only are skipped.
+- **EasyEffects** preset (JSON), its equaliser plugin (`equalizer` or `equalizer#0`): Bell,
+  shelves, low- and high-pass, notch and band-pass bands with their Q; input and output gain
+  add up to the preamp. With `split-channels` the left channel is imported, with a warning when
+  the right differs. Allpass, Resonance and Ladder bands are skipped; a slope steeper than `x1`
+  comes in as one filter, with a warning.
+- **Peace** `.peace` configurations. eq writes the same Equalizer APO lines Peace itself writes
+  for each slider (its filter types, including its Butterworth and Linkwitz-Riley cascades
+  whose Quality is the order, and its GraphicEQ mode) and reads them as above, so speaker groups
+  work like `Channel:`. Commands from Peace's command window are read too. Peace's effects
+  (routing, crossfeed, bass and treble, …) are named in a warning and not imported.
+- **CamillaDSP** config (YAML). The `pipeline:` decides what imports: the filters channel 0
+  runs, in order, with a warning when channel 1 runs something else; `Gain` filters on it add
+  up to the preamp (`scale: linear` too); mixers and processors are named and skipped; with no
+  pipeline every filter under `filters:` imports. Biquads `Peaking`, `Lowshelf`, `Highshelf`,
+  `Lowpass`, `Highpass`, `Notch` and `Bandpass` with `q`, a shelf `slope` in dB per octave or a
+  `bandwidth` in octaves (warped at the config's own sample rate, as CamillaDSP does); first-order,
+  all-pass, `Free` and `BiquadCombo` filters are skipped with a warning. eq reads the YAML those
+  configs are written in (block and one-line flow collections, quotes, comments) without a YAML
+  library; anchors, tags and multi-line strings refuse the file with the line that has them.
 
 `Channel:` scopes what follows, as in APO. eq is one curve for both ears, so it imports the
 left channel and warns when the right one differs; filters only for other channels (`C`,
@@ -375,9 +401,14 @@ headphone name. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`/`Else:`, `Delay:` a
 `Convolution:` have no meaning for eq; each is named once in a warning and the filters around
 it are imported. All-pass and `IIR` filters are skipped with a warning.
 
+A file is recognised by its content in this order: eqMac, Poweramp and EasyEffects JSON by
+their keys, a `.peace` by its `[Frequencies]`-style sections, a CamillaDSP config by a top-level
+`filters:` beside `pipeline:` or a `Biquad`, and anything with an APO `Filter:`, `Preamp:`,
+`GraphicEQ:` or `Include:` line as APO text.
+
 Every number is checked before it becomes a filter: a frequency outside 10–24000 Hz, a gain
 outside ±30 dB, a Q outside 0.1–30, a filter that would be unstable at 48 kHz, or a line that
-does not parse is skipped with a warning naming its line. A total preamp outside −30…12 dB
+does not parse is skipped with a warning naming its line (or its band, slider or filter). A total preamp outside −30…12 dB
 refuses the import. The preamp is the file's own: AutoEq's `.txt` files carry the peak of the
 whole cascade, 0.1 dB less cautious than the README tables beside them, and eq does not
 recompute it.

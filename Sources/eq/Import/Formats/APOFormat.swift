@@ -12,9 +12,12 @@ enum APOFormat: EQFormat {
 
     static func sniff(_ data: Data, filename: String?) -> Bool {
         guard let text = ImportText.decode(data) else { return false }
+        // A YAML key (CamillaDSP names a Gain filter `preamp:`) has nothing or a flow collection
+        // after its colon; an APO command always has parameters. `Channel:` alone imports nothing.
         return lines(text).contains {
-            guard let command = Line(String($0))?.command else { return false }
-            return ["filter", "preamp", "graphiceq", "include", "channel"].contains(command)
+            guard let line = Line(String($0)), ["filter", "preamp", "graphiceq", "include"].contains(line.command) else { return false }
+            let parameters = line.parameters.trimmingCharacters(in: .whitespaces)
+            return !parameters.isEmpty && !parameters.hasPrefix("{") && !parameters.hasPrefix("[")
         }
     }
 
@@ -26,6 +29,14 @@ enum APOFormat: EQFormat {
         let root = context.file.map { $0.absoluteURL.standardizedFileURL.resolvingSymlinksInPath() }
         parser.read(text, file: root, label: nil, depth: 0)
         return try parser.finish(isREW: text.contains("Room EQ") || text.contains("Filter Settings file"))
+    }
+
+    /// For a format that wraps APO lines (Peace): `places[i]` names line i in warnings instead of its number.
+    static func parse(text: String, places: [String]) throws -> ImportResult {
+        var parser = Parser()
+        parser.places = places
+        parser.read(text, file: nil, label: nil, depth: 0)
+        return try parser.finish(isREW: false)
     }
 
     // MARK: - Lines
@@ -290,6 +301,7 @@ enum APOFormat: EQFormat {
         /// Paths, not URLs: a URL made relative to its includer never equals the same file reached otherwise.
         var stack: [String] = []
         var includedFiles = 0
+        var places: [String] = []
 
         static let ignored: [String: String] = [
             "device": "Device: ignored, every filter is imported whatever device it names",
@@ -319,7 +331,7 @@ enum APOFormat: EQFormat {
             defer { if file != nil { stack.removeLast() } }
             for (index, raw) in lines(text).enumerated() {
                 guard let line = Line(String(raw)) else { continue }
-                let place = (label.map { "\($0) " } ?? "") + "line \(index + 1)"
+                let place = depth == 0 && index < places.count ? places[index] : (label.map { "\($0) " } ?? "") + "line \(index + 1)"
                 switch line.command {
                 case "filter":
                     switch APOFormat.filter(line.parameters) {

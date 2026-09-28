@@ -1,0 +1,308 @@
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1,0"
+    format: S16LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:Generic,1"
+    format: S16LE
+
+mixers:
+  stereo:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - channel: 0
+            gain: -11.0
+            inverted: false
+      - dest: 1
+        sources:
+          - channel: 1
+            gain: -9.0
+            inverted: false
+
+filters:
+  convolution_left:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "VBA_lowshelf-48k.wav"
+      channel: 0
+  convolution_right:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "VBA_lowshelf-48k.wav"
+      channel: 1
+      
+  # Left channel filters
+  left_1:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 92.00
+      q: 2.19
+      gain: -5.72
+  left_2:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 116.0
+      q: 3.16
+      gain: 5.00
+  left_3:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 163.5
+      q: 3.23
+      gain: -6.50
+  left_4:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 243.0
+      q: 3.55
+      gain: -4.10
+  left_5:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 369.0
+      q: 5.00
+      gain: -3.29
+  left_6:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 538.0
+      q: 5.00
+      gain: -5.11
+  left_7:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 722.0
+      q: 2.44
+      gain: -5.97
+  left_8:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 856.0
+      q: 1.00
+      gain: 5.00
+  left_9:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1097
+      q: 3.87
+      gain: -4.92
+  left_10:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1588
+      q: 2.92
+      gain: -3.85
+  left_11:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1861
+      q: 7.50
+      gain: 1.51
+  left_12:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 2327
+      q: 4.99
+      gain: -1.90
+  left_13:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 3286
+      q: 4.99
+      gain: -1.65
+  left_14:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 4328
+      q: 1.53
+      gain: -5.32
+  left_15:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 7486
+      q: 1.00
+      gain: -4.47
+
+  # Right channel filters
+  right_1:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 92.00
+      q: 2.07
+      gain: -3.68
+  right_2:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 138.0
+      q: 3.55
+      gain: -1.16
+  right_3:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 232.0
+      q: 2.54
+      gain: -4.76
+  right_4:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 276.0
+      q: 2.94
+      gain: 5.00
+  right_5:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 379.0
+      q: 4.20
+      gain: -4.42
+  right_6:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 453.0
+      q: 7.10
+      gain: 2.71
+  right_7:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 539.0
+      q: 3.57
+      gain: -7.05
+  right_8:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 817.0
+      q: 1.37
+      gain: 5.00
+  right_9:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 863.0
+      q: 5.00
+      gain: -5.22
+  right_10:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1112
+      q: 4.49
+      gain: -1.02
+  right_11:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1371
+      q: 4.69
+      gain: 4.95
+  right_12:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1473
+      q: 3.14
+      gain: -4.35
+  right_13:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 2048
+      q: 4.57
+      gain: 3.46
+  right_14:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 2301
+      q: 2.17
+      gain: -2.36
+  right_15:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 4687
+      q: 1.00
+      gain: -5.82
+  right_16:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 9865
+      q: 1.48
+      gain: -1.91
+
+pipeline:
+  - type: Mixer
+    name: stereo
+  - type: Filter
+    channel: 0
+    names:
+      - convolution_left
+      - left_1
+      - left_2
+      - left_3
+      - left_4
+      - left_5
+      - left_6
+      - left_7
+      - left_8
+      - left_9
+      - left_10
+      - left_11
+      - left_12
+      - left_13
+      - left_14
+      - left_15
+  - type: Filter
+    channel: 1
+    names:
+      - convolution_right
+      - right_1
+      - right_2
+      - right_3
+      - right_4
+      - right_5
+      - right_6
+      - right_7
+      - right_8
+      - right_9
+      - right_10
+      - right_11
+      - right_12
+      - right_13
+      - right_14
+      - right_15
+      - right_16

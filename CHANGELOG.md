@@ -21,6 +21,13 @@ its entries under a dated version.
   `eqmac` (ten bands and preamp; refused when the curve has more), `camilla` (CamillaDSP
   `filters:` and `pipeline:` YAML) or `json` (eq's own profile). `--device` picks the device,
   `--out FILE` writes atomically and never replaces a file without `--force`, `--json` reports.
+- `eq import` reads eqMac's preset export (Advanced presets set the ten bands, Expert presets
+  become filters) and Poweramp's preset JSON (graphic sliders or parametric bands).
+- `eq import` reads EasyEffects presets (the equaliser plugin, left channel) and Peace `.peace`
+  configurations, turned into the Equalizer APO lines Peace itself would write.
+- `eq import` reads CamillaDSP configs: the Biquad and Gain filters channel 0 runs in the
+  pipeline, with a warning when channel 1 differs. SoundSource's sample Headphone EQ profile is
+  a test fixture now; it was already APO text.
 
 ### Changed
 
