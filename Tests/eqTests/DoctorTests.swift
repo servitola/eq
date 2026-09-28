@@ -330,3 +330,121 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(Doctor.latencyCheck(s).detail, "skipped (engine not running)")
     }
 }
+
+final class DriverDoctorTests: XCTestCase {
+    private var driver: FakeDriver!
+    private var installed = true
+    private var defaultUID: String? = DriverControl.deviceUID
+    private var config = Config.initial(builtInUID: nil, builtInName: nil)
+    private var slept: [TimeInterval] = []
+
+    override func setUp() {
+        driver = FakeDriver()
+        driver.state.merge(["target": "BT-RCA", "targetName": "BE-RCA", "targetAvailable": true, "ioRunning": true, "underruns": 4,
+                            "overruns": 0, "clockCorrectionPpm": 21.5, "eqActive": true, "settingsSerial": 99, "hidden": false]) { $1 }
+        installed = true
+        defaultUID = DriverControl.deviceUID
+        config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.mode = .driver
+        slept = []
+    }
+
+    private func probes() -> DoctorProbes {
+        DoctorProbes(
+            osVersion: { OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 2) },
+            loadConfig: { [unowned self] in self.config },
+            readStatus: { nil },
+            defaultOutput: { DefaultOutput(name: "BE-RCA · EQ", streams: 1, channels: 2) },
+            launcher: { .bundled(loaded: true) },
+            executablePath: { _ in nil },
+            signalStatus: { _ in true },
+            sleep: { [unowned self] in
+                self.slept.append($0)
+                self.driver.state["underruns"] = 6
+            },
+            smoke: false,
+            driver: { [unowned self] in self.installed ? self.driver : nil },
+            defaultOutputUID: { [unowned self] in self.defaultUID })
+    }
+
+    private func rows() -> [String: DoctorCheck] {
+        Dictionary(uniqueKeysWithValues: Doctor.driverChecks(probes(), mode: config.audioMode, hidesWhileDefault: config.hidesWhileDefault, live: nil)
+            .map { ($0.name, $0) })
+    }
+
+    func testDriverModeRows() {
+        let checks = Doctor.driverChecks(probes(), mode: .driver, hidesWhileDefault: false, live: nil)
+        XCTAssertEqual(checks.map(\.name), ["driver", "driver target", "driver IO", "driver slips", "driver clock", "driver EQ",
+                                            "driver writer", "default output"])
+        let byName = Dictionary(uniqueKeysWithValues: checks.map { ($0.name, $0) })
+        XCTAssertEqual(byName["driver"]?.detail, "installed, protocol 1")
+        XCTAssertEqual(byName["driver target"]?.detail, "BE-RCA (BT-RCA)")
+        XCTAssertEqual(byName["driver slips"]?.detail, "2 underruns, 0 overruns in 1 s (6, 0 since load) — the EQ device and its target slipped, audio had gaps")
+        XCTAssertEqual(byName["driver slips"]?.warning, true)
+        XCTAssertEqual(byName["driver clock"]?.detail, "+21.5 ppm")
+        XCTAssertEqual(byName["driver EQ"]?.detail, "playing the curve eq sent (serial 99)")
+        XCTAssertEqual(byName["driver writer"]?.ok, true)
+        XCTAssertEqual(byName["default output"]?.ok, true)
+        XCTAssertEqual(slept, [1])
+    }
+
+    func testDriverModeProblems() {
+        driver.state["settingsError"] = "pid 12 does not satisfy identifier \"com.servitola.eq\""
+        driver.state["eqActive"] = false
+        driver.state["clockCorrectionPpm"] = -900.0
+        defaultUID = "BT-RCA"
+        let byName = rows()
+        XCTAssertEqual(byName["driver writer"]?.ok, false)
+        XCTAssertTrue(byName["driver writer"]?.detail.contains("signed EQ.app") == true)
+        XCTAssertEqual(byName["driver EQ"]?.ok, false)
+        XCTAssertEqual(byName["driver clock"]?.ok, false)
+        XCTAssertEqual(byName["default output"]?.ok, false)
+        XCTAssertTrue(Doctor.driverChecks(probes(), mode: .driver, hidesWhileDefault: false, live: nil).allSatisfy { $0.ok || $0.warning })
+    }
+
+    func testMissingOrOldDriverInDriverModeFails() {
+        installed = false
+        let missing = Doctor.driverChecks(probes(), mode: .driver, hidesWhileDefault: false, live: nil)
+        XCTAssertEqual(missing.map(\.ok), [false])
+        XCTAssertFalse(missing[0].warning)
+        XCTAssertTrue(missing[0].detail.contains("eq mode tap"))
+        XCTAssertEqual(Doctor.driverChecks(probes(), mode: .tap, hidesWhileDefault: false, live: nil), [])
+        installed = true
+        driver.state["settingsVersion"] = nil
+        XCTAssertEqual(Doctor.driverChecks(probes(), mode: .driver, hidesWhileDefault: false, live: nil).map(\.ok), [false])
+    }
+
+    func testTapModeWantsTheDeviceHiddenAndNotDefault() {
+        config.mode = .tap
+        let shown = rows()
+        XCTAssertEqual(shown["driver hidden"]?.warning, true)
+        XCTAssertEqual(shown["default output"]?.ok, false)
+        driver.state["hidden"] = true
+        defaultUID = "BT-RCA"
+        XCTAssertEqual(Doctor.driverChecks(probes(), mode: .tap, hidesWhileDefault: false, live: nil).map(\.name), ["driver", "driver hidden"])
+        XCTAssertTrue(Doctor.driverChecks(probes(), mode: .tap, hidesWhileDefault: false, live: nil).allSatisfy(\.ok))
+    }
+
+    func testHiddenDefaultExperiment() {
+        func detail(_ result: DriverSession.HiddenDefault?) -> String? {
+            var live = Status(state: .running, device: nil, sampleRate: 48000, profile: nil, framesProcessed: 0, callbacks: 0, writes: 1,
+                              enabled: true, error: nil, pid: getpid(), updatedAt: Date(), mode: .driver)
+            live.driver = .init(deviceName: "BE-RCA · EQ", target: nil, isDefault: true, ioRunning: true, eqActive: true, underruns: 0,
+                                overruns: 0, clockPpm: 0, latencyMs: nil, hidden: true, hiddenDefault: result)
+            return Doctor.driverChecks(probes(), mode: .driver, hidesWhileDefault: true, live: live).first { $0.name == "hidden default" }?.detail
+        }
+        XCTAssertEqual(detail(.kept), "kept: macOS keeps the hidden EQ device as the default output")
+        XCTAssertTrue(detail(.dropped)?.hasPrefix("dropped") == true)
+        XCTAssertTrue(detail(nil)?.hasPrefix("not tried yet") == true)
+        XCTAssertNil(Doctor.driverChecks(probes(), mode: .driver, hidesWhileDefault: false, live: nil).first { $0.name == "hidden default" })
+    }
+
+    func testTapRowsStepAsideInDriverMode() {
+        let live = Status(state: .running, device: nil, sampleRate: 48000, profile: nil, framesProcessed: 0, callbacks: 0, writes: 1,
+                          enabled: true, error: nil, pid: getpid(), updatedAt: Date(), mode: .driver,
+                          driver: .init(deviceName: "BE-RCA · EQ", target: nil, isDefault: true, ioRunning: true, eqActive: true,
+                                        underruns: 0, overruns: 0, clockPpm: 0, latencyMs: 152, hidden: false))
+        XCTAssertEqual(Doctor.latencyCheck(live).detail, "the EQ device reports 152 ms, which players compensate for")
+        XCTAssertEqual(Doctor.ringCheck(live).detail, "skipped (driver mode: see driver slips)")
+    }
+}

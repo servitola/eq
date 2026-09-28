@@ -20,6 +20,8 @@ struct DoctorProbes {
     var signalStatus: (pid_t) -> Bool
     var sleep: (TimeInterval) -> Void
     var smoke: Bool
+    var driver: () -> DriverPort? = { nil }
+    var defaultOutputUID: () -> String? = { nil }
 
     static func live(store: ConfigStore, statusURL: URL) -> DoctorProbes {
         DoctorProbes(
@@ -42,7 +44,9 @@ struct DoctorProbes {
             },
             signalStatus: { kill($0, SIGUSR1) == 0 },
             sleep: { Thread.sleep(forTimeInterval: $0) },
-            smoke: ProcessInfo.processInfo.environment["EQ_SMOKE"] == "1")
+            smoke: ProcessInfo.processInfo.environment["EQ_SMOKE"] == "1",
+            driver: { DriverControl.find() },
+            defaultOutputUID: { AudioDeviceManager.defaultOutputDeviceID().flatMap(AudioDeviceManager.device)?.uid })
     }
 }
 
@@ -63,7 +67,8 @@ enum Doctor {
         let status = probes.readStatus()
         let live = status.flatMap { $0.isAlive() ? $0 : nil }
         let (audio, refreshed) = audioCheck(probes, live)
-        let apps = (try? probes.loadConfig()).flatMap { $0.followsApps ? appsCheck($0, live) : nil }
+        let config = try? probes.loadConfig()
+        let apps = config.flatMap { $0.followsApps ? appsCheck($0, live) : nil }
         let checks = [
             macOSCheck(probes),
             configCheck(probes),
@@ -80,7 +85,7 @@ enum Doctor {
             latencyCheck(refreshed),
             ringCheck(refreshed),
             filtersCheck(live),
-        ]
+        ] + driverChecks(probes, mode: config?.audioMode ?? .tap, hidesWhileDefault: config?.hidesWhileDefault == true, live: live)
         let ok = checks.allSatisfy { $0.warning || $0.ok }
         return DoctorReport(ok: ok, checks: checks)
     }
@@ -199,6 +204,7 @@ enum Doctor {
     static let tapSilenceLimit: TimeInterval = 30
 
     private static func tapCheck(_ live: Status?) -> DoctorCheck {
+        if live?.mode == .driver { return DoctorCheck(name: "tap", ok: true, detail: "skipped (driver mode)", warning: false) }
         guard let live, live.state == .running || live.state == .bypassed else {
             return DoctorCheck(name: "tap", ok: true, detail: "skipped (engine not running)", warning: false)
         }
@@ -221,6 +227,11 @@ enum Doctor {
         guard let live, live.state == .running || live.state == .bypassed else {
             return DoctorCheck(name: "latency", ok: true, detail: "skipped (engine not running)", warning: false)
         }
+        if live.mode == .driver {
+            // Players compensate for what a device reports, so in driver mode nothing trails the picture.
+            let detail = live.driver?.latencyMs.map { "the EQ device reports \(Table.whole($0)) ms, which players compensate for" } ?? "skipped (not reported yet)"
+            return DoctorCheck(name: "latency", ok: true, detail: detail, warning: false)
+        }
         guard let added = live.addedLatencyMs else {
             return DoctorCheck(name: "latency", ok: true, detail: "skipped (not measured yet)", warning: false)
         }
@@ -234,6 +245,7 @@ enum Doctor {
     }
 
     static func ringCheck(_ live: Status?) -> DoctorCheck {
+        if live?.mode == .driver { return DoctorCheck(name: "ring", ok: true, detail: "skipped (driver mode: see driver slips)", warning: false) }
         guard let live, live.state == .running || live.state == .bypassed else {
             return DoctorCheck(name: "ring", ok: true, detail: "skipped (engine not running)", warning: false)
         }
@@ -278,6 +290,7 @@ enum Doctor {
         guard let live else {
             return DoctorCheck(name: "permission", ok: false, detail: "daemon not running", warning: false)
         }
+        if live.mode == .driver { return DoctorCheck(name: "permission", ok: true, detail: "not needed (driver mode)", warning: false) }
         guard live.state == .noPermission else {
             return DoctorCheck(name: "permission", ok: true, detail: "granted", warning: false)
         }
@@ -311,6 +324,9 @@ enum Doctor {
         }
         guard live.state == .running else {
             return (DoctorCheck(name: "audio", ok: true, detail: "skipped (state: \(live.state.rawValue))", warning: false), live)
+        }
+        if live.mode == .driver {
+            return (DoctorCheck(name: "audio", ok: true, detail: "skipped (driver mode: see driver IO)", warning: false), live)
         }
         let s0 = live
         // Only v3 daemons write `version`, and only v3 has the SIGUSR1 handler — the default action would kill an older one.
@@ -376,5 +392,79 @@ enum Doctor {
             return DoctorCheck(name: "engine", ok: false, detail: detail, warning: false)
         }
         return DoctorCheck(name: "engine", ok: true, detail: live.state.rawValue, warning: false)
+    }
+
+    // MARK: - Driver
+
+    /// Past this the plug-in's clock servo is chasing a target that is not a steady clock.
+    static let clockPpmLimit = 500.0
+
+    /// Nothing in tap mode without the plug-in; in tap mode with it, that it keeps out of the way;
+    /// in driver mode, what it reports about playing, sampled twice a second apart for the slips.
+    static func driverChecks(_ probes: DoctorProbes, mode: AudioMode, hidesWhileDefault: Bool, live: Status?) -> [DoctorCheck] {
+        func check(_ name: String, _ ok: Bool, _ detail: String, warning: Bool = false) -> DoctorCheck {
+            DoctorCheck(name: name, ok: ok, detail: detail, warning: warning)
+        }
+        let driverMode = mode == .driver
+        guard let port = probes.driver() else {
+            guard driverMode else { return [] }
+            return [check("driver", false, "mode is driver but the EQ device is not installed — \(ModeSwitch.Failure.installHint), or: eq mode tap")]
+        }
+        guard let values = try? port.health() else {
+            return [check("driver", false, "the EQ device does not report its health", warning: !driverMode)]
+        }
+        let first = DriverHealth(values)
+        guard let version = first.settingsVersion, version >= DriverControl.requiredVersion else {
+            return [check("driver", false, "\(ModeSwitch.Failure.tooOld(first.settingsVersion))", warning: !driverMode)]
+        }
+        guard !first.killed else { return [check("driver", false, "\(ModeSwitch.Failure.disabled)", warning: !driverMode)] }
+        var checks = [check("driver", true, "installed, protocol \(version)")]
+        let isDefault = probes.defaultOutputUID() == DriverControl.deviceUID
+        guard driverMode else {
+            checks.append(first.hidden ? check("driver hidden", true, "yes (tap mode)")
+                : check("driver hidden", false, "no — in tap mode it should be; the daemon hides it, and so does eq mode tap", warning: true))
+            if isDefault {
+                checks.append(check("default output", false, "the EQ device, in tap mode — eq mode tap moves the default back to a real device"))
+            }
+            return checks
+        }
+
+        let target = first.targetName.isEmpty ? first.target : first.targetName
+        if first.target.isEmpty {
+            checks.append(check("driver target", false, "none — no real output device to play on"))
+        } else {
+            checks.append(first.targetAvailable ? check("driver target", true, "\(target) (\(first.target))")
+                : check("driver target", false, "\(target) is gone — the EQ device hides until it is back", warning: true))
+        }
+        checks.append(first.ioRunning ? check("driver IO", true, "running")
+            : check("driver IO", false, "idle — nothing plays, or the target stopped calling back", warning: true))
+        probes.sleep(1)
+        let second = (try? port.health()).map(DriverHealth.init) ?? first
+        let underruns = second.underruns &- first.underruns, overruns = second.overruns &- first.overruns
+        let slips = "\(underruns) underruns, \(overruns) overruns in 1 s (\(second.underruns), \(second.overruns) since load)"
+        checks.append(underruns + overruns == 0 ? check("driver slips", true, slips)
+            : check("driver slips", false, slips + " — the EQ device and its target slipped, audio had gaps", warning: true))
+        let ppm = String(format: "%+.1f ppm", second.clockPpm)
+        checks.append(abs(second.clockPpm) <= clockPpmLimit ? check("driver clock", true, ppm)
+            : check("driver clock", false, ppm + " — past \(Int(clockPpmLimit)) ppm the target's clock is not steady", warning: true))
+        checks.append(second.eqActive ? check("driver EQ", true, "playing the curve eq sent (serial \(second.settingsSerial))")
+            : check("driver EQ", false, "no curve for this target — the daemon sends one; eq driver push does too", warning: true))
+        if second.settingsError.isEmpty {
+            let refused = second.settingsRejected > 0 ? "; \(second.settingsRejected) refused since load" : ""
+            checks.append(check("driver writer", true, "writes accepted (\(second.writerRequirement))\(refused)"))
+        } else {
+            checks.append(check("driver writer", false, second.settingsError + " — run the eq inside a signed EQ.app", warning: true))
+        }
+        checks.append(isDefault ? check("default output", true, "the EQ device")
+            : check("default output", false, "not the EQ device — sound bypasses eq; the daemon takes it back, or: eq mode driver", warning: true))
+        if hidesWhileDefault {
+            switch live?.driver?.hiddenDefault {
+            case .kept?: checks.append(check("hidden default", true, "kept: macOS keeps the hidden EQ device as the default output"))
+            case .dropped?:
+                checks.append(check("hidden default", false, "dropped: macOS moved the default off the hidden EQ device, so the daemon shows it", warning: true))
+            case nil: checks.append(check("hidden default", true, "not tried yet (the daemon tries it when it makes the EQ device default)"))
+            }
+        }
+        return checks
     }
 }
