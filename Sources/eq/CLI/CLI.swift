@@ -50,11 +50,12 @@ enum CLI {
     /// exits non-zero (a failing `doctor`) is still the answer and goes to stdout.
     static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String, isError: Bool, streamed: Bool) {
         let wantsJSON = args.contains("--json")
-        let args = args.filter { $0 != "--json" }
+        let dryRun = args.contains("--dry-run")
+        let args = args.filter { $0 != "--json" && $0 != "--dry-run" }
         let command = args.first ?? "show"
         do {
             if wantsJSON && args.first == "watch" { throw CLIError.usage("eq watch has no JSON form; use eq stream") }
-            let output = try dispatch(args, context)
+            let output = try dispatch(args, context, dryRun: dryRun)
             // A streamed command already printed its own lines; the empty final Output carries
             // no text in either form, JSON included, so nothing prints twice.
             let text = (output.streamed && output.text.isEmpty) ? "" : (wantsJSON ? json(output.json) : output.text)
@@ -94,13 +95,19 @@ enum CLI {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func dispatch(_ args: [String], _ ctx: CLIContext) throws -> Output {
+    private static func dispatch(_ args: [String], _ ctx: CLIContext, dryRun: Bool = false) throws -> Output {
         if args.contains("--help") || args.contains("-h") || ["help", "-h", "--help"].contains(args.first ?? "") {
             let topic = ["help", "-h", "--help"].contains(args.first ?? "") ? (args.dropFirst().first { !$0.hasPrefix("-") } ?? "") : args[0]
             let text = helpText(for: topic, width: ctx.width(1), paint: Paint.enabled)
             return Output(text, UsageReport(usage: helpText(for: topic, width: 80, paint: false)))
         }
         let args = CommandHelp.canonical(args)
+        if dryRun {
+            guard CommandHelp.form(matching: args)?.writes == true else {
+                throw CLIError.usage("--dry-run applies only to a command that changes something (eq \(args.first ?? "") does not)")
+            }
+            return try DryRun.run(args, ctx) { try dispatch($0, $1) }
+        }
         var rest = args
         let command = rest.isEmpty ? "show" : rest.removeFirst()
         switch command {
@@ -213,6 +220,7 @@ enum CLI {
         }
     }
 
+    /// Where a dry run of `device use` can reach the same answer without switching anything.
     static func useTarget(_ args: [String], _ ctx: CLIContext) throws -> Target {
         guard args.count == 1 else { throw CLIError.usage("eq device use DEVICE") }
         let target = try resolveDevice(args[0], ctx)

@@ -110,4 +110,118 @@ final class CLIShapeTests: XCTestCase {
         XCTAssertFalse(devices.contains("eq preamp"), devices)
         XCTAssertTrue(run("copy", "--help").output.contains("eq device copy"))
     }
+
+    // MARK: - --dry-run
+
+    private func snapshot() throws -> [String: Data] {
+        var files: [String: Data] = [:]
+        for name in try FileManager.default.contentsOfDirectory(atPath: dir.path) {
+            let url = dir.appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+            guard !isDir.boolValue else { continue }
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let date = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            files[name] = try Data(contentsOf: url) + Data("@\(date)".utf8)
+        }
+        return files
+    }
+
+    private func history() throws {
+        run("init")
+        run("set", "1khz", "-3")
+        run("filter", "add", "peak", "3k", "-2")
+        run("set", "2khz", "+2")
+        run("undo")
+    }
+
+    func testDryRunWritesNothingForEveryStateChangingCommand() throws {
+        try history()
+        let file = dir.appendingPathComponent("import.txt")
+        try "Preamp: -2 dB\nFilter 1: ON PK Fc 100 Hz Gain -3 dB Q 1\n".write(to: file, atomically: true, encoding: .utf8)
+        let commands: [[String]] = [
+            ["set", "1khz", "+5"], ["preamp", "-1"], ["flat"], ["bass", "+3"], ["treble", "-2"], ["tilt", "0.5"],
+            ["boost", "voice", "+3"], ["on"], ["off"], ["copy", "--to", "JBL"], ["device", "copy", "--device", "JBL"],
+            ["filter", "add", "peak", "3k", "-2"], ["filter", "set", "1", "gain=-4"], ["filter", "rm", "all"],
+            ["preset", "save", "night"], ["preset", "use", "flat"], ["preset", "rm", "favourite"],
+            ["preset", "rename", "favourite", "fav"], ["import", file.path], ["import", "--clear"],
+            ["undo"], ["redo"], ["init"],
+        ]
+        for args in commands {
+            let before = try snapshot()
+            let result = CLI.run(args + ["--dry-run"], context: context)
+            XCTAssertEqual(result.exitCode, 0, "\(args): \(result.output)")
+            XCTAssertFalse(result.isError, "\(args)")
+            XCTAssertEqual(try snapshot(), before, "\(args) --dry-run touched the config directory")
+        }
+    }
+
+    func testDryRunShowsBeforeAndAfterInThePaintedForm() throws {
+        run("init")
+        let result = run("set", "1khz", "-6", "--dry-run")
+        XCTAssertTrue(result.output.contains("dry run"), result.output)
+        let lines = result.output.components(separatedBy: "\n")
+        let before = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("before") })
+        let after = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("after") })
+        XCTAssertLessThan(before, after)
+        XCTAssertTrue(lines[before...after].contains { $0.contains("-3.1") }, result.output)
+        XCTAssertTrue(lines[after...].contains { $0.contains("-6.0") }, result.output)
+        XCTAssertTrue(result.output.contains("32Hz"))
+    }
+
+    func testDryRunJSONIsBeforeAndAfter() throws {
+        run("init")
+        let report = try json("set", "1khz", "-6", "--dry-run")
+        XCTAssertEqual(Set(report.keys), ["before", "after"])
+        func bands(_ side: String) throws -> [Double] {
+            let devices = try XCTUnwrap((report[side] as? [String: Any])?["devices"] as? [[String: Any]])
+            return try XCTUnwrap((devices.first?["profile"] as? [String: Any])?["bands"] as? [Double])
+        }
+        XCTAssertEqual(try bands("before")[5], Config.screenshotCurve[5])
+        XCTAssertEqual(try bands("after")[5], -6)
+    }
+
+    func testDryRunOnOffAndPresetChanges() throws {
+        run("init")
+        let off = run("off", "--dry-run")
+        XCTAssertTrue(off.output.contains("on → off"), off.output)
+        let rm = run("preset", "rm", "flat", "--dry-run")
+        XCTAssertTrue(rm.output.contains("flat"), rm.output)
+        XCTAssertTrue(rm.output.contains("removed"), rm.output)
+        XCTAssertTrue(run("on", "--dry-run").output.contains("nothing would change"))
+    }
+
+    func testDryRunInitWithoutAConfig() throws {
+        let result = run("init", "--dry-run")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertFalse(context.store.exists())
+        XCTAssertTrue(result.output.contains("no config"), result.output)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [])
+    }
+
+    func testDryRunStillValidates() throws {
+        run("init")
+        let before = try snapshot()
+        let result = run("set", "99hz", "+1", "--dry-run")
+        XCTAssertEqual(result.exitCode, 2)
+        XCTAssertTrue(result.output.contains("unknown band"), result.output)
+        XCTAssertEqual(try snapshot(), before)
+    }
+
+    func testDryRunOfDeviceUseSwitchesNothing() {
+        run("init")
+        let result = run("device", "use", "jbl", "--dry-run")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(switchedTo, [])
+        XCTAssertTrue(result.output.contains("MacBook Pro Speakers → JBL Big"), result.output)
+    }
+
+    func testDryRunIsRefusedWhereNothingIsWritten() {
+        run("init")
+        for args in [["devices"], ["device", "list"], ["export"], ["watch"], ["status"], ["import", "--search", "hd600"], ["preset", "show", "flat"], ["history"]] {
+            let result = CLI.run(args + ["--dry-run"], context: context)
+            XCTAssertEqual(result.exitCode, 2, "\(args): \(result.output)")
+            XCTAssertTrue(result.output.contains("--dry-run"), "\(args): \(result.output)")
+        }
+    }
 }

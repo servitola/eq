@@ -125,4 +125,42 @@ final class HelpTests: XCTestCase {
         XCTAssertEqual(CommandHelp.tokens("save|use"), [.word("save"), .punctuation("|"), .word("use")])
         XCTAssertEqual(CommandHelp.tokens("<file|url|name>"), [.placeholder("<file|url|name>")])
     }
+
+    // MARK: - The grammar read from the help table
+
+    func testFormsComeFromTheHelpTable() throws {
+        let forms = CommandHelp.all.flatMap(\.forms)
+        let copy = try XCTUnwrap(forms.first { $0.path == ["device", "copy"] })
+        XCTAssertEqual(copy.flags.map(\.name), ["--to", "--device"])
+        XCTAssertEqual(copy.flags.first?.value, "DEVICE")
+        XCTAssertTrue(copy.flags.first?.required == true)
+        let set = try XCTUnwrap(forms.first { $0.path == ["set"] })
+        XCTAssertEqual(set.operands, ["<band>", "<gain>"])
+        XCTAssertTrue(set.repeats)
+        XCTAssertTrue(forms.contains { $0.path == ["preset", "save"] && $0.operands == ["<name>"] })
+        XCTAssertTrue(forms.contains { $0.path == ["preset"] })
+        XCTAssertTrue(forms.contains { $0.path == ["preset", "list"] })
+        XCTAssertTrue(forms.contains { $0.path == ["on"] })
+        XCTAssertTrue(forms.contains { $0.path == ["off"] })
+        XCTAssertTrue(forms.contains { $0.path == ["preset", "use"] })
+        let search = try XCTUnwrap(forms.first { $0.flags.contains { $0.name == "--search" } })
+        XCTAssertEqual(search.flags.first { $0.name == "--search" }?.value, nil)
+        XCTAssertEqual(search.operands, ["<name>"])
+    }
+
+    func testWhichFormsWrite() {
+        func writes(_ args: String...) -> Bool? { CommandHelp.form(matching: args)?.writes }
+        XCTAssertEqual(writes("set", "1khz", "+1"), true)
+        XCTAssertEqual(writes("import", "HD 600"), true)
+        XCTAssertEqual(writes("import", "--clear"), true)
+        XCTAssertEqual(writes("import", "--search", "HD 600"), false)
+        XCTAssertEqual(writes("preset", "save", "x"), true)
+        XCTAssertEqual(writes("preset", "show", "x"), false)
+        XCTAssertEqual(writes("preset"), false)
+        XCTAssertEqual(writes("device", "list"), false)
+        XCTAssertEqual(writes("device", "copy", "--to", "x"), true)
+        XCTAssertEqual(writes("export", "--out", "f"), false)
+        XCTAssertEqual(writes("filter", "rm", "all"), true)
+        XCTAssertNil(writes("frobnicate"))
+    }
 }
