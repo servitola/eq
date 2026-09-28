@@ -86,7 +86,7 @@ final class CompletionTests: XCTestCase {
     }
 
     /// Runs the bash function the way readline would, with `eq` stubbed to answer `__complete`.
-    private func bashComplete(_ words: [String], bash: String = "/bin/bash") throws -> [String]? {
+    private func bashComplete(_ words: [String], bash: String = "/bin/bash", in folder: URL? = nil) throws -> [String]? {
         let file = dir.appendingPathComponent("eq.bash")
         try script("bash").write(to: file, atomically: true, encoding: .utf8)
         let quoted = words.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
@@ -101,6 +101,7 @@ final class CompletionTests: XCTestCase {
           esac
         }
         source '\(file.path)'
+        cd '\((folder ?? dir).path)'
         COMP_WORDS=(\(quoted))
         COMP_CWORD=\(words.count - 1)
         _eq
@@ -127,6 +128,16 @@ final class CompletionTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(bashComplete(["eq", "status", "--"])).contains("--dry-run"))
         XCTAssertEqual(try bashComplete(["eq", "set", "--device", "JBL\\ B"]), ["JBL\\ Big"])
         XCTAssertEqual(try bashComplete(["eq", "copy", "--to", "Mac"]), ["MacBook\\ Pro\\ Speakers"])
+    }
+
+    func testBashFileCompletionDoesNotGlob() throws {
+        let folder = dir.appendingPathComponent("files")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for name in ["f*", "fa", "fb"] { try Data().write(to: folder.appendingPathComponent(name)) }
+        for bash in ["/bin/bash", "/opt/homebrew/bin/bash"] where FileManager.default.isExecutableFile(atPath: bash) {
+            let words = try XCTUnwrap(bashComplete(["eq", "import", "f"], bash: bash, in: folder))
+            XCTAssertEqual(words.sorted(), ["f*", "fa", "fb"], bash)
+        }
     }
 
     func testDeviceUseCompletesOnlyConnectedDevices() throws {

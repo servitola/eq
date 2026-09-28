@@ -203,7 +203,7 @@ enum Completions {
         for kind in [Kind.bands, .types, .sources] {
             lines.append("    \(kind.rawValue)) _eq_add <<< \"$(printf '%s\\n' \(kind.words.joined(separator: " ")))\" ;;")
         }
-        lines += ["    files) local IFS=$'\\n'; COMPREPLY+=($(compgen -f -- \"$cur\")); compopt -o filenames 2>/dev/null ;;", "  esac", "}", ""]
+        lines += ["    files) local line; while IFS= read -r line; do COMPREPLY+=(\"$line\"); done < <(compgen -f -- \"$cur\"); compopt -o filenames 2>/dev/null ;;", "  esac", "}", ""]
 
         lines += ["_eq_spec() {", "  flags=() operands=() repeats=0", "  case $1 in"]
         for spec in specs {
