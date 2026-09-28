@@ -103,11 +103,20 @@ enum Doctor {
 
     private static func configCheck(_ probes: DoctorProbes) -> DoctorCheck {
         do {
-            _ = try probes.loadConfig()
-            return DoctorCheck(name: "config", ok: true, detail: probes.configFileExists() ? "ok" : "defaults (no file yet)", warning: false)
+            return configCheck(try probes.loadConfig(), fileExists: probes.configFileExists())
         } catch {
             return DoctorCheck(name: "config", ok: false, detail: "\(error)", warning: false)
         }
+    }
+
+    static func configCheck(_ config: Config, fileExists: Bool) -> DoctorCheck {
+        let profiles = [("default", config.default)] + config.devices.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+            + (config.presets ?? [:]).sorted { $0.key < $1.key }.map { ("preset \($0.key)", $0.value) }
+        let problems = profiles.flatMap { key, profile in (profile.dynamics?.unknown ?? []).map { "\(key): no \($0) — ignored" } }
+        guard problems.isEmpty else {
+            return DoctorCheck(name: "config", ok: false, detail: problems.joined(separator: "; "), warning: true)
+        }
+        return DoctorCheck(name: "config", ok: true, detail: fileExists ? "ok" : "defaults (no file yet)", warning: false)
     }
 
     private static func hooksCheck(_ probes: DoctorProbes) -> DoctorCheck {

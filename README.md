@@ -223,7 +223,10 @@ Two stages sit after the whole curve and before the limiter, in this order: a co
 colour. Each is off until you turn it on, and one that is off is skipped entirely. Both take
 `--device DEVICE`; the config stores them per profile as `"dynamics": {"comp": "gentle",
 "color": {"kind": "tape", "amount": 0.3}}`, presets carry them, `eq flat` drops them, and undo
-and history see them like any edit. `eq` shows a `dynamics:` line when either is on.
+and history see them like any edit. `eq` shows a `dynamics:` line when either is on. A mode or
+kind this eq does not know, from a newer version or a hand edit, does not reject the file: it
+runs nothing, stays in the file, is logged once by the daemon and flagged by `eq doctor`, and
+`eq comp` or `eq color` replaces it.
 
 `eq comp gentle|night|off` is a feed-forward compressor, linked across channels so the stereo
 image stays put. Its detector listens through a 100 Hz high-pass (24 dB per octave), so bass

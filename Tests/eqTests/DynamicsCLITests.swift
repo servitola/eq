@@ -84,14 +84,53 @@ final class DynamicsCLITests: XCTestCase {
         let off = #"{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0],"dynamics":{"color":{"kind":"tube","amount":0}}}"#
         XCTAssertNil(try JSONDecoder().decode(Profile.self, from: Data(off.utf8)).dynamics)
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(Profile.flat), as: UTF8.self).contains("dynamics"))
-        let unknown = #"{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0],"dynamics":{"comp":"loud"}}"#
-        XCTAssertThrowsError(try JSONDecoder().decode(Profile.self, from: Data(unknown.utf8)))
 
         var config = try context.store.load()
         config.default.dynamics = Dynamics(color: .init(kind: .tape, amount: 2))
         XCTAssertThrowsError(try config.validate()) {
             XCTAssertEqual($0 as? ConfigError, .preferenceOutOfRange("default", "color amount 2.0 (0…1)"))
         }
+    }
+
+    /// A mode or kind this build does not know, from a newer eq or a typo, costs only itself: the
+    /// file still loads, the unknown part runs nothing and survives a save, and setting it repairs it.
+    func testAnUnknownModeOrKindIsKeptAndIgnored() throws {
+        var text = try String(contentsOf: context.store.url, encoding: .utf8)
+        let builtin = try XCTUnwrap(text.range(of: #""BUILTIN" : {"#))
+        text.replaceSubrange(builtin, with: #""BUILTIN" : {"dynamics": {"comp": "loud", "color": {"kind": "fuzz", "amount": 0.4}},"#)
+        try text.write(to: context.store.url, atomically: true, encoding: .utf8)
+
+        let loaded = try XCTUnwrap(try layer())
+        XCTAssertNil(loaded.comp)
+        XCTAssertNil(loaded.color)
+        XCTAssertEqual(loaded.unknown, [#"comp mode "loud""#, #"color "fuzz""#])
+        XCTAssertFalse(DynamicsCoefficients.make(loaded, sampleRate: 48000).isActive)
+        XCTAssertTrue(run().output.contains(#"dynamics: comp loud (unknown)  color fuzz 0.4 (unknown)"#), run().output)
+
+        XCTAssertEqual(run("bass", "2").exitCode, 0)
+        XCTAssertEqual(try layer()?.unknown, [#"comp mode "loud""#, #"color "fuzz""#], "a save keeps what it does not know")
+        let saved = try String(contentsOf: context.store.url, encoding: .utf8)
+        XCTAssertTrue(saved.contains(#""comp" : "loud""#) && saved.contains(#""kind" : "fuzz""#), saved)
+        XCTAssertEqual(run("export").exitCode, 0)
+        XCTAssertEqual(warnings, [], "nothing that runs is left out")
+
+        XCTAssertEqual(run("comp", "off").exitCode, 0)
+        XCTAssertEqual(try layer()?.unknown, [#"color "fuzz""#])
+        XCTAssertEqual(run("color", "tape", "0.3").exitCode, 0)
+        XCTAssertEqual(try layer(), Dynamics(color: .init(kind: .tape, amount: 0.3)))
+    }
+
+    func testDoctorWarnsAboutAnUnknownModeOrKind() throws {
+        var config = try context.store.load()
+        config.default.dynamics = try JSONDecoder().decode(Dynamics.self, from: Data(#"{"comp": "loud"}"#.utf8))
+        config.presets?["movie"] = Profile(name: nil, preamp: 0, bands: Profile.flat.bands,
+                                           dynamics: try JSONDecoder().decode(Dynamics.self, from: Data(#"{"color": {"kind": "fuzz", "amount": 1}}"#.utf8)))
+        XCTAssertEqual(Doctor.configCheck(config, fileExists: true),
+                       DoctorCheck(name: "config", ok: false,
+                                   detail: #"default: no comp mode "loud" — ignored; preset movie: no color "fuzz" — ignored"#, warning: true))
+        config.default.dynamics = nil
+        config.presets?["movie"] = nil
+        XCTAssertEqual(Doctor.configCheck(config, fileExists: true), DoctorCheck(name: "config", ok: true, detail: "ok", warning: false))
     }
 
     func testPresetsCarryItFlatDropsItAndItCountsAsAChange() throws {

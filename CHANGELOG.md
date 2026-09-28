@@ -22,7 +22,8 @@ its entries under a dated version.
   over about 10 ms, without a click or a jump in level.
 - Both are stored per profile as `dynamics`, travel with presets, undo, history and eq's own JSON
   export, and are dropped by `eq flat`. `eq` shows a `dynamics:` line. Other export formats warn
-  and export the EQ alone.
+  and export the EQ alone. A mode or kind eq does not know is kept and ignored rather than
+  rejecting `eq.json`; the daemon logs it, `eq doctor` warns, and `eq comp` or `eq color` replaces it.
 - `eq status` shows the compressor's gain reduction (`compReductionDB` in JSON); `eq watch`
   shows it live in the header and `eq stream` frames carry it as `comp`. In `eq watch`, `c`
   cycles the compressor, `v` the colour and `V` its amount.

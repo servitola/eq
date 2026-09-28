@@ -471,6 +471,9 @@ final class Daemon {
         for name in playing.unknownInstruments where loggedFilterWarnings.insert("\(device.uid) instrument \(name)").inserted {
             Log.write("profile \"\(profileName)\": no instrument \"\(name)\" — its boost is ignored")
         }
+        for part in playing.dynamics?.unknown ?? [] where loggedFilterWarnings.insert("\(device.uid) \(part)").inserted {
+            Log.write("profile \"\(profileName)\": no \(part) — ignored")
+        }
         // Profile events and hooks stay about the device's own curve; an app rule has its own event.
         if engine.state == .running {
             events.applied(device: Status.Device(uid: device.uid, name: device.name, transport: device.transportName),

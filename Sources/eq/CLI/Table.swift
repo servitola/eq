@@ -101,12 +101,16 @@ enum Table {
         profile.knobs.map { "\($0.instrument.name) " + Paint.ink(Paint.gain($0.gain), String(format: "%+g", $0.gain)) }.joined(separator: " ")
     }
 
-    /// "comp gentle  color tape 0.3", naming only the parts that are on.
+    /// "comp gentle  color tape 0.3", naming only the parts that are on, and any this build cannot run.
     static func dynamics(_ layer: Dynamics) -> String {
         var parts: [String] = []
         if let comp = layer.comp { parts.append("comp " + Paint.ink(.cyan, comp.rawValue)) }
+        if let comp = layer.unknownComp { parts.append("comp " + Paint.ink(.dim, "\(comp) (unknown)")) }
         if let color = layer.color {
             parts.append("color " + Paint.ink(.cyan, color.kind.rawValue) + " " + Paint.ink(.yellow, String(format: "%g", color.amount)))
+        }
+        if let color = layer.unknownColor {
+            parts.append("color " + Paint.ink(.dim, "\(color.kind) " + String(format: "%g", color.amount) + " (unknown)"))
         }
         return parts.joined(separator: "  ")
     }

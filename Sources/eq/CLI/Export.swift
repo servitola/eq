@@ -49,8 +49,8 @@ extension CLI {
         do { text = try Exporter.render(profile, as: format, header: .init(device: target.name, date: ctx.today())) }
         catch let error as ExportError { throw CLIError.exportRefused("\(error)") }
 
-        if format != .json, let layer = profile.dynamics, !layer.isOff {
-            let dropped = [layer.comp.map { "comp \($0.rawValue)" }, layer.color.map { "color \($0.kind.rawValue)" }].compactMap { $0 }
+        let dropped = [profile.dynamics?.comp.map { "comp \($0.rawValue)" }, profile.dynamics?.color.map { "color \($0.kind.rawValue)" }].compactMap { $0 }
+        if format != .json, !dropped.isEmpty {
             ctx.warn(Paint.ink(.yellow, "warning:", on: Paint.enabled(fd: 2))
                 + " \(format.rawValue) cannot hold a compressor or colour; exported the EQ without \(dropped.joined(separator: " and "))")
         }
