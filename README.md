@@ -593,9 +593,9 @@ keep slipping for 15 s, the daemon rebuilds the engine. `scripts/measure-latency
 end to end.
 
 The IO buffer is 128 frames on both sides; `EQ_IO_FRAMES` (daemon only, 64–4096) overrides
-it. Core Audio keeps the buffer size per process, so asking the shared output device for 128
-frames leaves every other app's buffer alone. A smaller buffer wakes the daemon more often:
-two callbacks, each about 345 times a second at 128 frames.
+it. Core Audio keeps the buffer size per process, so other apps keep their own buffer size
+when eq asks the shared output device for 128 frames. A smaller buffer wakes the daemon more
+often: two IO threads, each about 345 times a second at 128 frames and 44.1 kHz.
 
 ## Footprint
 

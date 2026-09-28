@@ -129,8 +129,9 @@ enum AudioDeviceManager {
         uint32Property(id, kAudioDevicePropertyBufferFrameSize).flatMap { $0 > 0 ? Int($0) : nil }
     }
 
-    /// Only this process's IO on the device changes: the HAL keeps the buffer size per client process.
-    /// Checked on macOS 26 with a second process, which kept reading 512 frames while the first had 96.
+    /// Other apps keep their own buffer size: the HAL holds it per client process. Checked on macOS 26
+    /// with a second process, which kept reading 512 frames while the first had 96. eq's own cost is
+    /// two IO threads waking about 345 times a second each at 128 frames and 44.1 kHz.
     /// Some devices refuse or clamp the request; `bufferFrameSize` then reports what was granted.
     static func requestBufferFrameSize(_ id: AudioObjectID, _ frames: Int) {
         var addr = address(kAudioDevicePropertyBufferFrameSize)
