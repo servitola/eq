@@ -218,6 +218,42 @@ final class EQCoreTests: XCTestCase {
         XCTAssertEqual(peak, -6, accuracy: 1.5)
     }
 
+    /// A NaN or infinite sample plays exactly as a 0 would have, with every stage running.
+    func testANonFiniteSampleIsASilentOne() {
+        let chain = settings([peak(1000, 6), peak(60, 4, q: 4)], compressor: EQC_COMPRESSOR_GENTLE, colour: EQC_COLOUR_TUBE, amount: 0.5)
+        let tone = sine(440, amplitude: 0.5, rate: 48000, count: 4800)
+        for bad in [Float.nan, .infinity, -.infinity] {
+            var poisoned = tone, clean = tone
+            for i in [0, 700, 2049] { poisoned[i] = bad; clean[i] = 0 }
+            let a = Engine(rate: 48000, channels: 2), b = Engine(rate: 48000, channels: 2)
+            a.update(chain)
+            b.update(chain)
+            XCTAssertEqual(a.run([poisoned, tone]), b.run([clean, tone]), "\(bad)")
+        }
+    }
+
+    /// Finite input through an absurd preamp overflows the history; the call it happens in plays
+    /// silence and the next one, with sane settings, plays as a fresh engine would.
+    func testOverflowedHistoryIsClearedWithinTheCall() {
+        let tone = sine(440, amplitude: 0.5, rate: 48000, count: 512)
+        let sane = settings([peak(1000, 6)], compressor: EQC_COMPRESSOR_NIGHT, colour: EQC_COLOUR_TAPE, amount: 0.5)
+        let engine = Engine(rate: 48000, channels: 2)
+        engine.update(settings([peak(1000, 6)], preampDB: 1000, compressor: EQC_COMPRESSOR_NIGHT))
+        XCTAssertEqual(engine.run([tone, tone]).joined().filter { $0 != 0 }, [])
+        var state = [Float](repeating: .nan, count: 8192)
+        let n = Int(eqc_engine_render_state(engine.core, &state, Int32(state.count)))
+        XCTAssertTrue(state[0..<n].allSatisfy { $0 == 0 })
+        XCTAssertFalse(eqc_limiting(engine.core))
+        XCTAssertEqual(eqc_compressor_reduction_db(engine.core), 0)
+
+        engine.update(sane)
+        let fresh = Engine(rate: 48000, channels: 2)
+        fresh.update(sane)
+        let played = engine.run([tone, tone])
+        XCTAssertTrue(played.joined().allSatisfy(\.isFinite))
+        XCTAssertEqual(played, fresh.run([tone, tone]))
+    }
+
     // MARK: - Channels
 
     /// Every channel of a 1–16 channel engine runs the same chain, sample for sample.

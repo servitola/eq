@@ -140,6 +140,8 @@ void eqc_configure(eqc_engine *engine, double sampleRate, int32_t channels);
 int32_t eqc_update(eqc_engine *engine, const eqc_settings *settings, int32_t *_Nullable unstable);
 /// Render thread. Non-interleaved channels, in place. Channels past EQC_MAX_CHANNELS are left as
 /// they are. Order: preamp, EQ bands and solo, output gain, compressor, colour, limiter, meter.
+/// A NaN or infinite input sample plays as 0. History that stops being finite is cleared at the end
+/// of the call, which then outputs silence, so one bad block never silences the ones after it.
 void eqc_process(eqc_engine *engine, const eqc_channel *_Nonnull channels, int32_t channelCount, int32_t frames);
 /// Render thread. Clears filter, limiter and meter history before a long silence; a following
 /// makeup keeps what it learned.

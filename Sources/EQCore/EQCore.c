@@ -730,9 +730,46 @@ static void render(eqc_engine *e, const eqc_channel *channels, int32_t channelCo
     __atomic_store_n(&e->limiting, limiting ? 1 : 0, __ATOMIC_RELAXED);
 }
 
+static void sanitize(const eqc_channel *channels, int32_t channelCount, int32_t frames) {
+    for (int32_t ch = 0; ch < channelCount; ch++)
+        for (int32_t frame = 0; frame < frames; frame++)
+            if (!isfinite(channels[ch][frame])) channels[ch][frame] = 0;
+}
+
+// x - x is 0 for a finite x and NaN otherwise, so one sum answers for all the history at once
+// without a finite-but-huge value overflowing it.
+static bool render_state_finite(const eqc_engine *e) {
+    const program *p = &e->programs[e->front];
+    const eqc_dynamics_state *d = &e->dynamicsState;
+    float sum = 0;
+    for (int32_t ch = 0; ch < e->stateChannels; ch++)
+        for (int32_t s = 0; s < p->sectionCount; s++) {
+            const eqc_biquad_state *state = &e->states[ch][s];
+            sum += (state->z1 - state->z1) + (state->z2 - state->z2);
+        }
+    for (int32_t i = 0; i < 2 * EQC_MAX_CHANNELS; i++)
+        sum += (e->detector[i].z1 - e->detector[i].z1) + (e->detector[i].z2 - e->detector[i].z2) + (e->dc[i] - e->dc[i]);
+    sum += e->limiterEnvelope - e->limiterEnvelope;
+    sum += (d->meanSquare - d->meanSquare) + (d->reductionDB - d->reductionDB) +
+           (d->averageReductionDB - d->averageReductionDB) + (d->makeupDB - d->makeupDB) + (d->drive - d->drive);
+    return sum == 0;
+}
+
+// Finite input can still overflow the history, with an absurd gain say; left alone, a NaN there
+// would silence every later call. What this call produced is lost with it.
+CLEARS static void recover(eqc_engine *e, const eqc_channel *channels, int32_t channelCount, int32_t frames) {
+    clear_states(e, EQC_MAX_CHANNELS, EQC_MAX_SECTIONS);
+    e->limiterEnvelope = 0;
+    reset_dynamics(e);
+    __atomic_store_n(&e->limiting, 0, __ATOMIC_RELAXED);
+    for (int32_t ch = 0; ch < channelCount; ch++)
+        for (int32_t frame = 0; frame < frames; frame++) channels[ch][frame] = 0;
+}
+
 void eqc_process(eqc_engine *e, const eqc_channel *channels, int32_t channelCount, int32_t frames) {
     if (channelCount > EQC_MAX_CHANNELS) channelCount = EQC_MAX_CHANNELS;
     if (channelCount < 0) channelCount = 0;
+    sanitize(channels, channelCount, frames);
     bool metering = __atomic_load_n(&e->metering, __ATOMIC_RELAXED) && frames <= EQC_METER_CAPACITY && channelCount > 0;
     if (metering && !e->wasMetering) eqc_meter_reset(&e->meter);
     e->wasMetering = metering;
@@ -742,6 +779,7 @@ void eqc_process(eqc_engine *e, const eqc_channel *channels, int32_t channelCoun
         for (int32_t frame = 0; frame < frames; frame++) e->meterInput[frame] = 0.5f * (left[frame] + right[frame]);
     }
     render(e, channels, channelCount, frames);
+    if (!render_state_finite(e)) recover(e, channels, channelCount, frames);
     if (metering) {
         meter_feed(&e->meter, e->meterInput, e->meterInput, channels[0], channelCount > 1 ? channels[1] : channels[0], frames);
     }

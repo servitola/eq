@@ -3,6 +3,15 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Fixed
+
+- One NaN or infinite sample from an app no longer leaves eq silent until a long pause resets it.
+  It made the filters' and the compressor's history NaN, and every later block with it, and left
+  the limiter off; such a sample now plays as 0, and history that overflows anyway is cleared
+  within the block it overflowed in.
+
 ## 2026.09.28.9 — 2026-09-28
 
 ### Fixed
