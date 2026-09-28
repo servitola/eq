@@ -103,22 +103,36 @@ struct RingPacer: Equatable {
 
     let target: Int
     let ceiling: Int
+    /// No cushion past this, however large the buffers grow: every frame a read snaps back to
+    /// must still be in the ring while the tap keeps writing.
+    let limit: Int
     private(set) var primed = false
 
-    init(target: Int, ceiling: Int) {
+    init(target: Int, ceiling: Int, limit: Int = .max) {
+        self.limit = max(limit, target)
         self.target = target
-        self.ceiling = max(ceiling, target)
+        self.ceiling = min(max(ceiling, target), self.limit)
     }
 
     /// `outputFrames` to read, `tapFrames` of phase slack because the tap delivers whole buffers,
     /// 64 frames of scheduling jitter: the cushion measured at 12.8 ms end to end with 128-frame
     /// buffers at 44.1 kHz. Four buffers of drift or a stall's backlog above it snap back.
-    static func forBuffers(output outputFrames: Int, tap tapFrames: Int) -> RingPacer {
+    static func cushion(output outputFrames: Int, tap tapFrames: Int) -> (target: Int, ceiling: Int) {
         let target = outputFrames + tapFrames + 64
-        return RingPacer(target: target, ceiling: target + 4 * max(outputFrames, tapFrames))
+        return (target, target + 4 * max(outputFrames, tapFrames))
     }
 
-    mutating func plan(written: Int64, read: Int64, frames: Int) -> Plan {
+    static func forBuffers(output outputFrames: Int, tap tapFrames: Int, limit: Int = .max) -> RingPacer {
+        let cushion = cushion(output: outputFrames, tap: tapFrames)
+        return RingPacer(target: cushion.target, ceiling: cushion.ceiling, limit: limit)
+    }
+
+    /// `frames` and `tapFrames` are the buffers the two IOProcs run with now. The HAL can grow
+    /// either after the pacer was sized; a cushion for the old sizes would then slip every cycle.
+    mutating func plan(written: Int64, read: Int64, frames: Int, tapFrames: Int = 0) -> Plan {
+        let grown = Self.cushion(output: frames, tap: tapFrames)
+        let target = min(max(self.target, grown.target), limit)
+        let ceiling = min(max(self.ceiling, grown.ceiling), limit)
         let fill = written - read
         guard primed else {
             guard fill >= Int64(target) else { return Plan(start: read, count: 0, event: .none) }

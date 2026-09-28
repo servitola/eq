@@ -93,6 +93,53 @@ final class AudioRingTests: XCTestCase {
         XCTAssertTrue(pacer.primed)
     }
 
+    /// Two IO threads on one clock, each running when its next buffer is due; the tap reports
+    /// its buffer size the way the engine's tap IOProc does.
+    private func simulate(_ start: RingPacer, tap: Int, output: Int, cycles: Int = 2000) -> (underruns: Int, overruns: Int, silentFrames: Int) {
+        var pacer = start
+        var written: Int64 = 0, read: Int64 = 0
+        var underruns = 0, overruns = 0, silentFrames = 0
+        var nextTap = 1, nextOutput = 0
+        for _ in 0..<cycles {
+            if nextTap <= nextOutput {
+                written += Int64(tap)
+                nextTap += tap
+                continue
+            }
+            let plan = pacer.plan(written: written, read: read, frames: output, tapFrames: tap)
+            if plan.event == .underrun { underruns += 1 }
+            if plan.event == .overrun { overruns += 1 }
+            silentFrames += output - plan.count
+            if plan.count > 0 { read = plan.start + Int64(plan.count) }
+            nextOutput += output
+        }
+        return (underruns, overruns, silentFrames)
+    }
+
+    func testBuffersGrowingMidRunMoveTheTargetInsteadOfSlippingEveryCycle() {
+        let prepared = RingPacer.forBuffers(output: 128, tap: 128)
+        for (tap, output) in [(128, 1024), (1024, 128), (512, 128), (4096, 4096)] {
+            let result = simulate(prepared, tap: tap, output: output)
+            XCTAssertLessThanOrEqual(result.underruns, 1, "tap \(tap), output \(output)")
+            XCTAssertEqual(result.overruns, 0, "tap \(tap), output \(output)")
+            XCTAssertLessThanOrEqual(result.silentFrames, 2 * (tap + output + 64), "tap \(tap), output \(output)")
+        }
+    }
+
+    func testGrownTargetAndCeilingFollowTheBuffers() {
+        var pacer = RingPacer.forBuffers(output: 128, tap: 128)
+        let plan = pacer.plan(written: 5000, read: 0, frames: 1024, tapFrames: 512)
+        XCTAssertEqual(plan, .init(start: 5000 - (1024 + 512 + 64), count: 1024, event: .primed))
+        XCTAssertEqual(pacer.plan(written: 5000 + 1024 + 4 * 1024, read: 5000 - 576, frames: 1024, tapFrames: 512).event, .none)
+    }
+
+    func testGrownCushionStopsAtTheLimit() {
+        var pacer = RingPacer.forBuffers(output: 128, tap: 128, limit: 1000)
+        XCTAssertEqual(pacer.plan(written: 5000, read: 0, frames: 512, tapFrames: 512).start, 4000)
+        XCTAssertEqual(pacer.plan(written: 7000, read: 4512, frames: 512, tapFrames: 512),
+                       .init(start: 6000, count: 512, event: .overrun))
+    }
+
     func testCeilingNeverBelowTarget() {
         XCTAssertEqual(RingPacer(target: 300, ceiling: 100).ceiling, 300)
     }

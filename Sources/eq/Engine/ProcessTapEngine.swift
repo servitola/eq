@@ -171,9 +171,10 @@ final class ProcessTapEngine {
     private var activeChannels: [UnsafeMutablePointer<Float>] = []
     private let channelPointers = UnsafeMutablePointer<UnsafeMutablePointer<Float>>.allocate(capacity: TapFormat.maxChannels)
     // Two sequence-locked (position, host) stamps the tap publishes for the output IOProc:
-    // [0...2] the latest tap buffer, [8...10] the latest onset.
+    // [0...2] the latest tap buffer, [8...10] the latest onset; [4] the tap's latest buffer size.
     private let sharedCells = UnsafeMutablePointer<Int64>.allocate(capacity: 16)
     private static let onsetStamp = 8
+    private static let tapFramesCell = 4
     private var handledOnset: Int64 = 0
     private var ticksPerFrame: Double = 0
     private var oneSecondFrames = 48000
@@ -360,8 +361,11 @@ final class ProcessTapEngine {
         tapChannels = channels
         tapBufferFrames = tapFrames
         ioBufferFrames = outputFrames
-        pacer = RingPacer.forBuffers(output: outputFrames, tap: tapFrames)
-        ring.reset(channels: channels, minimumCapacity: max(8 * pacer.ceiling, 8192))
+        // Room for both buffers to grow to 4096 frames, the most EQ_IO_FRAMES asks for, without a
+        // rebuild: the pacer follows them up to a quarter of the ring, and the tap may write up to half.
+        let roomy = RingPacer.cushion(output: max(outputFrames, 4096), tap: max(tapFrames, 4096))
+        ring.reset(channels: channels, minimumCapacity: 4 * roomy.ceiling)
+        pacer = RingPacer.forBuffers(output: outputFrames, tap: tapFrames, limit: ring.capacity / 4)
         let frames = max(outputFrames, EQProcessor.meterCapacity)
         if channelScratch.count < channels || scratchCapacity < frames {
             for pointer in channelScratch { pointer.deallocate() }
@@ -472,6 +476,7 @@ final class ProcessTapEngine {
                 break signalSearch
             }
         }
+        eq_store_relaxed(sharedCells + Self.tapFramesCell, Int64(frameCount))
         let start = ring.write(UnsafeBufferPointer(start: tapSources, count: tapChannels), frames: frameCount)
         let hostValid = inputTime.mFlags.contains(.hostTimeValid)
         if hostValid {
@@ -504,7 +509,8 @@ final class ProcessTapEngine {
             return
         }
 
-        let plan = pacer.plan(written: ring.written, read: ring.read, frames: frameCount)
+        let plan = pacer.plan(written: ring.written, read: ring.read, frames: frameCount,
+                              tapFrames: Int(eq_load_relaxed(sharedCells + Self.tapFramesCell)))
         switch plan.event {
         case .underrun: underruns &+= 1
         case .overrun: overruns &+= 1

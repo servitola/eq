@@ -3,6 +3,14 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Fixed
+
+- When macOS grew the tap's or the output's IO buffer while eq ran, the ring between them
+  slipped on nearly every cycle and a third to two thirds of the audio became silence. The ring
+  cushion now follows the buffer sizes the two callbacks actually get, up to 4096 frames each.
+
 ## 2026.09.28.5 — 2026-09-28
 
 ### Fixed

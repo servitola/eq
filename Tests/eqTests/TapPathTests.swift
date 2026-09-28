@@ -7,6 +7,7 @@ import CoreAudio
 final class TapPathTests: XCTestCase {
     private static let rate = 48000.0
     private static let frames = 128
+    private static let largest = 8192
     private let ticksPerFrame = Double(AudioConvertNanosToHostTime(1_000_000_000)) / TapPathTests.rate
 
     private var engine: ProcessTapEngine!
@@ -19,8 +20,8 @@ final class TapPathTests: XCTestCase {
         engine.processor.configure(sampleRate: Self.rate, channels: 2)
         engine.processor.apply(profile: .flat, enabled: true)
         engine.prepare(channels: 2, tapFrames: Self.frames, outputFrames: Self.frames)
-        tapBuffer = .allocate(capacity: 2 * Self.frames)
-        outBuffer = .allocate(capacity: 2 * Self.frames)
+        tapBuffer = .allocate(capacity: 2 * Self.largest)
+        outBuffer = .allocate(capacity: 2 * Self.largest)
         tapPosition = 0
     }
 
@@ -39,24 +40,23 @@ final class TapPathTests: XCTestCase {
     }
 
     /// One tap buffer whose left sample is `signal(position)` and right its negation.
-    private func tap(_ signal: (Int) -> Float) {
-        for f in 0..<Self.frames {
-            tapBuffer[2 * f] = signal(tapPosition + f)
-            tapBuffer[2 * f + 1] = -signal(tapPosition + f)
+    private func tap(frames: Int = TapPathTests.frames, channels: Int = 2, _ signal: (Int) -> Float) {
+        for f in 0..<frames {
+            for c in 0..<channels { tapBuffer[channels * f + c] = c % 2 == 0 ? signal(tapPosition + f) : -signal(tapPosition + f) }
         }
         var list = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(
-            mNumberChannels: 2, mDataByteSize: UInt32(2 * Self.frames * MemoryLayout<Float>.size), mData: tapBuffer))
+            mNumberChannels: UInt32(channels), mDataByteSize: UInt32(channels * frames * MemoryLayout<Float>.size), mData: tapBuffer))
         engine.renderTap(input: &list, inputTime: stamp(frame: tapPosition))
-        tapPosition += Self.frames
+        tapPosition += frames
     }
 
     /// One output buffer, handed to the device `lead` frames after the tap's latest buffer began.
     @discardableResult
-    private func output(lead: Int = 500) -> [Float] {
+    private func output(frames: Int = TapPathTests.frames, lead: Int = 500) -> [Float] {
         var list = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(
-            mNumberChannels: 2, mDataByteSize: UInt32(2 * Self.frames * MemoryLayout<Float>.size), mData: outBuffer))
+            mNumberChannels: 2, mDataByteSize: UInt32(2 * frames * MemoryLayout<Float>.size), mData: outBuffer))
         engine.renderOutput(output: &list, outputTime: stamp(frame: tapPosition - Self.frames + lead))
-        return (0..<Self.frames).map { outBuffer[2 * $0] }
+        return (0..<frames).map { outBuffer[2 * $0] }
     }
 
     private func level(_ position: Int) -> Float { 0.25 * sin(Float(position) * 0.05) }
@@ -150,6 +150,25 @@ final class TapPathTests: XCTestCase {
         output()
         XCTAssertEqual(engine.framesProcessed, processed, "silence past one second skips the EQ")
         XCTAssertEqual(engine.signalCallbacks, 0)
+    }
+
+    /// Buffers the HAL grows after `prepare` sized the ring for 128 frames on both sides.
+    func testOutputBufferGrowingMidRunKeepsTheRingFed() {
+        for _ in 0..<40 {
+            for _ in 0..<8 { tap(level) }
+            output(frames: 1024)
+        }
+        XCTAssertLessThanOrEqual(engine.underruns, 1)
+        XCTAssertEqual(engine.overruns, 0)
+    }
+
+    func testTapBufferGrowingMidRunKeepsTheRingFed() {
+        for _ in 0..<40 {
+            tap(frames: 1024, level)
+            for _ in 0..<8 { output() }
+        }
+        XCTAssertLessThanOrEqual(engine.underruns, 1)
+        XCTAssertEqual(engine.overruns, 0)
     }
 
     func testStopClearsTheCounters() {
