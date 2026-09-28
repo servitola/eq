@@ -218,7 +218,19 @@ static void failAfter(int seconds) {
     }).detach();
 }
 
+static AudioObjectID translate(CFStringRef uid) {
+    AudioObjectPropertyAddress a = {kAudioPlugInPropertyTranslateUIDToDevice, kAudioObjectPropertyScopeGlobal,
+                                    kAudioObjectPropertyElementMain};
+    AudioObjectID id = 99;
+    UInt32 size = sizeof(id);
+    vt()->GetPropertyData(driver, 1, 0, &a, sizeof(uid), &uid, sizeof(id), &size, &id);
+    return id;
+}
+
 static int idle() {
+    CHECK(translate(CFSTR("com.servitola.eq.device")) == 2);
+    CHECK(translate(CFSTR("com.servitola.eq.devic")) == kAudioObjectUnknown);
+    CHECK(translate(CFSTR("")) == kAudioObjectUnknown);
     for (int i = 0; i < 160 && configChanges == 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     UInt32 latency = 0;

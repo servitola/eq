@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -41,7 +42,8 @@ enum : AudioObjectID {
 };
 
 constexpr const char *kBundleID = "com.servitola.eq.driver";
-constexpr const char *kDeviceUID = "com.servitola.eq.device";
+#define EQ_DEVICE_UID "com.servitola.eq.device"
+constexpr const char *kDeviceUID = EQ_DEVICE_UID;
 constexpr const char *kModelUID = "com.servitola.eq.model";
 constexpr AudioObjectPropertySelector kPropertyTarget = 'eqTg';
 constexpr AudioObjectPropertySelector kPropertyHidden = 'eqHd';
@@ -53,6 +55,27 @@ constexpr UInt32 kMaxTargetFrames = 8192;
 os_log_t logger() {
     static os_log_t log = os_log_create(kBundleID, "driver");
     return log;
+}
+
+// No C++ exception may cross into the host's C code: it would take coreaudiod down.
+template <typename R, typename F>
+R guarded(const char *where, R failed, F body) noexcept {
+    try {
+        return body();
+    } catch (const std::exception &e) {
+        os_log_error(logger(), "%{public}s threw: %{public}s", where, e.what());
+    } catch (...) {
+        os_log_error(logger(), "%{public}s threw", where);
+    }
+    return failed;
+}
+
+template <typename F>
+void guarded(const char *where, F body) noexcept {
+    guarded(where, 0, [&] {
+        body();
+        return 0;
+    });
 }
 
 Float32 scalarToDB(Float32 s) { return s <= 0 ? kVolumeMinDB : std::max(kVolumeMinDB, 40.0f * std::log10(s)); }
@@ -154,12 +177,12 @@ class Driver : TargetExecutor {
         queue_ = dispatch_queue_create(kBundleID, dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
                                                                                            QOS_CLASS_USER_INITIATED, 0));
         timer_ = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue_);
-        dispatch_source_set_event_handler(timer_, ^{ reconcile(); });
+        dispatch_source_set_event_handler(timer_, ^{ guarded("timer", [this] { reconcile(); }); });
         dispatch_source_set_timer(timer_, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
         dispatch_resume(timer_);
         // Proxy Audio Device waits a second before its first HAL client call, while coreaudiod is
         // still bringing plug-ins up; calls made from Initialize itself deadlock.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), queue_, ^{ begin(); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), queue_, ^{ guarded("begin", [this] { begin(); }); });
         return noErr;
     }
 
@@ -214,6 +237,10 @@ class Driver : TargetExecutor {
 
     static OSStatus targetIOProc(AudioObjectID, const AudioTimeStamp *, const AudioBufferList *, const AudioTimeStamp *,
                                  AudioBufferList *out, const AudioTimeStamp *outTime, void *context) {
+        return guarded("target IOProc", OSStatus(kAudioHardwareUnspecifiedError), [&] { return render(out, outTime, context); });
+    }
+
+    static OSStatus render(AudioBufferList *out, const AudioTimeStamp *outTime, void *context) {
         auto *io = static_cast<TargetIO *>(context);
         Driver &d = *io->driver;
         d.lastCallback_.store(mach_absolute_time(), std::memory_order_relaxed);
@@ -260,7 +287,9 @@ class Driver : TargetExecutor {
             std::lock_guard<std::mutex> lock(configMutex_);
             configRequested_ = false;
         }
-        if (queue_) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), queue_, ^{ reconcile(); });
+        if (queue_)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), queue_,
+                           ^{ guarded("reconcile after abort", [this] { reconcile(); }); });
         return noErr;
     }
 
@@ -343,7 +372,7 @@ class Driver : TargetExecutor {
     double now() const { return double(mach_absolute_time()) / ticksPerSecond_; }
 
     void async(dispatch_block_t block) {
-        if (queue_) dispatch_async(queue_, block);
+        if (queue_) dispatch_async(queue_, ^{ guarded("queue", [block] { block(); }); });
     }
 
     void poke() {
@@ -517,7 +546,9 @@ class Driver : TargetExecutor {
             AudioObjectID id = kAudioObjectUnknown;
             if (qualifierSize == sizeof(CFStringRef) && qualifier) {
                 CFStringRef uid = *static_cast<const CFStringRef *>(qualifier);
-                if (uid && CFGetTypeID(uid) == CFStringGetTypeID() && hal::string(uid) == kDeviceUID) id = kObjectDevice;
+                if (uid && CFGetTypeID(uid) == CFStringGetTypeID() &&
+                    CFStringCompare(uid, CFSTR(EQ_DEVICE_UID), 0) == kCFCompareEqualTo)
+                    id = kObjectDevice;
             }
             return r.value(id);
         }
@@ -972,29 +1003,35 @@ class Driver : TargetExecutor {
     }
 
     static OSStatus systemChanged(AudioObjectID, UInt32, const AudioObjectPropertyAddress *, void *self) {
-        auto *d = static_cast<Driver *>(self);
-        d->async(^{
-            d->resolveDirty_ = true;
-            d->reconcile();
+        return guarded("systemChanged", OSStatus(kAudioHardwareUnspecifiedError), [&] {
+            auto *d = static_cast<Driver *>(self);
+            d->async(^{
+                d->resolveDirty_ = true;
+                d->reconcile();
+            });
+            return noErr;
         });
-        return noErr;
     }
 
     static OSStatus targetChanged(AudioObjectID, UInt32 count, const AudioObjectPropertyAddress *addresses, void *self) {
-        auto *d = static_cast<Driver *>(self);
-        bool alive = count == 1 && addresses[0].mSelector == kAudioDevicePropertyDeviceIsAlive;
-        d->async(^{
-            if (alive) d->resolveDirty_ = true;
-            else d->rebuildRequested_ = true;
-            d->reconcile();
+        return guarded("targetChanged", OSStatus(kAudioHardwareUnspecifiedError), [&] {
+            auto *d = static_cast<Driver *>(self);
+            bool alive = count == 1 && addresses[0].mSelector == kAudioDevicePropertyDeviceIsAlive;
+            d->async(^{
+                if (alive) d->resolveDirty_ = true;
+                else d->rebuildRequested_ = true;
+                d->reconcile();
+            });
+            return noErr;
         });
-        return noErr;
     }
 
     static OSStatus targetVolumeChanged(AudioObjectID, UInt32, const AudioObjectPropertyAddress *, void *self) {
-        auto *d = static_cast<Driver *>(self);
-        d->async(^{ d->adoptTargetVolume(); });
-        return noErr;
+        return guarded("targetVolumeChanged", OSStatus(kAudioHardwareUnspecifiedError), [&] {
+            auto *d = static_cast<Driver *>(self);
+            d->async(^{ d->adoptTargetVolume(); });
+            return noErr;
+        });
     }
 
     // Volume keys act on this device; the target's own control does the work, so Bluetooth keeps
@@ -1063,15 +1100,17 @@ class Driver : TargetExecutor {
     }
 
     static void powerChanged(void *self, io_service_t, natural_t message, void *argument) {
-        auto *d = static_cast<Driver *>(self);
-        switch (message) {
-        case kIOMessageCanSystemSleep:
-        case kIOMessageSystemWillSleep: IOAllowPowerChange(d->powerRoot_, long(argument)); break;
-        case kIOMessageSystemHasPoweredOn:
-            d->rebuildRequested_ = true;
-            d->reconcile();
-            break;
-        }
+        guarded("powerChanged", [&] {
+            auto *d = static_cast<Driver *>(self);
+            switch (message) {
+            case kIOMessageCanSystemSleep:
+            case kIOMessageSystemWillSleep: IOAllowPowerChange(d->powerRoot_, long(argument)); break;
+            case kIOMessageSystemHasPoweredOn:
+                d->rebuildRequested_ = true;
+                d->reconcile();
+                break;
+            }
+        });
     }
 
     AudioServerPlugInHostRef host_ = nullptr;
@@ -1134,25 +1173,35 @@ AudioServerPlugInDriverRef driverRef();
 
 bool isDriver(AudioServerPlugInDriverRef d) { return d == driverRef(); }
 
+constexpr OSStatus kThrew = kAudioHardwareUnspecifiedError;
+
 HRESULT queryInterface(void *driver, REFIID uuid, LPVOID *out) {
-    if (!isDriver(static_cast<AudioServerPlugInDriverRef>(driver))) return kAudioHardwareBadObjectError;
-    if (!out) return kAudioHardwareIllegalOperationError;
-    CFUUIDRef requested = CFUUIDCreateFromUUIDBytes(nullptr, uuid);
-    if (!requested) return kAudioHardwareIllegalOperationError;
-    bool ok = CFEqual(requested, IUnknownUUID) || CFEqual(requested, kAudioServerPlugInDriverInterfaceUUID);
-    CFRelease(requested);
-    if (!ok) return E_NOINTERFACE;
-    *out = driverRef();
-    return S_OK;
+    return guarded("QueryInterface", HRESULT(kThrew), [&]() -> HRESULT {
+        if (!isDriver(static_cast<AudioServerPlugInDriverRef>(driver))) return kAudioHardwareBadObjectError;
+        if (!out) return kAudioHardwareIllegalOperationError;
+        CFUUIDRef requested = CFUUIDCreateFromUUIDBytes(nullptr, uuid);
+        if (!requested) return kAudioHardwareIllegalOperationError;
+        bool ok = CFEqual(requested, IUnknownUUID) || CFEqual(requested, kAudioServerPlugInDriverInterfaceUUID);
+        CFRelease(requested);
+        if (!ok) return E_NOINTERFACE;
+        *out = driverRef();
+        return S_OK;
+    });
 }
 
 // The HAL never releases a plug-in it opened; counting is only for the API's sake.
 std::atomic<ULONG> refCount{1};
-ULONG addRef(void *) { return ++refCount; }
-ULONG release(void *) { return refCount > 0 ? --refCount : 0; }
+ULONG addRef(void *) {
+    return guarded("AddRef", ULONG(0), [] { return ++refCount; });
+}
+ULONG release(void *) {
+    return guarded("Release", ULONG(0), [] { return refCount > 0 ? --refCount : ULONG(0); });
+}
 
 OSStatus initialize(AudioServerPlugInDriverRef d, AudioServerPlugInHostRef host) {
-    return isDriver(d) ? Driver::shared().initialize(host) : kAudioHardwareBadObjectError;
+    return guarded("Initialize", kThrew, [&]() -> OSStatus {
+        return isDriver(d) ? Driver::shared().initialize(host) : kAudioHardwareBadObjectError;
+    });
 }
 
 OSStatus createDevice(AudioServerPlugInDriverRef, CFDictionaryRef, const AudioServerPlugInClientInfo *, AudioObjectID *) {
@@ -1162,96 +1211,124 @@ OSStatus createDevice(AudioServerPlugInDriverRef, CFDictionaryRef, const AudioSe
 OSStatus destroyDevice(AudioServerPlugInDriverRef, AudioObjectID) { return kAudioHardwareUnsupportedOperationError; }
 
 OSStatus deviceClient(AudioServerPlugInDriverRef d, AudioObjectID device, const AudioServerPlugInClientInfo *) {
-    return isDriver(d) && device == kObjectDevice ? noErr : kAudioHardwareBadObjectError;
+    return guarded("AddDeviceClient", kThrew, [&]() -> OSStatus {
+        return isDriver(d) && device == kObjectDevice ? noErr : kAudioHardwareBadObjectError;
+    });
 }
 
 OSStatus performChange(AudioServerPlugInDriverRef d, AudioObjectID device, UInt64 action, void *) {
-    if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
-    return Driver::shared().performConfigurationChange(action);
+    return guarded("PerformDeviceConfigurationChange", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
+        return Driver::shared().performConfigurationChange(action);
+    });
 }
 
 OSStatus abortChange(AudioServerPlugInDriverRef d, AudioObjectID device, UInt64, void *) {
-    if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
-    return Driver::shared().abortConfigurationChange();
+    return guarded("AbortDeviceConfigurationChange", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
+        return Driver::shared().abortConfigurationChange();
+    });
 }
 
 Boolean hasProperty(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t, const AudioObjectPropertyAddress *a) {
-    if (!isDriver(d) || !a) return false;
-    UInt32 size = 0;
-    return Driver::shared().property(object, *a, 0, nullptr, {true, 0, &size, nullptr}) == noErr;
+    return guarded("HasProperty", Boolean(false), [&]() -> Boolean {
+        if (!isDriver(d) || !a) return false;
+        UInt32 size = 0;
+        return Driver::shared().property(object, *a, 0, nullptr, {true, 0, &size, nullptr}) == noErr;
+    });
 }
 
 OSStatus isPropertySettable(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t,
                             const AudioObjectPropertyAddress *a, Boolean *out) {
-    if (!isDriver(d)) return kAudioHardwareBadObjectError;
-    if (!a || !out) return kAudioHardwareIllegalOperationError;
-    UInt32 size = 0;
-    OSStatus err = Driver::shared().property(object, *a, 0, nullptr, {true, 0, &size, nullptr});
-    if (err != noErr) return err;
-    *out = Driver::shared().settable(object, *a);
-    return noErr;
+    return guarded("IsPropertySettable", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d)) return kAudioHardwareBadObjectError;
+        if (!a || !out) return kAudioHardwareIllegalOperationError;
+        UInt32 size = 0;
+        OSStatus err = Driver::shared().property(object, *a, 0, nullptr, {true, 0, &size, nullptr});
+        if (err != noErr) return err;
+        *out = Driver::shared().settable(object, *a);
+        return noErr;
+    });
 }
 
 OSStatus getPropertyDataSize(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t,
                              const AudioObjectPropertyAddress *a, UInt32 qualifierSize, const void *qualifier,
                              UInt32 *out) {
-    if (!isDriver(d)) return kAudioHardwareBadObjectError;
-    if (!a || !out) return kAudioHardwareIllegalOperationError;
-    return Driver::shared().property(object, *a, qualifierSize, qualifier, {true, 0, out, nullptr});
+    return guarded("GetPropertyDataSize", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d)) return kAudioHardwareBadObjectError;
+        if (!a || !out) return kAudioHardwareIllegalOperationError;
+        return Driver::shared().property(object, *a, qualifierSize, qualifier, {true, 0, out, nullptr});
+    });
 }
 
 OSStatus getPropertyData(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t, const AudioObjectPropertyAddress *a,
                          UInt32 qualifierSize, const void *qualifier, UInt32 capacity, UInt32 *outSize, void *out) {
-    if (!isDriver(d)) return kAudioHardwareBadObjectError;
-    if (!a || !outSize || !out) return kAudioHardwareIllegalOperationError;
-    return Driver::shared().property(object, *a, qualifierSize, qualifier, {false, capacity, outSize, out});
+    return guarded("GetPropertyData", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d)) return kAudioHardwareBadObjectError;
+        if (!a || !outSize || !out) return kAudioHardwareIllegalOperationError;
+        return Driver::shared().property(object, *a, qualifierSize, qualifier, {false, capacity, outSize, out});
+    });
 }
 
 OSStatus setPropertyData(AudioServerPlugInDriverRef d, AudioObjectID object, pid_t, const AudioObjectPropertyAddress *a,
                          UInt32, const void *, UInt32 size, const void *data) {
-    if (!isDriver(d)) return kAudioHardwareBadObjectError;
-    if (!a) return kAudioHardwareIllegalOperationError;
-    Boolean can = false;
-    OSStatus err = isPropertySettable(d, object, 0, a, &can);
-    if (err != noErr) return err;
-    if (!can) return kAudioHardwareUnsupportedOperationError;
-    return Driver::shared().setProperty(object, *a, size, data);
+    return guarded("SetPropertyData", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d)) return kAudioHardwareBadObjectError;
+        if (!a) return kAudioHardwareIllegalOperationError;
+        Boolean can = false;
+        OSStatus err = isPropertySettable(d, object, 0, a, &can);
+        if (err != noErr) return err;
+        if (!can) return kAudioHardwareUnsupportedOperationError;
+        return Driver::shared().setProperty(object, *a, size, data);
+    });
 }
 
 OSStatus startIO(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32) {
-    if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
-    return Driver::shared().startIO();
+    return guarded("StartIO", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
+        return Driver::shared().startIO();
+    });
 }
 
 OSStatus stopIO(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32) {
-    if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
-    return Driver::shared().stopIO();
+    return guarded("StopIO", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
+        return Driver::shared().stopIO();
+    });
 }
 
 OSStatus getZeroTimeStamp(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32, Float64 *sample, UInt64 *host,
                           UInt64 *seed) {
-    if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
-    return Driver::shared().zeroTimeStamp(sample, host, seed);
+    return guarded("GetZeroTimeStamp", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
+        return Driver::shared().zeroTimeStamp(sample, host, seed);
+    });
 }
 
 OSStatus willDoIOOperation(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32, UInt32 operation,
                            Boolean *willDo, Boolean *inPlace) {
-    if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
-    if (willDo) *willDo = operation == kAudioServerPlugInIOOperationWriteMix;
-    if (inPlace) *inPlace = true;
-    return noErr;
+    return guarded("WillDoIOOperation", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice) return kAudioHardwareBadObjectError;
+        if (willDo) *willDo = operation == kAudioServerPlugInIOOperationWriteMix;
+        if (inPlace) *inPlace = true;
+        return noErr;
+    });
 }
 
 OSStatus beginEndIOOperation(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32, UInt32, UInt32,
                              const AudioServerPlugInIOCycleInfo *) {
-    return isDriver(d) && device == kObjectDevice ? noErr : kAudioHardwareBadObjectError;
+    return guarded("Begin/EndIOOperation", kThrew, [&]() -> OSStatus {
+        return isDriver(d) && device == kObjectDevice ? noErr : kAudioHardwareBadObjectError;
+    });
 }
 
 OSStatus doIOOperation(AudioServerPlugInDriverRef d, AudioObjectID device, AudioObjectID stream, UInt32,
                        UInt32 operation, UInt32 frames, const AudioServerPlugInIOCycleInfo *cycle, void *main, void *) {
-    if (!isDriver(d) || device != kObjectDevice || stream != kObjectStream) return kAudioHardwareBadObjectError;
-    if (operation == kAudioServerPlugInIOOperationWriteMix) Driver::shared().writeMix(main, frames, cycle);
-    return noErr;
+    return guarded("DoIOOperation", kThrew, [&]() -> OSStatus {
+        if (!isDriver(d) || device != kObjectDevice || stream != kObjectStream) return kAudioHardwareBadObjectError;
+        if (operation == kAudioServerPlugInIOOperationWriteMix) Driver::shared().writeMix(main, frames, cycle);
+        return noErr;
+    });
 }
 
 AudioServerPlugInDriverInterface driverInterface = {
@@ -1269,5 +1346,7 @@ AudioServerPlugInDriverRef driverRef() { return &interfacePointer; }
 } // namespace eqd
 
 extern "C" __attribute__((visibility("default"))) void *EQDriver_Create(CFAllocatorRef, CFUUIDRef type) {
-    return CFEqual(type, kAudioServerPlugInTypeUUID) ? eqd::driverRef() : nullptr;
+    return eqd::guarded("EQDriver_Create", static_cast<void *>(nullptr), [&]() -> void * {
+        return CFEqual(type, kAudioServerPlugInTypeUUID) ? eqd::driverRef() : nullptr;
+    });
 }
