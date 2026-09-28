@@ -6,6 +6,7 @@ extension EQProcessor {
     /// Returns the engine-band indices bypassed as unstable at the current rate.
     @discardableResult
     func apply(profile: Profile, enabled: Bool) -> [Int] {
-        update(bands: profile.engineBands, preampDB: profile.preamp, limiterEnabled: true, limiterCeilingDB: -1, bypassed: !enabled)
+        update(bands: profile.engineBands, preampDB: profile.preamp, limiterEnabled: true, limiterCeilingDB: -1, bypassed: !enabled,
+               dynamics: profile.dynamics)
     }
 }

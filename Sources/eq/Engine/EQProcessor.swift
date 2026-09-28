@@ -2,7 +2,7 @@
 import Foundation
 import os.lock
 
-/// Realtime-safe EQ chain: preamp → biquad cascade → soft limiter → output gain.
+/// Realtime-safe EQ chain: preamp → biquad cascade → output gain → compressor → colour → soft limiter.
 ///
 /// The daemon's main queue rebuilds a `Snapshot` and swaps it in under a lock; the render
 /// thread try-locks — if the lock is contended it keeps using the old snapshot
@@ -19,6 +19,7 @@ final class EQProcessor {
         var limiterEnabled = true
         var limiterCeilingLinear: Float = pow(10, -1.0 / 20)  // -1 dBFS
         var bypassed = false
+        var dynamics = DynamicsCoefficients()
     }
 
     private var snapshot = Snapshot()
@@ -32,7 +33,7 @@ final class EQProcessor {
 
     private struct Parameters {
         var bands: [EQBand], preampDB: Double, outputGainDB: Double
-        var limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool
+        var limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool, dynamics: Dynamics?
     }
     // Kept so a solo change can rebuild the snapshot without the caller resending the profile.
     private var parameters: Parameters?
@@ -42,6 +43,14 @@ final class EQProcessor {
     var effectiveSolo: SoloRange? { solo.flatMap { Self.clampSolo(low: $0.low, high: $0.high, sampleRate: sampleRate) } }
 
     private var limiterEnvelope: Float = 0
+    private var dynamicsState = DynamicsState()
+    // Raw storage sized for the most channels a tap delivers, so neither a channel-count change
+    // nor switching the compressor or tube on ever allocates on the render thread.
+    private let detectorStates = UnsafeMutablePointer<BiquadState>.allocate(capacity: 2 * TapFormat.maxChannels)
+    private let dcStates = UnsafeMutablePointer<Float>.allocate(capacity: 2 * TapFormat.maxChannels)
+    /// The compressor's current gain change in dB, 0 or below, before makeup. Written by the
+    /// render thread once per callback; a racy read on the main queue is harmless.
+    private(set) var compressorReductionDB: Float = 0
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
     private(set) var channelCount = 2
@@ -62,9 +71,15 @@ final class EQProcessor {
     init() {
         meterInput.initialize(repeating: 0, count: Self.meterCapacity)
         meterInputChannels = [meterInput]
+        detectorStates.initialize(repeating: BiquadState(), count: 2 * TapFormat.maxChannels)
+        dcStates.initialize(repeating: 0, count: 2 * TapFormat.maxChannels)
     }
 
-    deinit { meterInput.deallocate() }
+    deinit {
+        meterInput.deallocate()
+        detectorStates.deallocate()
+        dcStates.deallocate()
+    }
 
     /// Call only while the IOProc is stopped. A profile already applied is rebuilt for the new
     /// rate and channel count, so the first render never resizes filter state.
@@ -82,7 +97,23 @@ final class EQProcessor {
     func resetRenderState() {
         for index in snapshot.states.indices { snapshot.states[index] = BiquadState() }
         limiterEnvelope = 0
+        resetDynamics()
         meter.reset()
+    }
+
+    private func resetDynamics() {
+        resetCompressor()
+        resetColour()
+    }
+
+    private func resetCompressor() {
+        dynamicsState = DynamicsState()
+        compressorReductionDB = 0
+        detectorStates.update(repeating: BiquadState(), count: 2 * TapFormat.maxChannels)
+    }
+
+    private func resetColour() {
+        dcStates.update(repeating: 0, count: 2 * TapFormat.maxChannels)
     }
 
     static func clampSolo(low: Double, high: Double, sampleRate: Double) -> SoloRange? {
@@ -109,21 +140,22 @@ final class EQProcessor {
     private func rebuild() {
         guard let p = parameters else { return }
         update(bands: p.bands, preampDB: p.preampDB, outputGainDB: p.outputGainDB,
-               limiterEnabled: p.limiterEnabled, limiterCeilingDB: p.limiterCeilingDB, bypassed: p.bypassed)
+               limiterEnabled: p.limiterEnabled, limiterCeilingDB: p.limiterCeilingDB, bypassed: p.bypassed, dynamics: p.dynamics)
     }
 
     /// Races the audio thread; call only while nothing is rendering.
     func renderStateForTesting() -> [Float] {
-        snapshot.states.flatMap { [$0.z1, $0.z2] } + [limiterEnvelope]
+        snapshot.states.flatMap { [$0.z1, $0.z2] } + [limiterEnvelope, dynamicsState.meanSquare, dynamicsState.reductionDB]
+            + (0..<(2 * TapFormat.maxChannels)).flatMap { [detectorStates[$0].z1, detectorStates[$0].z2, dcStates[$0]] }
     }
 
     /// Called from the daemon's main queue whenever parameters change. Returns the indices into
     /// `bands` whose coefficients are unstable at the current rate; those run as pass-through.
     @discardableResult
     func update(bands: [EQBand], preampDB: Double, outputGainDB: Double = 0,
-                limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool) -> [Int] {
+                limiterEnabled: Bool, limiterCeilingDB: Double, bypassed: Bool, dynamics: Dynamics? = nil) -> [Int] {
         parameters = Parameters(bands: bands, preampDB: preampDB, outputGainDB: outputGainDB,
-                                limiterEnabled: limiterEnabled, limiterCeilingDB: limiterCeilingDB, bypassed: bypassed)
+                                limiterEnabled: limiterEnabled, limiterCeilingDB: limiterCeilingDB, bypassed: bypassed, dynamics: dynamics)
         var unstable: [Int] = []
         let solo = effectiveSolo
         // Built inside a closure so no local keeps a second reference to the `states` buffer:
@@ -153,6 +185,7 @@ final class EQProcessor {
             snap.limiterEnabled = limiterEnabled
             snap.limiterCeilingLinear = Float(pow(10, limiterCeilingDB / 20))
             snap.bypassed = bypassed && solo == nil
+            snap.dynamics = bypassed ? DynamicsCoefficients() : DynamicsCoefficients.make(dynamics, sampleRate: sampleRate)
             return snap
         }()
         os_unfair_lock_lock(&lock)
@@ -191,14 +224,21 @@ final class EQProcessor {
 
     private func render(channels: [UnsafeMutablePointer<Float>], frameCount: Int) {
         limiting = false
+        var swapped = false
         if os_unfair_lock_trylock(&lock) {
-            if let pending = pendingSnapshot {
-                pendingSnapshot = nil
-                retiredSnapshot = snapshot
-                snapshot = pending
+            // Swaps only: an assignment would copy a snapshot, retaining its arrays, or destroy
+            // one. update() leaves retiredSnapshot nil whenever it sets pendingSnapshot, so the
+            // second swap puts nil back into pendingSnapshot.
+            if pendingSnapshot != nil {
+                swap(&snapshot, &pendingSnapshot!)
+                swap(&retiredSnapshot, &pendingSnapshot)
+                swapped = true
             }
             os_unfair_lock_unlock(&lock)
         }
+        // A stage switched off leaves its memory behind; clear it so switching back on starts fresh.
+        if swapped, !snapshot.dynamics.compressor { resetCompressor() }
+        if swapped, snapshot.dynamics.colour != .tube { resetColour() }
         if snapshot.bypassed { return }
 
         // Copied out rather than read through `snapshot` inside the closure below: that closure
@@ -208,7 +248,13 @@ final class EQProcessor {
         let outputGainLinear = snapshot.outputGainLinear
         let limiterEnabled = snapshot.limiterEnabled
         let limiterCeilingLinear = snapshot.limiterCeilingLinear
+        let dynamics = snapshot.dynamics
+        let shaping = dynamics.isActive
+        var dynamicsState = self.dynamicsState
+        let detectorStates = self.detectorStates
+        let dcStates = self.dcStates
         let channelCount = channels.count
+        let shapedChannels = min(channelCount, TapFormat.maxChannels)
         let bandCount = coefficients.count
 
         // update() sizes states for the configured channel count; only a caller passing another
@@ -241,6 +287,10 @@ final class EQProcessor {
                             channelBuffers[ch][frame] = sample
                             maxMag = max(maxMag, abs(sample))
                         }
+                        if shaping {
+                            maxMag = dynamics.process(channelBuffers, frame: frame, channelCount: shapedChannels,
+                                                      state: &dynamicsState, detector: detectorStates, dc: dcStates)
+                        }
                         if limiterEnabled {
                             // Instant attack: a lagging envelope let onsets through above 0 dBFS and the DAC clipped them.
                             limiterEnvelope = maxMag > limiterEnvelope ? maxMag : limiterRelease * limiterEnvelope + (1 - limiterRelease) * maxMag
@@ -256,5 +306,12 @@ final class EQProcessor {
             }
         }
         if limiterEnvelope < Float.leastNormalMagnitude { limiterEnvelope = 0 }
+        if shaping {
+            for index in 0..<(2 * shapedChannels) { detectorStates[index].flushDenormals() }
+            for index in 0..<(2 * shapedChannels) where abs(dcStates[index]) < Float.leastNormalMagnitude { dcStates[index] = 0 }
+            dynamicsState.flushTails()
+            self.dynamicsState = dynamicsState
+            compressorReductionDB = dynamicsState.reductionDB
+        }
     }
 }

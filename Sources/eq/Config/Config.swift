@@ -83,14 +83,16 @@ struct Profile: Codable, Equatable {
     /// Instrument knobs by name, in dB; nil when none is set. A name `Instruments` does not know
     /// is kept in the file but runs nothing, since the file may be edited by hand.
     var instruments: [String: Double]?
+    /// nil when both the compressor and the colour are off.
+    var dynamics: Dynamics?
 
     init(name: String?, preamp: Double, bands: [Double], filters: [Filter] = [], imported: String? = nil, preset: String? = nil,
-         preference: Preference? = nil, instruments: [String: Double]? = nil) {
+         preference: Preference? = nil, instruments: [String: Double]? = nil, dynamics: Dynamics? = nil) {
         self.name = name; self.preamp = preamp; self.bands = bands; self.filters = filters; self.imported = imported
-        self.preset = preset; self.preference = preference; self.instruments = instruments
+        self.preset = preset; self.preference = preference; self.instruments = instruments; self.dynamics = dynamics
     }
 
-    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset, preference, instruments }
+    private enum CodingKeys: String, CodingKey { case name, preamp, bands, filters, imported, preset, preference, instruments, dynamics }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -109,6 +111,7 @@ struct Profile: Codable, Equatable {
         preset = try c.decodeIfPresent(String.self, forKey: .preset)
         preference = try c.decodeIfPresent(Preference.self, forKey: .preference).flatMap { $0.isFlat ? nil : $0 }
         instruments = try c.decodeIfPresent([String: Double].self, forKey: .instruments).flatMap { $0.isEmpty ? nil : $0 }
+        dynamics = try c.decodeIfPresent(Dynamics.self, forKey: .dynamics).flatMap { $0.isOff ? nil : $0 }
     }
 
     /// Stores nil rather than an all-zero layer.
@@ -116,6 +119,13 @@ struct Profile: Codable, Equatable {
         var layer = preference ?? Preference()
         edit(&layer)
         preference = layer.isFlat ? nil : layer
+    }
+
+    /// Stores nil rather than a layer with both parts off.
+    mutating func setDynamics(_ edit: (inout Dynamics) -> Void) {
+        var layer = dynamics ?? Dynamics()
+        edit(&layer)
+        dynamics = layer.isOff ? nil : layer
     }
 
     /// Stores nil rather than an empty table, and drops a knob turned to 0.
@@ -143,6 +153,7 @@ struct Profile: Codable, Equatable {
         bands == other.bands && preamp == other.preamp && (preference ?? Preference()) == (other.preference ?? Preference())
             && filters.count == other.filters.count && zip(filters, other.filters).allSatisfy { $0.sounds(like: $1) }
             && knobs.elementsEqual(other.knobs) { $0.instrument == $1.instrument && $0.gain == $1.gain }
+            && (dynamics ?? Dynamics()) == (other.dynamics ?? Dynamics())
     }
 
     static let flat = Profile(name: nil, preamp: 0, bands: Array(repeating: 0, count: Config.bandFrequencies.count))
@@ -315,6 +326,9 @@ struct Config: Codable, Equatable {
         }
         for knob in profile.knobs where !gainRange.contains(knob.gain) {
             throw ConfigError.preferenceOutOfRange(key, "\(knob.instrument.name) boost \(knob.gain) dB (\(span(gainRange)) dB)")
+        }
+        if let color = profile.dynamics?.color, !Dynamics.amountRange.contains(color.amount) {
+            throw ConfigError.preferenceOutOfRange(key, "color amount \(color.amount) (\(span(Dynamics.amountRange)))")
         }
     }
 
