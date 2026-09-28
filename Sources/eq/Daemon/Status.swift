@@ -49,6 +49,8 @@ struct Status: Codable, Equatable {
     var dropouts: UInt64? = nil
     /// Only while `experimental.apps` is on.
     var apps: AppsStatus? = nil
+    /// The compressor's gain change in dB when the status was written, 0 or below; nil while it is off.
+    var compReductionDB: Double? = nil
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -92,7 +94,7 @@ struct Status: Codable, Equatable {
 extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
-        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps
+        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps, compReductionDB
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -122,5 +124,6 @@ extension Status {
         overruns = try c.decodeIfPresent(UInt64.self, forKey: .overruns)
         dropouts = try c.decodeIfPresent(UInt64.self, forKey: .dropouts)
         apps = try c.decodeIfPresent(AppsStatus.self, forKey: .apps)
+        compReductionDB = try c.decodeIfPresent(Double.self, forKey: .compReductionDB)
     }
 }

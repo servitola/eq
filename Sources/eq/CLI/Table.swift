@@ -55,6 +55,7 @@ enum Table {
         rows += [labelsRow(), gainsRow(profile.bands)]
         if let layer = profile.preference, !layer.isFlat { rows.append("  preference: " + preference(layer)) }
         if !profile.knobs.isEmpty { rows.append("  boost: " + knobs(profile)) }
+        if let layer = profile.dynamics, !layer.isOff { rows.append("  dynamics: " + dynamics(layer)) }
         var lines = rows.joined(separator: "\n")
         if !profile.filters.isEmpty {
             lines += "\n" + filters(profile.filters, imported: profile.imported)
@@ -98,6 +99,16 @@ enum Table {
     /// "voice +3 kick -2", in the instrument table's order.
     static func knobs(_ profile: Profile) -> String {
         profile.knobs.map { "\($0.instrument.name) " + Paint.ink(Paint.gain($0.gain), String(format: "%+g", $0.gain)) }.joined(separator: " ")
+    }
+
+    /// "comp gentle  color tape 0.3", naming only the parts that are on.
+    static func dynamics(_ layer: Dynamics) -> String {
+        var parts: [String] = []
+        if let comp = layer.comp { parts.append("comp " + Paint.ink(.cyan, comp.rawValue)) }
+        if let color = layer.color {
+            parts.append("color " + Paint.ink(.cyan, color.kind.rawValue) + " " + Paint.ink(.yellow, String(format: "%g", color.amount)))
+        }
+        return parts.joined(separator: "  ")
     }
 
     static func compactGains(_ bands: [Double]) -> String {

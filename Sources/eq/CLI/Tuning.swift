@@ -181,6 +181,48 @@ extension CLI {
         }
     }
 
+    static let compUsage = "eq comp gentle|night|off [--device DEVICE]"
+
+    /// `eq comp gentle|night|off`: the compressor after the EQ.
+    static func comp(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
+        guard rest.count == 1 else { throw CLIError.usage(compUsage) }
+        let mode = Dynamics.Compressor(rawValue: rest[0].lowercased())
+        guard mode != nil || rest[0].lowercased() == "off" else {
+            throw CLIError.usage("unknown mode \"\(rest[0])\" — use one of \(Dynamics.Compressor.allCases.map(\.rawValue).joined(separator: " ")) off")
+        }
+        return try editProfile(explicit, ctx) { profile in
+            profile.setDynamics { $0.comp = mode }
+            return "comp " + (mode?.rawValue ?? "off")
+        }
+    }
+
+    static let colorUsage = "eq color tape|tube <amount> | eq color off [--device DEVICE]"
+
+    /// `eq color tape|tube <amount>`, or `off`; an amount of 0 removes it too.
+    static func color(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let (explicit, rest) = try splitDeviceOption(args, flag: "--device", ctx)
+        let colour: Dynamics.Colour?
+        switch rest.count {
+        case 1 where rest[0].lowercased() == "off":
+            colour = nil
+        case 2:
+            guard let kind = Dynamics.ColourKind(rawValue: rest[0].lowercased()) else {
+                throw CLIError.usage("unknown color \"\(rest[0])\" — use one of \(Dynamics.ColourKind.allCases.map(\.rawValue).joined(separator: " ")) off")
+            }
+            guard let amount = Double(rest[1].replacingOccurrences(of: ",", with: ".")), Dynamics.amountRange.contains(amount) else {
+                throw CLIError.usage("amount \"\(rest[1])\" is not a number from 0 to 1")
+            }
+            colour = amount == 0 ? nil : .init(kind: kind, amount: amount)
+        default:
+            throw CLIError.usage(colorUsage)
+        }
+        return try editProfile(explicit, ctx) { profile in
+            profile.setDynamics { $0.color = colour }
+            return colour.map { "color \($0.kind.rawValue) " + String(format: "%g", $0.amount) } ?? "color off"
+        }
+    }
+
     private static func boostList(_ explicit: Target?, _ ctx: CLIContext) throws -> Output {
         let config = try loadConfig(ctx)
         let target: Target

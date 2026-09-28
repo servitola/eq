@@ -13,6 +13,17 @@ its entries under a dated version.
   `eq watch` show `app: Spotify → favourite`; `eq events` sends an `app` event; `eq doctor` has an
   `apps` row while it is on. One curve for the whole system at a time: two apps playing together
   share the winner's.
+- `eq comp gentle|night|off`: light compression after the EQ, linked across channels, with a
+  detector that ignores deep bass and automatic makeup. `gentle` (2:1 from −18 dBFS) glues
+  music; `night` (4:1 from −30 dBFS) brings quiet dialogue up and explosions down.
+- `eq color tape|tube <amount>` and `eq color off`: saturation after the compressor, as loud as
+  before. `tape` is a symmetric soft clip, `tube` adds even harmonics.
+- Both are stored per profile as `dynamics`, travel with presets, undo, history and eq's own JSON
+  export, and are dropped by `eq flat`. `eq` shows a `dynamics:` line. Other export formats warn
+  and export the EQ alone.
+- `eq status` shows the compressor's gain reduction (`compReductionDB` in JSON); `eq watch`
+  shows it live in the header and `eq stream` frames carry it as `comp`. In `eq watch`, `c`
+  cycles the compressor, `v` the colour and `V` its amount.
 
 ## 2026.09.28.6 — 2026-09-28
 

@@ -71,7 +71,7 @@ enum Watch {
     static func frame(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
                       hint: Bool = false, flash: Int? = nil, note: String? = nil,
                       preset: Table.PresetMark? = nil, preference: Preference? = nil, knobs: [String: Double]? = nil,
-                      prompt: String? = nil) -> [String] {
+                      dynamics: Dynamics? = nil, prompt: String? = nil) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -93,7 +93,8 @@ enum Watch {
 
         let tableWidth = layout.tableWidth
         let indent = stripped.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Strip.placement(layout).start
-        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, preference: preference, knobs: knobs, focus: focus)
+        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, preference: preference, knobs: knobs,
+                           dynamics: dynamics, focus: focus)
         let margin = String(repeating: " ", count: indent)
 
         var top: [String] = []
@@ -202,7 +203,7 @@ enum Watch {
     /// flags explain a surprising sound, and the focus explains why most bars went dim.
     private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int,
                                preset: Table.PresetMark?, preference: Preference?, knobs: [String: Double]?,
-                               focus: Instrument?) -> (plain: Int, painted: String) {
+                               dynamics: Dynamics?, focus: Instrument?) -> (plain: Int, painted: String) {
         let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
         let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
@@ -234,6 +235,16 @@ enum Watch {
         if f.app == nil, !turned.isEmpty {
             segments.append((turned.map { "\($0.0) \(String(format: "%+.1f", $0.1))" }.joined(separator: " "),
                              turned.map { "\($0.0) " + Paint.ink(Paint.gain($0.1), String(format: "%+.1f", $0.1)) }.joined(separator: " ")))
+        }
+        if let mode = dynamics?.comp {
+            // The daemon's live reduction; without it (an older daemon) only the mode shows.
+            let reduction = f.comp.flatMap { $0.isFinite ? String(format: "%.1f", $0 == 0 ? 0 : $0) : nil }
+            let plain = "\(mode.rawValue) comp" + (reduction.map { " " + $0 } ?? "")
+            segments.append((plain, Paint.ink(.cyan, mode.rawValue) + " comp" + (reduction.map { " " + Paint.ink(.yellow, $0) } ?? "")))
+        }
+        if let colour = dynamics?.color {
+            let amount = String(format: "%g", colour.amount)
+            segments.append(("\(colour.kind.rawValue) \(amount)", Paint.ink(.cyan, colour.kind.rawValue) + " " + amount))
         }
         segments.append(("peak \(peak) dB", "peak \(peak) dB"))
         var focusSegment = focus.map { instrument -> (plain: String, painted: String) in
@@ -309,6 +320,7 @@ enum Watch {
         var preset: Table.PresetMark?
         var preference: Preference?
         var knobs: [String: Double]?
+        var dynamics: Dynamics?
     }
 
     /// Redraws on every frame the source delivers, and after keys that arrive between frames; a
@@ -400,7 +412,7 @@ enum Watch {
             }
             let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0, flash: flash?.band,
                               note: note?.text, preset: shown.preset, preference: shown.preference, knobs: shown.knobs,
-                              prompt: prompt)
+                              dynamics: shown.dynamics, prompt: prompt)
             emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
         }
         /// False to quit.
@@ -446,7 +458,8 @@ enum Watch {
                 case .knob(let delta):
                     guard let instrument = focused else { show(listenNeedsFocus); break }
                     apply(.boost(instrument.name, delta))
-                case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost:
+                case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
+                     .cycleComp, .cycleColour, .colourAmount:
                     apply(action)
                 }
             }
