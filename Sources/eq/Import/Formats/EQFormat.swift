@@ -8,9 +8,10 @@ struct ImportResult: Equatable {
     var preamp: Double
     var format: String
     var warnings: [String]
-    /// Only eq's own JSON format sets this; every other format leaves an existing preference layer alone.
+    /// Only eq's own JSON format sets this, flat to clear the layer; nil, as every other format
+    /// leaves it, keeps the device's layer.
     var preference: Preference? = nil
-    /// Likewise only eq's own JSON; nil leaves the device's instrument knobs as they are.
+    /// Likewise only eq's own JSON, empty to clear; nil keeps the device's instrument knobs.
     var instruments: [String: Double]? = nil
 }
 

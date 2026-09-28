@@ -306,8 +306,8 @@ enum CLI {
             profile.bands = keepBands ? profile.bands : Profile.flat.bands
         }
         profile.preamp = result.preamp
-        if let preference = result.preference { profile.preference = preference }
-        if let instruments = result.instruments { profile.instruments = instruments }
+        if let preference = result.preference { profile.preference = preference.isFlat ? nil : preference }
+        if let instruments = result.instruments { profile.instruments = instruments.isEmpty ? nil : instruments }
         profile.imported = "\(origin) · \(ctx.today())"
         config.setProfile(profile, forDeviceUID: target.uid)
         try ctx.store.save(config)

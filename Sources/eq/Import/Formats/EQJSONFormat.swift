@@ -1,9 +1,11 @@
 import Foundation
 
 /// eq's own profile, the shape `eq export --format json` and `eq.json` both write: ten `bands`,
-/// a `preamp`, `filters` with their type, frequency, gain and Q, and, when it is not flat, the
-/// bass/treble/tilt `preference` layer. Unlike every borrowed format, this one is read back to
-/// exactly the numbers eq wrote, not fitted or reduced.
+/// a `preamp`, `filters` with their type, frequency, gain and Q, the bass/treble/tilt
+/// `preference` layer and the `instruments` knobs. Unlike every borrowed format, this one is read
+/// back to exactly the numbers eq wrote, not fitted or reduced. A layer the file carries, even
+/// flat or `{}`, replaces the device's; one it leaves out (a file from before that layer, or
+/// `eq.json`, which omits empty ones) keeps it.
 enum EQJSONFormat: EQFormat {
     static let name = "eq's own profile (JSON)"
 
@@ -51,8 +53,7 @@ enum EQJSONFormat: EQFormat {
             let treble = ImportCheck.number(layer["treble"]) ?? 0
             let tilt = ImportCheck.number(layer["tilt"]) ?? 0
             if Config.gainRange.contains(bass), Config.gainRange.contains(treble), Preference.tiltRange.contains(tilt) {
-                let candidate = Preference(bass: bass, treble: treble, tilt: tilt)
-                if !candidate.isFlat { preference = candidate }
+                preference = Preference(bass: bass, treble: treble, tilt: tilt)
             } else {
                 warnings.append("preference is out of range; dropped")
             }
@@ -60,12 +61,13 @@ enum EQJSONFormat: EQFormat {
 
         var instruments: [String: Double]?
         if let knobs = root["instruments"] as? [String: Any] {
+            instruments = [:]
             for (name, raw) in knobs.sorted(by: { $0.key < $1.key }) {
                 guard Instruments.all.contains(where: { $0.name == name }) else { warnings.append("instrument \(name): skipped, eq has no such instrument"); continue }
                 guard let gain = ImportCheck.number(raw), Config.gainRange.contains(gain) else {
                     warnings.append("instrument \(name): skipped, boost out of range"); continue
                 }
-                if gain != 0 { instruments = (instruments ?? [:]).merging([name: gain]) { $1 } }
+                if gain != 0 { instruments?[name] = gain }
             }
         }
 

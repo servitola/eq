@@ -39,7 +39,22 @@ enum Exporter {
         case .graphiceq: return graphicEQ(profile)
         case .eqmac: return try eqMac(profile, name: profile.preset ?? header.device)
         case .camilla: return camilla(profile, header: header)
-        case .json: return CLI.encode(profile)
+        case .json: return CLI.encode(OwnJSON(profile: profile))
+        }
+    }
+
+    /// Both layers go out even when empty, so importing the file back clears what was set since;
+    /// `eq.json` itself leaves them out.
+    private struct OwnJSON: Encodable {
+        let profile: Profile
+
+        private enum Layer: String, CodingKey { case preference, instruments }
+
+        func encode(to encoder: Encoder) throws {
+            try profile.encode(to: encoder)
+            var c = encoder.container(keyedBy: Layer.self)
+            if profile.preference == nil { try c.encode(Preference(), forKey: .preference) }
+            if profile.instruments == nil { try c.encode([String: Double](), forKey: .instruments) }
         }
     }
 

@@ -40,6 +40,9 @@ its entries under a dated version.
 - Focusing another instrument while listening and while the device settles at 0 Hz no longer
   leaves the watch listening without a solo: it asks once the rate arrives. A device switch
   keeps the solo without a `can't listen` note.
+- Re-importing an `eq export --format json` file restores the bass/treble/tilt layer and the
+  instrument knobs exactly, clearing ones set since: the export always writes both, empty
+  when unset. A file without them, such as one exported earlier, still leaves them alone.
 
 ## 2026.09.28 — 2026-09-28
 

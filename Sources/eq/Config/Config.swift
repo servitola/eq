@@ -107,8 +107,8 @@ struct Profile: Codable, Equatable {
             return filter
         }
         preset = try c.decodeIfPresent(String.self, forKey: .preset)
-        preference = try c.decodeIfPresent(Preference.self, forKey: .preference)
-        instruments = try c.decodeIfPresent([String: Double].self, forKey: .instruments)
+        preference = try c.decodeIfPresent(Preference.self, forKey: .preference).flatMap { $0.isFlat ? nil : $0 }
+        instruments = try c.decodeIfPresent([String: Double].self, forKey: .instruments).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Stores nil rather than an all-zero layer.

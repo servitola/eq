@@ -206,6 +206,25 @@ final class KnobTests: XCTestCase {
         XCTAssertEqual(result.warnings, ["instrument kick: skipped, boost out of range", "instrument vocals: skipped, eq has no such instrument"])
     }
 
+    func testOwnJSONSetsExactlyTheKnobsItCarriesAndAnOlderFileLeavesThem() throws {
+        let bare = dir.appendingPathComponent("bare.json")
+        XCTAssertEqual(run("export", "--format", "json", "--out", bare.path).exitCode, 0)
+        let exported = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: bare)) as? [String: Any])
+        XCTAssertEqual(exported["instruments"] as? [String: Double], [:], "an export without knobs says so")
+        run("boost", "voice", "3")
+        XCTAssertEqual(run("import", bare.path).exitCode, 0)
+        XCTAssertNil(try knobs(), "re-importing the export clears knobs set since")
+
+        run("boost", "voice", "3")
+        let older = dir.appendingPathComponent("older.json")
+        try Data(#"{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0]}"#.utf8).write(to: older)
+        XCTAssertEqual(run("import", older.path).exitCode, 0)
+        XCTAssertEqual(try knobs(), ["voice": 3], "a file from before knobs leaves them alone")
+
+        XCTAssertEqual(try EQJSONFormat.parse(Data(#"{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0],"instruments":{}}"#.utf8)).instruments, [:])
+        XCTAssertNil(try EQJSONFormat.parse(Data(contentsOf: older)).instruments)
+    }
+
     // MARK: - Watch
 
     func testArrowsAndTheirUnshiftedKeysStepTheKnob() {

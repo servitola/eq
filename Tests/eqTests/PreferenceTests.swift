@@ -129,6 +129,22 @@ final class PreferenceTests: XCTestCase {
         XCTAssertFalse(encoded.contains("preference"))
     }
 
+    func testOwnJSONSetsExactlyTheLayerItCarriesAndAnOlderFileLeavesIt() throws {
+        let bare = dir.appendingPathComponent("bare.json")
+        XCTAssertEqual(run("export", "--format", "json", "--out", bare.path).exitCode, 0)
+        XCTAssertNotNil((try JSONSerialization.jsonObject(with: Data(contentsOf: bare)) as? [String: Any])?["preference"],
+                        "an export with a flat layer says so")
+        run("bass", "3")
+        XCTAssertEqual(run("import", bare.path).exitCode, 0)
+        XCTAssertNil(try layer(), "re-importing the export clears the layer set since")
+
+        run("bass", "3")
+        let older = dir.appendingPathComponent("older.json")
+        try Data(#"{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0]}"#.utf8).write(to: older)
+        XCTAssertEqual(run("import", older.path).exitCode, 0)
+        XCTAssertEqual(try layer(), Preference(bass: 3), "a file without the layer leaves it alone")
+    }
+
     func testPresetsCarryTheLayer() throws {
         run("bass", "3")
         XCTAssertEqual(run("preset", "save", "warm").exitCode, 0)

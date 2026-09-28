@@ -159,9 +159,10 @@ final class JSONFormatTests: XCTestCase {
         }
     }
 
-    func testEqOwnJSONNeverStoresAFlatPreference() throws {
+    func testEqOwnJSONPassesAFlatPreferenceOnToClearTheLayer() throws {
         let r = try parse(#"{"bands":[0,0,0,0,0,0,0,0,0,0],"preamp":0,"preference":{"bass":0,"treble":0,"tilt":0}}"#)
-        XCTAssertNil(r.preference)
+        XCTAssertEqual(r.preference, Preference())
+        XCTAssertNil(try parse(#"{"bands":[0,0,0,0,0,0,0,0,0,0],"preamp":0}"#).preference)
     }
 
     func testEqOwnJSONSkipsUnusableFiltersWithAWarning() throws {
