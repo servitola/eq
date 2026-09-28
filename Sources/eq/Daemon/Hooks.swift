@@ -71,9 +71,23 @@ enum HookRunner {
     // Hooks run one at a time, off the daemon's queue and far from the audio thread.
     private static let queue = DispatchQueue(label: "eq.hooks", qos: .utility)
 
+    /// A run still waiting behind a slow hook is replaced by a newer one of the same name, so a
+    /// stuck hook cannot pile up a backlog of stale states to replay.
     static func live(timeout: TimeInterval = timeout, log: @escaping (String) -> Void = Log.write) -> (HookRun) -> Void {
-        { hook in
-            queue.async { log(describe(hook.name, run(hook, timeout: timeout))) }
+        let lock = NSLock()
+        var waiting: [String: HookRun] = [:]
+        return { hook in
+            lock.lock()
+            let queued = waiting.updateValue(hook, forKey: hook.name) != nil
+            lock.unlock()
+            guard !queued else { return }
+            queue.async {
+                lock.lock()
+                let latest = waiting.removeValue(forKey: hook.name)
+                lock.unlock()
+                guard let latest else { return }
+                log(describe(latest.name, run(latest, timeout: timeout)))
+            }
         }
     }
 
@@ -107,8 +121,17 @@ enum HookRunner {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
         posix_spawnattr_setpgroup(&attributes, 0)
+        // The daemon ignores these to take them through dispatch sources, and an ignored signal stays
+        // ignored across exec: without the reset a hook would shrug off the timeout's TERM.
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        for sig in [SIGTERM, SIGINT, SIGUSR1, SIGPIPE] { sigaddset(&defaults, sig) }
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        var unblocked = sigset_t()
+        sigemptyset(&unblocked)
+        posix_spawnattr_setsigmask(&attributes, &unblocked)
 
         let environment = ProcessInfo.processInfo.environment.merging(hook.environment) { $1 }.map { "\($0.key)=\($0.value)" }
         let argv = ["/bin/sh", "-c", hook.command].map { (arg: String) in strdup(arg) } + [nil]
@@ -135,8 +158,8 @@ enum HookRunner {
                 if n > room { truncated = true }
             }
         }
-        let deadline = Date().addingTimeInterval(timeout)
-        var killAt: Date?
+        let deadline = DispatchTime.now() + timeout
+        var killAt: DispatchTime?
         var timedOut = false
         var status: Int32 = 0
         while true {
@@ -148,11 +171,11 @@ enum HookRunner {
                 drain()
                 break
             }
-            if !timedOut, Date() >= deadline {
+            if !timedOut, DispatchTime.now() >= deadline {
                 timedOut = true
                 kill(-pid, SIGTERM)
-                killAt = Date().addingTimeInterval(1)
-            } else if let at = killAt, Date() >= at {
+                killAt = DispatchTime.now() + 1
+            } else if let at = killAt, DispatchTime.now() >= at {
                 kill(-pid, SIGKILL)
                 killAt = nil
             }

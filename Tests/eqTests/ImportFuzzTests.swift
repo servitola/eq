@@ -79,9 +79,9 @@ final class ImportFuzzTests: XCTestCase {
                 // Mutations stack now and then, so damage compounds the way a bad download's does.
                 var data = mutate(original, &random)
                 if random.below(4) == 0 { data = mutate(data, &random) }
-                let start = Date()
+                let start = threadCPUTime()
                 let result = try? EQFormats.parse(data, filename: file)
-                let elapsed = Date().timeIntervalSince(start)
+                let elapsed = threadCPUTime() - start
                 slowest = max(slowest, elapsed)
                 XCTAssertLessThan(elapsed, 0.25, "\(file) case \(n) took \(elapsed) s")
                 if let result { checkValid(result, "\(file) case \(n)") }
@@ -93,9 +93,16 @@ final class ImportFuzzTests: XCTestCase {
 
     // 22 400 cases over ten seeds ran clean in review (slowest 34 ms, a GraphicEQ fit); the suite keeps a slice that fits in 2 s of a debug build.
     func testMutatedFixturesImportOrRefuseQuickly() throws {
-        let start = Date()
+        let start = Self.threadCPUTime()
         let run = try Self.fuzz(perFixture: 50, seed: 0x5EED)
         XCTAssertEqual(run.cases, 50 * FormatSniffTests.fixtures.count)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        XCTAssertLessThan(Self.threadCPUTime() - start, 2)
+    }
+
+    // CPU time, not wall time: a loaded machine stretches the latter without the parser getting any slower.
+    static func threadCPUTime() -> Double {
+        var now = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now)
+        return Double(now.tv_sec) + Double(now.tv_nsec) / 1e9
     }
 }

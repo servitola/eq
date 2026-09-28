@@ -34,6 +34,9 @@ final class MeterServer {
     // A new client is neither kind until it subscribes or one tick passes; an events client
     // writes its line right after connecting, so it never counts as a meter client.
     private var undecided: Set<Int32> = []
+    // The one-tick decision is for a connection; its fd number may be reused before the tick fires.
+    private var connections: [Int32: UInt64] = [:]
+    private var nextConnection: UInt64 = 0
     private var subscribers: Set<Int32> = []
 
     static let maxRequestLine = 1024
@@ -123,7 +126,12 @@ final class MeterServer {
                 continue
             }
             var on: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            // macOS refuses the option with EINVAL once the peer has hung up; the first write to such
+            // a socket would raise SIGPIPE, so a client gone before its accept is simply closed.
+            guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+                close(fd)
+                continue
+            }
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
             clientFDs.append(fd)
             // Readable is also how a silent disconnect (EOF) is noticed before the next write fails.
@@ -133,12 +141,15 @@ final class MeterServer {
             reads.resume()
             readSources[fd] = reads
             undecided.insert(fd)
-            queue.asyncAfter(deadline: .now() + tick) { [weak self] in self?.decide(fd) }
+            nextConnection += 1
+            let connection = nextConnection
+            connections[fd] = connection
+            queue.asyncAfter(deadline: .now() + tick) { [weak self] in self?.decide(fd, connection) }
         }
     }
 
-    private func decide(_ fd: Int32) {
-        guard undecided.contains(fd) else { return }
+    private func decide(_ fd: Int32, _ connection: UInt64) {
+        guard connections[fd] == connection, undecided.contains(fd) else { return }
         // A subscribe line already in the socket buffer wins over the timer that fired first.
         drain(fd)
         guard undecided.remove(fd) != nil else { return }
@@ -169,6 +180,7 @@ final class MeterServer {
             let n = read(fd, &buffer, buffer.count)
             if n > 0 {
                 receive(fd, buffer[0..<n])
+                guard clientFDs.contains(fd) else { return }
                 continue
             }
             if n < 0, errno == EAGAIN || errno == EINTR { return }
@@ -185,6 +197,8 @@ final class MeterServer {
             input.removeSubrange(...newline)
             if discarding.remove(fd) != nil { continue }
             handle(line, from: fd)
+            // A failed write in handle drops the client; what it sent after that speaks for nobody.
+            guard clientFDs.contains(fd) else { return }
         }
         if input.count > Self.maxRequestLine {
             input.removeAll()
@@ -264,6 +278,7 @@ final class MeterServer {
         discarding.remove(fd)
         loggedBadRequest.remove(fd)
         undecided.remove(fd)
+        connections.removeValue(forKey: fd)
         subscribers.remove(fd)
         didLogFull = false
         // Cleared before the fd number can be reused by the next accept.

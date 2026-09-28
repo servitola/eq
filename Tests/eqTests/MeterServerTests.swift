@@ -20,8 +20,8 @@ final class MeterServerTests: XCTestCase {
 
     private var solos: [SoloRange?] = []
 
-    private func makeServer() -> MeterServer {
-        MeterServer(socketURL: socketURL, queue: queue, tick: 0.01,
+    private func makeServer(tick: TimeInterval = 0.01) -> MeterServer {
+        MeterServer(socketURL: socketURL, queue: queue, tick: tick,
                     source: { MeterFrameTests.sample },
                     onClientsChanged: { [weak self] n in
                         self?.changesLock.lock(); self?.changes.append(n); self?.changesLock.unlock()
@@ -323,6 +323,71 @@ final class MeterServerTests: XCTestCase {
         send(fd, "{\"subscribe\":\"volume\"}\n")
         let lines = readLines(fd, count: 2, within: 0.3)
         XCTAssertTrue(lines.count >= 2 && lines.allSatisfy { kind($0) == nil }, "still a meter client: \(lines)")
+    }
+
+    /// The peer is gone before its connection is accepted: SO_NOSIGPIPE then fails with EINVAL,
+    /// so the hello write would raise SIGPIPE and kill the whole test process.
+    func testAClientGoneBeforeItsAcceptDoesNotKillTheProcess() throws {
+        let previous = signal(SIGPIPE, SIG_DFL)
+        defer { signal(SIGPIPE, previous) }
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        queue.suspend()
+        let gone = try connect()
+        send(gone, "{\"subscribe\":\"events\"}\n{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        close(gone)
+        queue.resume()
+        let next = try connect()
+        defer { close(next) }
+        send(next, "{\"subscribe\":\"events\"}\n")
+        XCTAssertEqual(readLines(next, count: 1, within: 0.3).map(kind), ["daemon"])
+        XCTAssertEqual(observedSolos(), [], "a request from a peer already gone is never acted on")
+    }
+
+    func testTheDaemonIgnoresSIGPIPE() {
+        let previous = signal(SIGPIPE, SIG_DFL)
+        defer { signal(SIGPIPE, previous) }
+        Daemon.ignoreBrokenPipes()
+        XCTAssertEqual(signal(SIGPIPE, SIG_DFL).map { unsafeBitCast($0, to: Int.self) }, unsafeBitCast(SIG_IGN, to: Int.self))
+    }
+
+    /// A write that fails on the subscribe drops the client; a solo line read in the same chunk
+    /// must not then take ownership for a descriptor nobody can speak for any more.
+    func testLinesAfterADropInTheSameReadAreIgnored() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        XCTAssertTrue(waitUntil(0.5) { observedChanges() == [1] }, "accepted and decided: \(observedChanges())")
+        queue.suspend()
+        send(fd, "{\"subscribe\":\"events\"}\n{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        close(fd)
+        queue.resume()
+        usleep(100_000)
+        let solos = observedSolos()
+        XCTAssertTrue(solos.isEmpty || solos.last == .some(nil), "no solo left behind: \(solos)")
+    }
+
+    /// A one-tick decision belongs to a connection, not to its descriptor number, which the next
+    /// accept may reuse while the old timer is still pending.
+    func testAReusedDescriptorDoesNotInheritTheOldTickDecision() throws {
+        let tick = 1.0
+        let server = makeServer(tick: tick)
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let first = try connect()
+        usleep(50_000)
+        close(first)
+        usleep(150_000)
+        let connected = Date()
+        let second = try connect()
+        defer { close(second) }
+        while Date().timeIntervalSince(connected) < tick - 0.15 { usleep(10_000) }
+        let early = queue.sync { server.clients }
+        guard Date().timeIntervalSince(connected) < tick else { throw XCTSkip("too slow to observe the window") }
+        XCTAssertEqual(early, 0, "the new connection must wait out its own tick")
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == 1 })
     }
 
     func testStalePathIsReplaced() throws {

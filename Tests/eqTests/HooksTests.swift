@@ -94,4 +94,34 @@ final class HookRunnerTests: XCTestCase {
         wait(for: [logged], timeout: 5)
         XCTAssertEqual(line, "hook device: ok: 48000")
     }
+
+    /// The daemon ignores TERM, INT and USR1 to take them through dispatch sources; a spawned child
+    /// would keep them ignored, and the timeout's TERM would never reach a hook's trap.
+    func testTimeoutTermReachesAHookEvenWhenTheRunnerIgnoresIt() {
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
+        let result = HookRunner.run(hook("trap 'echo got-term; exit 3' TERM; sleep 30 & wait"), timeout: 0.3)
+        XCTAssertTrue(result.timedOut)
+        XCTAssertEqual(result.output, "got-term\n")
+    }
+
+    func testRunsQueuedBehindABusyHookCoalescePerName() {
+        let logged = expectation(description: "logged")
+        logged.expectedFulfillmentCount = 3
+        let lock = NSLock()
+        var lines: [String] = []
+        let run = HookRunner.live { line in
+            lock.lock(); lines.append(line); lock.unlock()
+            logged.fulfill()
+        }
+        run(HookRun(name: "busy", command: "sleep 0.3; echo busy", environment: [:]))
+        for rate in ["44100", "48000", "96000"] {
+            run(HookRun(name: "device", command: "echo \"$EQ_RATE\"", environment: ["EQ_RATE": rate]))
+        }
+        run(HookRun(name: "preset", command: "echo preset", environment: [:]))
+        wait(for: [logged], timeout: 5)
+        Thread.sleep(forTimeInterval: 0.2)
+        lock.lock(); defer { lock.unlock() }
+        XCTAssertEqual(lines, ["hook busy: ok: busy", "hook device: ok: 96000", "hook preset: ok: preset"])
+    }
 }

@@ -213,8 +213,8 @@ final class EventsCLITests: XCTestCase {
         XCTAssertEqual(lines.count, 1)
     }
 
-    /// A daemon from before events: it ignores the subscribe line and streams frames.
-    func testADaemonThatPredatesEventsExitsOne() throws {
+    /// Serves one connection on the socket with `serve`, on a background thread.
+    private func fakeDaemon(_ serve: @escaping (Int32) -> Void) -> (listener: Int32, served: XCTestExpectation) {
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -224,23 +224,78 @@ final class EventsCLITests: XCTestCase {
         }
         XCTAssertEqual(bound, 0)
         XCTAssertEqual(listen(listener, 1), 0)
-        defer { close(listener) }
         let served = expectation(description: "served")
         DispatchQueue.global().async {
             let fd = accept(listener, nil, nil)
-            if let line = try? MeterFrame.encodeLine(MeterFrameTests.sample) {
-                for _ in 0..<3 { _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } }
-            }
-            usleep(200_000)
+            // The CLI hangs up while frames are still coming; a write then must not kill the test process.
+            var on: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            serve(fd)
             close(fd)
             served.fulfill()
         }
+        return (listener, served)
+    }
+
+    @discardableResult
+    private static func writeLine(_ fd: Int32, _ line: Data) -> Bool {
+        line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } == line.count
+    }
+
+    /// A daemon from before events: it ignores the subscribe line and streams frames.
+    func testADaemonThatPredatesEventsExitsOne() throws {
+        let daemon = fakeDaemon { fd in
+            if let line = try? MeterFrame.encodeLine(MeterFrameTests.sample) {
+                for _ in 0..<3 { Self.writeLine(fd, line) }
+            }
+            usleep(200_000)
+        }
+        defer { close(daemon.listener) }
         var lines: [String] = []
         context.emit = { lines.append($0) }
         let result = CLI.run(["events"], context: context)
         XCTAssertEqual(result.exitCode, 1)
         XCTAssertTrue(result.output.contains("not serving events"), result.output)
         XCTAssertEqual(lines, [], "a meter frame is never passed off as an event")
-        wait(for: [served], timeout: 2)
+        wait(for: [daemon.served], timeout: 2)
+    }
+
+    func testAnOldDaemonStreamingFramesIsGivenUpOnWithinAboutASecond() throws {
+        let daemon = fakeDaemon { fd in
+            guard let line = try? MeterFrame.encodeLine(MeterFrameTests.sample) else { return }
+            for _ in 0..<100 {
+                guard Self.writeLine(fd, line) else { return }
+                usleep(30_000)
+            }
+        }
+        defer { close(daemon.listener) }
+        var lines: [String] = []
+        context.emit = { lines.append($0) }
+        let started = Date()
+        let result = CLI.run(["events"], context: context)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.output.contains("not serving events"), result.output)
+        XCTAssertEqual(lines, [])
+        wait(for: [daemon.served], timeout: 5)
+    }
+
+    /// A subscribe that lands after the daemon's first tick gets a frame or two before the hello.
+    func testFramesBeforeTheHelloAreSkipped() throws {
+        let daemon = fakeDaemon { fd in
+            guard let frame = try? MeterFrame.encodeLine(MeterFrameTests.sample),
+                  let hello = try? DaemonEvent.encodeLine(.daemon(state: .running, version: "9", error: nil)),
+                  let enabled = try? DaemonEvent.encodeLine(.enabled(false)) else { return }
+            for line in [frame, frame, hello, enabled] { Self.writeLine(fd, line) }
+            usleep(100_000)
+        }
+        defer { close(daemon.listener) }
+        var lines: [String] = []
+        context.emit = { lines.append($0) }
+        let result = CLI.run(["events", "--json"], context: context)
+        XCTAssertTrue(result.output.contains("daemon closed the event stream"), result.output)
+        let kinds = try lines.map { try XCTUnwrap(try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])["event"] as? String }
+        XCTAssertEqual(kinds, ["daemon", "enabled"])
+        wait(for: [daemon.served], timeout: 2)
     }
 }

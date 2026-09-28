@@ -335,6 +335,10 @@ is not running or predates events. Every line has `t` (Unix seconds) and `event`
 eq events | jq -r --unbuffered 'select(.event == "device") | "\(.device) at \(.rate) Hz"'
 ```
 
+A `device` event is sent when the profile is applied to the new output, before the daemon has
+confirmed that the output is running. A rate change that narrows or widens the range a solo can
+actually play publishes no new `solo` event; the last one keeps the range clamped at the old rate.
+
 It rides the meter socket: a client that writes `{"subscribe":"events"}` as its first line gets
 events instead of frames, and the meter stays off for it. A client that writes nothing, as
 `eq stream` and `eq watch` do, gets frames exactly as before.

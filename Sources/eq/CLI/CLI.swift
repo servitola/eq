@@ -463,22 +463,22 @@ enum CLI {
             throw CLIError.noEvents
         }
         signal(SIGINT) { _ in _exit(0) }
-        // A daemon that predates events ignores the request and sends meter frames; a new one
-        // answers with a `daemon` event first.
+        // A daemon that predates events ignores the request and streams meter frames. A new one
+        // answers with a `daemon` event, but a request that lands after its first tick still gets a
+        // frame or two before that; only a second of nothing but frames means an old daemon.
         var answered = false
-        var speaksEvents = true
+        let giveUp = DispatchTime.now() + 1
         let eof = client.lines(maxLines: ctx.streamLimit) { line in
             if !answered {
-                answered = true
                 let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
-                speaksEvents = object?["event"] != nil
-                guard speaksEvents else { return false }
+                guard object?["event"] != nil else { return DispatchTime.now() < giveUp }
+                answered = true
             }
             ctx.emit(line)
             return true
         }
         client.close()
-        if !speaksEvents || (eof && !answered) { throw CLIError.noEvents }
+        if !answered { throw CLIError.noEvents }
         if eof { throw CLIError.daemonClosedEvents }
         var output = Output("", ["ok": true])
         output.streamed = true
