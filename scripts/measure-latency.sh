@@ -1,10 +1,13 @@
 #!/bin/zsh
-# Measure the delay eq adds, for tap drift compensation {1,0} × IO buffer {512,256,128}.
+# Measure the delay eq adds, for tap drift compensation {1,0} × IO buffer {512,256,128}
+# (DRIFTS and FRAMES pick the lists). Drift compensation should change nothing now that the tap's
+# aggregate holds no device whose clock it could follow.
 # Each run starts its own daemon against a scratch config and status, then takes two readings:
-#   io     — output minus input timestamp of one IO cycle (status addedLatencyMs): eq's own hold.
+#   io     — the output IOProc's host timestamp minus the tap IOProc's for the same ring frame
+#            (status addedLatencyMs): eq's own hold.
 #   click  — scripts/click.swift plays clicks from another process and prints when each was handed
-#            to the device; eq's status `lastOnset` says when the tap stamped it and when eq sent it
-#            on. out−click is the whole tap path, tap−click is where the tap puts the sound
+#            to the device; eq's status `lastOnset` says when the tap IOProc stamped it and when the
+#            output IOProc sent it on. out−click is the whole tap path, tap−click is where the tap puts the sound
 #            relative to the app that played it. Both sides share the host clock.
 # Keep every other sound off while it runs: any audio in the silence before a click hides the onset.
 # Usage: scripts/measure-latency.sh [path/to/eq]   (default: build/EQ.app/Contents/MacOS/eq)
@@ -61,7 +64,7 @@ for drift in ${=DRIFTS:-1 0}; do
     sleep 3
     refresh
     grep -hE "path latency frames|tap latency|IO buffer" "$run/daemon.log" | tail -6 | sed 's/^/   /'
-    echo "   io: eq adds $(field addedLatencyMs) ms ($(field addedLatencyFrames) frames); path estimate $(field latencyMs) ms, device $(field deviceLatencyMs) ms"
+    echo "   io: eq adds $(field addedLatencyMs) ms ($(field addedLatencyFrames) frames); path $(field latencyMs) ms, device $(field deviceLatencyMs) ms; ring underruns $(field underruns), overruns $(field overruns)"
 
     stop_tone
     sleep 1.5

@@ -5,17 +5,25 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Fixed
+
+- Lip sync over Bluetooth: eq added about one device latency on top of the device's own,
+  200–300 ms, which no video player compensates for. The tap now sits alone in its aggregate
+  device and a second IO callback plays straight to the output device; a probe of this layout
+  added about 13 ms.
+
 ### Changed
 
-- The IO buffer is 128 frames instead of 256: eq now holds audio 5.8 ms instead of 11.6 ms at
-  44.1 kHz, measured from the IO callback's timestamps.
+- The IO buffer is 128 frames instead of 256, on the tap and on the output device.
 
 ### Added
 
 - `eq status` splits the latency: `latency 432 ms (device 210, eq adds 23)`. The device share is
-  what a video player sees and compensates for; what eq adds, measured from its own IO cycle
-  timestamps, no player can see. `eq status --json` carries it as `addedLatencyMs`, beside
-  `deviceLatencyMs`.
+  what a video player sees and compensates for; what eq adds, measured from the tap's and the
+  output's host timestamps on the same samples, no player can see. `eq status --json` carries
+  it as `addedLatencyMs`, beside `deviceLatencyMs`.
+- `eq status` shows ring underruns and overruns when the tap and the output slip;
+  `eq status --json` carries them as `underruns` and `overruns`.
 - `eq doctor` warns when eq adds more than 45 ms, the most sound may trail picture before
   viewers notice (ATSC IS-191).
 

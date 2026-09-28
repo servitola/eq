@@ -553,7 +553,7 @@ into place, so nothing ever sees half a file, and refuses a file that already ex
 
 ## How it works
 
-The daemon opens a Core Audio process tap on the system mix (macOS 14.4+), which mutes the
+The daemon opens a Core Audio process tap on the output device (macOS 14.4+), which mutes the
 original output and hands the audio to the daemon. Ten peaking biquads plus the imported
 filters, a preamp and a limiter at −1 dBFS later, the daemon plays it back on the same device. Latency is
 shown in `eq status`; Bluetooth adds the headset's own buffering. Volume keys keep working. No driver, no `sudo`, nothing in `/Library`.
@@ -572,15 +572,29 @@ It listens for the default output changing and rebuilds on the new device with t
 curve. Bluetooth devices arrive in two steps, so it waits for the IO callback to fire before
 it calls the switch done.
 
-The engine — tap, aggregate device, IO callback, Bluetooth and sample-rate handling — is taken
+The engine's device, Bluetooth and sample-rate handling and its EQ chain are taken
 from [OnlyEQ](https://github.com/zollans/OnlyEQ) (Unlicense, commit 6569655) and trimmed to
 what a headless daemon needs. That code is the part that took someone months of bug reports
 to get right; the rest of this project is small.
 
-The IO buffer is 128 frames: eq holds each sample for two buffers, 5.8 ms at 44.1 kHz,
-measured from the IO callback's own timestamps (`eq status` shows it as "eq adds"). 256
-frames held it 11.6 ms and 512 frames 23.2 ms. A smaller buffer wakes the daemon more often
-(about 345 times a second at 128 frames); `EQ_IO_FRAMES` (daemon only, 64–4096) overrides it.
+The signal path is eq's own. The tap sits alone in a private aggregate device, whose IO
+callback writes into a lock-free ring; a second IO callback, on the output device itself,
+reads the ring, runs the EQ and plays the result. With the device inside the tap's aggregate,
+as OnlyEQ builds it, the tap's timestamps trailed the sound by the device's whole latency:
+over a Bluetooth speaker eq added 280 ms, and video lost lip sync, because a player
+compensates for the device's latency but cannot see eq's. Split, a probe of this layout
+measured 12.8 ms at 44.1 kHz with clicks played from another process.
+
+What eq adds is the tap's buffer, a ring cushion (one output buffer, one tap buffer and 64
+frames of scheduling slack, 320 frames at the defaults) and the output buffer. `eq status`
+shows it as "eq adds", measured from the two callbacks' host timestamps on the same samples,
+and lists ring underruns and overruns if the two sides ever slip. `scripts/measure-latency.sh`
+times it end to end.
+
+The IO buffer is 128 frames on both sides; `EQ_IO_FRAMES` (daemon only, 64–4096) overrides
+it. Core Audio keeps the buffer size per process, so asking the shared output device for 128
+frames leaves every other app's buffer alone. A smaller buffer wakes the daemon more often:
+two callbacks, each about 345 times a second at 128 frames.
 
 ## Footprint
 
