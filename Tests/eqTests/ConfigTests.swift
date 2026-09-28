@@ -138,3 +138,33 @@ final class ConfigTests: XCTestCase {
         XCTAssertNoThrow(try decoded.validate())
     }
 }
+
+final class AppRulesConfigTests: XCTestCase {
+    func testRulesAndTheFlagRoundTripAndStayOutOfAPlainConfig() throws {
+        let plain = Config.initial(builtInUID: nil, builtInName: nil)
+        let encoded = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("apps"))
+        XCTAssertFalse(encoded.contains("experimental"))
+        XCTAssertFalse(plain.followsApps)
+
+        var config = plain
+        config.apps = [AppRule(app: "com.spotify.client", preset: "favourite")]
+        config.setFollowsApps(true)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
+        XCTAssertEqual(json["experimental"] as? [String: Bool], ["apps": true])
+        XCTAssertEqual((json["apps"] as? [[String: String]])?.first, ["app": "com.spotify.client", "preset": "favourite"])
+        XCTAssertEqual(try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(config)), config)
+        config.setFollowsApps(false)
+        XCTAssertNil(config.experimental)
+    }
+
+    func testAHandWrittenExperimentalBlockWithoutAppsIsOff() throws {
+        let text = #"{"version":1,"enabled":true,"default":{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0]},"devices":{},"experimental":{}}"#
+        XCTAssertFalse(try JSONDecoder().decode(Config.self, from: Data(text.utf8)).followsApps)
+    }
+
+    func testRulesMatchBundleIDsWithoutRegardToCase() {
+        XCTAssertTrue(AppRule(app: "com.google.Chrome", preset: "x").matches("com.google.chrome"))
+        XCTAssertFalse(AppRule(app: "com.google.Chrome", preset: "x").matches("com.google.Chrome.canary"))
+    }
+}

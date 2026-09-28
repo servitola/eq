@@ -168,6 +168,28 @@ struct Profile: Codable, Equatable {
     }
 }
 
+/// While an app with this bundle ID plays, the daemon plays `preset` instead of the device's curve.
+struct AppRule: Codable, Equatable {
+    var app: String
+    var preset: String
+
+    func matches(_ bundleID: String) -> Bool {
+        app.caseInsensitiveCompare(bundleID) == .orderedSame
+    }
+}
+
+struct Experimental: Codable, Equatable {
+    var apps: Bool
+
+    init(apps: Bool) { self.apps = apps }
+
+    private enum CodingKeys: String, CodingKey { case apps }
+
+    init(from decoder: Decoder) throws {
+        apps = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(Bool.self, forKey: .apps) ?? false
+    }
+}
+
 enum ProfileSource: String, Codable {
     case device
     case `default`
@@ -226,6 +248,15 @@ struct Config: Codable, Equatable {
     var presets: [String: Profile]? = nil
     /// Shell commands the daemon runs on a change, by name: `device`, `preset`. Unknown names are logged and ignored.
     var hooks: [String: String]? = nil
+    /// In order: the first rule whose app plays wins, unless several play at once.
+    var apps: [AppRule]? = nil
+    var experimental: Experimental? = nil
+
+    var followsApps: Bool { experimental?.apps == true }
+
+    mutating func setFollowsApps(_ on: Bool) {
+        experimental = on ? Experimental(apps: true) : nil
+    }
 
     static let presetNameLength = 1...32
     private static let presetNameCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))
