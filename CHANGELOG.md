@@ -16,6 +16,9 @@ its entries under a dated version.
   `~/.cache/eq/daemon.lock`, and one that finds it held, or finds itself the bundled daemon
   while the legacy agent is in use, logs why and exits a minute later. Before, only a fresh
   `status.json` kept a second one off.
+- `brew upgrade` takes effect without a restart: the daemon notices its binary replaced, logs
+  `binary replaced — restarting` and exits, and launchd starts the new one. When the binary is
+  gone for a minute (`brew uninstall`), it logs `binary removed — exiting` and stops.
 
 ## 2026.09.28.2 — 2026-09-28
 

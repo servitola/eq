@@ -106,6 +106,7 @@ final class Daemon {
     private var signalSources: [DispatchSourceSignal] = []
     // Held open for the process's life: closing it would release the lock.
     private var lock: Int32?
+    private var executableWatcher: ExecutableWatcher?
     private var meterServer: MeterServer?
     // The daemon's copy survives engine stops, which clear the processor's; applyProfile re-applies it.
     private var solo: SoloRange?
@@ -154,6 +155,7 @@ final class Daemon {
         // A status file carrying `version` tells doctor SIGUSR1 is safe; the handler must exist before that file does.
         installSignalHandlers()
         Self.ignoreBrokenPipes()
+        watchExecutable()
         startMeterServer()
         let env = ProcessInfo.processInfo.environment
         if let frames = DaemonPolicy.ioFrames(from: env) {
@@ -209,6 +211,17 @@ final class Daemon {
         usr1.setEventHandler { [weak self] in self?.writeStatus() }
         usr1.resume()
         signalSources.append(usr1)
+    }
+
+    /// launchd's KeepAlive starts the new binary once this one exits.
+    private func watchExecutable() {
+        guard let path = Bundle.main.executablePath else { return }
+        let watcher = ExecutableWatcher(path: path, queue: queue) { [weak self] change in
+            Log.write(change == .replaced ? "binary replaced — restarting" : "binary removed — exiting")
+            self?.terminate()
+        }
+        watcher.start()
+        executableWatcher = watcher
     }
 
     private func terminate() {
