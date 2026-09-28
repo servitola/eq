@@ -38,3 +38,13 @@
   resolved EQ's job to the deleted probe (EX_CONFIG 78), and SMAppService now reports
   `notFound` for EQ.app. Retry `eq agent install --replace-legacy` after a reboot; if it still
   fails, `sfltool resetbtm` (admin, reboot, resets every login item's approval).
+
+## Driver mode (design A) — live trial of Proxy Audio Device v1.1.0b1 (started 2026-09-28 21:28)
+- eq's legacy agent booted out; output = Proxy Audio Device → BE-RCA; no Privacy indicator.
+- Found: after `killall coreaudiod` the plug-in loaded before the Bluetooth speaker appeared,
+  logged "setupTargetOutputDevice could not find output device" and never retried — silent until
+  the target was re-selected in its settings. A fork must retarget when the device list changes.
+- Watch for: dropouts, crackle, after sleep/wake, BT reconnect, reboot (expect the same silence),
+  volume keys; lip sync will be off (Proxy reports 0 latency).
+- Restore eq: `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.servitola.eq.plist` and
+  `SwitchAudioSource -t output -s BE-RCA`.
