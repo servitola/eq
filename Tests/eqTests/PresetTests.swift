@@ -119,8 +119,10 @@ final class BackupTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    /// Never the defaults, which a save over no file skips.
     private func config(preamp: Double) -> Config {
         var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.enabled = false
         config.default.preamp = preamp
         return config
     }

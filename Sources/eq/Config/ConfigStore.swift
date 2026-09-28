@@ -74,15 +74,14 @@ struct ConfigStore {
     }
 
     func save(_ config: Config, as kind: SaveKind = .edit) throws {
-        try config.validate()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(config)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = try Self.encoded(config)
         let previous = try? Data(contentsOf: url)
         // A no-op save must not touch undo state: `eq on` while already on would otherwise drop redo.
         // Decoded, not bytes: a backup written by an older version or by hand is formatted differently.
         if let previous, (try? JSONDecoder().decode(Config.self, from: previous)) == config { return }
+        // With no file the defaults stand in for it, so `eq on` on them has nothing to write.
+        if previous == nil, config.isInitial { return }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let position = historyPosition()
         switch position > 0 && kind == .sessionEdit ? .edit : kind {
         case .edit:
@@ -283,7 +282,16 @@ struct ConfigStore {
     func loadOrCreate(builtInUID: String?, builtInName: String?) throws -> Config {
         if exists() { return try load() }
         let config = Config.initial(builtInUID: builtInUID, builtInName: builtInName)
-        try save(config)
+        let data = try Self.encoded(config)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
         return config
+    }
+
+    private static func encoded(_ config: Config) throws -> Data {
+        try config.validate()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(config)
     }
 }

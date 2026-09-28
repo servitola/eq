@@ -32,7 +32,8 @@ final class ConfigStoreTests: XCTestCase {
 
     func testSaveThenLoadRoundTrips() throws {
         let store = ConfigStore(url: dir.appendingPathComponent("nested/eq.json"))
-        let config = Config.initial(builtInUID: "B", builtInName: "Built-in")
+        var config = Config.initial(builtInUID: "B", builtInName: "Built-in")
+        config.enabled = false
         try store.save(config)
         XCTAssertTrue(store.exists())
         XCTAssertEqual(try store.load(), config)
@@ -68,7 +69,7 @@ final class ConfigStoreTests: XCTestCase {
 
     func testWatcherFiresOnAtomicReplace() throws {
         let store = ConfigStore(url: dir.appendingPathComponent("eq.json"))
-        try store.save(Config.initial(builtInUID: nil, builtInName: nil))
+        _ = try store.loadOrCreate(builtInUID: nil, builtInName: nil)
         let fired = expectation(description: "onChange")
         fired.assertForOverFulfill = false
         let watcher = ConfigWatcher(url: store.url, queue: DispatchQueue(label: "test"), debounce: 0.05) { fired.fulfill() }
@@ -85,6 +86,17 @@ final class ConfigStoreTests: XCTestCase {
         let config = try store.loadOrDefault { ("B", "Built-in") }
         XCTAssertEqual(config, Config.initial(builtInUID: "B", builtInName: "Built-in"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("missing").path))
+    }
+
+    func testSavingTheDefaultsOverNoFileWritesNothing() throws {
+        let store = ConfigStore(url: dir.appendingPathComponent("missing/eq.json"))
+        try store.save(Config.initial(builtInUID: "B", builtInName: "Built-in"))
+        try store.save(Config.initial(builtInUID: nil, builtInName: nil))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("missing").path))
+        var changed = Config.initial(builtInUID: "B", builtInName: "Built-in")
+        changed.enabled = false
+        try store.save(changed)
+        XCTAssertEqual(try store.load(), changed)
     }
 
     func testLoadOrDefaultReadsAnExistingFileWithoutAskingForTheBuiltIn() throws {

@@ -105,6 +105,11 @@ final class FreshInstallTests: XCTestCase {
         XCTAssertEqual(try context.store.load().enabled, false)
     }
 
+    func testAChangeThatLeavesTheDefaultsWritesNothing() {
+        XCTAssertEqual(run("on").exitCode, 0)
+        XCTAssertFalse(configDirectoryExists)
+    }
+
     func testInitStillWritesExplicitly() {
         XCTAssertTrue(run("init").output.contains("wrote"))
         XCTAssertTrue(context.store.exists())

@@ -265,6 +265,13 @@ struct Config: Codable, Equatable {
         return Config(version: 1, enabled: true, default: curve, devices: devices, presets: seedPresets)
     }
 
+    /// What `initial` returns for whichever built-in device it was given, or for none.
+    var isInitial: Bool {
+        guard devices.count <= 1 else { return false }
+        let device = devices.first
+        return self == Self.initial(builtInUID: device?.key, builtInName: device?.value.name)
+    }
+
     func validate() throws {
         guard version == 1 else { throw ConfigError.unsupportedVersion(version) }
         try Self.validate(profile: `default`, key: "default")
