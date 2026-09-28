@@ -4,6 +4,7 @@ import CoreAudio
 import AudioToolbox
 import Accelerate
 import EQAtomics
+import EQCore
 
 /// What the tap delivers, checked once before either IOProc runs so neither has to guess.
 enum TapFormat {
@@ -143,6 +144,8 @@ final class ProcessTapEngine {
     }
 
     let processor = EQProcessor()
+    // The processor's engine, for the output IOProc to call without touching the processor.
+    private let core: OpaquePointer
 
     private(set) var state: State = .stopped
     private(set) var targetDeviceID: AudioObjectID = 0
@@ -216,9 +219,7 @@ final class ProcessTapEngine {
     private let tapSources = UnsafeMutablePointer<AudioRing.Source>.allocate(capacity: TapFormat.maxChannels)
     private var channelScratch: [UnsafeMutablePointer<Float>] = []
     private var scratchCapacity = 0
-    /// `channelScratch` cut to the tap's channel count, built off the audio thread: the array for
-    /// the processor, the raw copy for every loop the render thread runs itself.
-    private var activeChannels: [UnsafeMutablePointer<Float>] = []
+    /// `channelScratch` cut to the tap's channel count, built off the audio thread.
     private let channelPointers = UnsafeMutablePointer<UnsafeMutablePointer<Float>>.allocate(capacity: TapFormat.maxChannels)
     // Two sequence-locked (position, host) stamps the tap publishes for the output IOProc:
     // [0...2] the latest tap buffer, [8...10] the latest onset; [4] the tap's latest buffer size.
@@ -239,6 +240,7 @@ final class ProcessTapEngine {
     var onSampleRateChange: (() -> Void)?
 
     init() {
+        core = processor.core
         sharedCells.initialize(repeating: 0, count: 16)
         prepare(channels: 2, tapFrames: ioBufferFrames, outputFrames: ioBufferFrames)
     }
@@ -472,8 +474,7 @@ final class ProcessTapEngine {
                 return pointer
             }
         }
-        activeChannels = Array(channelScratch.prefix(channels))
-        for (index, pointer) in activeChannels.enumerated() { channelPointers[index] = pointer }
+        for (index, pointer) in channelScratch.prefix(channels).enumerated() { channelPointers[index] = pointer }
         let rate = processor.sampleRate
         ticksPerFrame = rate > 0 ? Double(AudioConvertNanosToHostTime(1_000_000_000)) / rate : 0
         oneSecondFrames = max(Int(rate), 1)
@@ -663,7 +664,7 @@ final class ProcessTapEngine {
             silentFrames = min(silentFrames + frameCount, oneSecondFrames)
             if silentFrames == oneSecondFrames {
                 if !isSilenceGated {
-                    processor.resetRenderState()
+                    eqc_reset_render_state(core)
                     isSilenceGated = true
                 }
                 zero(outputList)
@@ -671,7 +672,7 @@ final class ProcessTapEngine {
             }
         }
 
-        processor.process(channels: activeChannels, frameCount: frameCount)
+        eqc_process(core, channelPointers, Int32(tapChannels), Int32(frameCount))
         framesProcessed &+= UInt64(frameCount)
 
         // Tap channel n goes to device channel n, counted across the output buffers: the tap has
