@@ -36,8 +36,30 @@ sudo Driver/dev-uninstall.sh
 At first load the target is the default output if it is a real device, else the first external
 output, else the built-in one. The device hides while its target has been gone for 3 s.
 
-If it misbehaves: `sudo touch /Library/Audio/Plug-Ins/HAL/EQDriver.driver/Contents/Resources/disabled && sudo killall coreaudiod`
-leaves it hidden and idle; `sudo Driver/dev-uninstall.sh` removes it.
+## Recovery
+
+If sound stops or apps hang on audio after the install, in order, stopping at the first step that
+brings sound back:
+
+1. Restart the audio server: `sudo killall coreaudiod`. launchd starts it again within a second.
+2. If it is still hung (the command returns but nothing plays, or `coreaudiod` does not come back),
+   force it and the plug-in's helper process, which coreaudiod runs out of process:
+
+   ```sh
+   sudo killall -9 coreaudiod
+   sudo pkill -9 -f 'Core Audio Driver \(EQDriver'
+   ```
+3. Keep the plug-in from doing anything on the next load: the kill file leaves the device hidden,
+   unable to be the default, and without IO.
+
+   ```sh
+   sudo touch /Library/Audio/Plug-Ins/HAL/EQDriver.driver/Contents/Resources/disabled
+   sudo killall coreaudiod
+   ```
+4. Remove it: `sudo Driver/dev-uninstall.sh` (deletes the bundle and restarts coreaudiod). Without
+   the repository at hand: `sudo rm -rf /Library/Audio/Plug-Ins/HAL/EQDriver.driver && sudo killall coreaudiod`.
+
+`log stream --predicate 'subsystem == "com.servitola.eq.driver"'` shows what the plug-in logged.
 
 ## Custom properties
 
