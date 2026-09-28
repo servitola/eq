@@ -224,6 +224,8 @@ struct Config: Codable, Equatable {
     var devices: [String: Profile]
     // nil, not empty, means "never seeded": a user who deleted every preset keeps none.
     var presets: [String: Profile]? = nil
+    /// Shell commands the daemon runs on a change, by name: `device`, `preset`. Unknown names are logged and ignored.
+    var hooks: [String: String]? = nil
 
     static let presetNameLength = 1...32
     private static let presetNameCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))

@@ -124,4 +124,17 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(bands[10].type, .highShelf)
         XCTAssertEqual(bands[10].frequency, 10000)
     }
+
+    func testHooksAreOptionalAndRoundTrip() throws {
+        let initial = Config.initial(builtInUID: nil, builtInName: nil)
+        XCTAssertNil(initial.hooks)
+        let encoded = String(decoding: try JSONEncoder().encode(initial), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("hooks"), "a config without hooks writes no key")
+
+        var withHooks = initial
+        withHooks.hooks = ["device": "echo \"$EQ_DEVICE\"", "volume": "true"]
+        let decoded = try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(withHooks))
+        XCTAssertEqual(decoded.hooks, withHooks.hooks, "an unknown hook name is kept in the file, only the daemon ignores it")
+        XCTAssertNoThrow(try decoded.validate())
+    }
 }

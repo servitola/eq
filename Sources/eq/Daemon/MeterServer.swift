@@ -1,7 +1,8 @@
 import Foundation
 
-/// JSON-lines meter feed on a Unix socket; clients may send back newline-delimited requests. Every source, timer and fd is touched only on `queue`,
-/// except `start()`, which runs before any source is resumed.
+/// JSON-lines meter feed on a Unix socket; clients may send back newline-delimited requests. A client
+/// that writes `{"subscribe":"events"}` gets state-change events instead of frames. Every source, timer
+/// and fd is touched only on `queue`, except `start()`, which runs before any source is resumed.
 final class MeterServer {
     enum Failure: Error { case pathTooLong(String), posix(String, Int32) }
 
@@ -13,6 +14,9 @@ final class MeterServer {
     // Returns whether the range was accepted; nil clears. The sender of an accepted range owns it;
     // only the owner can clear it, by `null`, by a range the daemon refuses, or by disconnecting.
     private let onSolo: (SoloRange?) -> Bool
+    // The first line an events client reads: the daemon's state now, which also tells it this
+    // daemon speaks events at all.
+    private let hello: () -> DaemonEvent
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private var acceptPaused = false
@@ -27,6 +31,10 @@ final class MeterServer {
     // Clients whose current line already overflowed; bytes are skipped up to its newline.
     private var discarding: Set<Int32> = []
     private var soloOwner: Int32?
+    // A new client is neither kind until it subscribes or one tick passes; an events client
+    // writes its line right after connecting, so it never counts as a meter client.
+    private var undecided: Set<Int32> = []
+    private var subscribers: Set<Int32> = []
 
     static let maxRequestLine = 1024
     static let maxClients = 8
@@ -40,17 +48,20 @@ final class MeterServer {
         range.low.isFinite && range.high.isFinite && range.low >= 0 && range.low < range.high && range.high <= maxSoloHz
     }
 
+    /// Meter clients only: the count that decides whether frames are computed at all.
     private(set) var clients = 0
 
     init(socketURL: URL, queue: DispatchQueue, tick: TimeInterval = 1.0 / 30,
          source: @escaping () -> MeterFrame, onClientsChanged: @escaping (Int) -> Void,
-         onSolo: @escaping (SoloRange?) -> Bool = { _ in false }) {
+         onSolo: @escaping (SoloRange?) -> Bool = { _ in false },
+         hello: @escaping () -> DaemonEvent = { .daemon(state: .running, version: Build.version, error: nil) }) {
         self.socketURL = socketURL
         self.queue = queue
         self.tick = tick
         self.source = source
         self.onClientsChanged = onClientsChanged
         self.onSolo = onSolo
+        self.hello = hello
     }
 
     func start() throws {
@@ -121,8 +132,17 @@ final class MeterServer {
             reads.setCancelHandler { close(fd) }
             reads.resume()
             readSources[fd] = reads
-            clientsChanged()
+            undecided.insert(fd)
+            queue.asyncAfter(deadline: .now() + tick) { [weak self] in self?.decide(fd) }
         }
+    }
+
+    private func decide(_ fd: Int32) {
+        guard undecided.contains(fd) else { return }
+        // A subscribe line already in the socket buffer wins over the timer that fired first.
+        drain(fd)
+        guard undecided.remove(fd) != nil else { return }
+        clientsChanged()
     }
 
     /// The pending connection stays readable, so without a pause the accept source would spin
@@ -174,12 +194,21 @@ final class MeterServer {
     }
 
     private func handle(_ line: [UInt8], from fd: Int32) {
-        guard line.count <= Self.maxRequestLine,
-              let request = try? JSONDecoder().decode(SoloRequest.self, from: Data(line)),
+        guard line.count <= Self.maxRequestLine else {
+            badRequest(from: fd)
+            return
+        }
+        if let subscribe = try? JSONDecoder().decode(SubscribeRequest.self, from: Data(line)), subscribe.subscribe == "events" {
+            self.subscribe(fd)
+            return
+        }
+        guard let request = try? JSONDecoder().decode(SoloRequest.self, from: Data(line)),
               request.solo.map(Self.isValid) ?? true else {
             badRequest(from: fd)
             return
         }
+        // Only a meter client asks for a solo; no need to wait out the tick to know it.
+        if undecided.remove(fd) != nil { clientsChanged() }
         if let range = request.solo {
             if onSolo(range) {
                 soloOwner = fd
@@ -189,6 +218,31 @@ final class MeterServer {
             }
         } else if soloOwner == fd {
             clearSolo()
+        }
+    }
+
+    private func subscribe(_ fd: Int32) {
+        guard subscribers.insert(fd).inserted else { return }
+        if undecided.remove(fd) == nil { clientsChanged() }
+        send(hello(), to: [fd])
+    }
+
+    /// Only to clients that subscribed; meter clients never see an event line.
+    func publish(_ event: DaemonEvent) {
+        guard !subscribers.isEmpty else { return }
+        send(event, to: Array(subscribers))
+    }
+
+    private func send(_ event: DaemonEvent, to fds: [Int32]) {
+        guard let line = try? DaemonEvent.encodeLine(event) else {
+            Log.write("meter: event \(event.kind) not encodable")
+            return
+        }
+        for fd in fds {
+            let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+            // Unlike a skipped frame, a skipped event is a state the client never learns; a reader
+            // that far behind is dropped and sees EOF instead.
+            if written != line.count { drop(fd, notify: true) }
         }
     }
 
@@ -209,14 +263,18 @@ final class MeterServer {
         pendingInput.removeValue(forKey: fd)
         discarding.remove(fd)
         loggedBadRequest.remove(fd)
+        undecided.remove(fd)
+        subscribers.remove(fd)
         didLogFull = false
         // Cleared before the fd number can be reused by the next accept.
         if soloOwner == fd { clearSolo() }
-        if notify { clientsChanged() } else { clients = clientFDs.count }
+        if notify { clientsChanged() } else { clients = clientFDs.count - undecided.count - subscribers.count }
     }
 
     private func clientsChanged() {
-        clients = clientFDs.count
+        let meters = clientFDs.count - undecided.count - subscribers.count
+        guard meters != clients else { return }
+        clients = meters
         if clients > 0, timer == nil {
             let t = DispatchSource.makeTimerSource(queue: queue)
             t.schedule(deadline: .now() + tick, repeating: tick, leeway: .milliseconds(2))
@@ -241,7 +299,7 @@ final class MeterServer {
             }
             return
         }
-        for fd in clientFDs {
+        for fd in clientFDs where !undecided.contains(fd) && !subscribers.contains(fd) {
             let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
             if written < 0 {
                 // EAGAIN: a slow reader's buffer is full; skipping one frame beats blocking the daemon.
@@ -267,4 +325,8 @@ private struct SoloRequest: Decodable {
         }
         solo = try c.decodeIfPresent(SoloRange.self, forKey: .solo)
     }
+}
+
+private struct SubscribeRequest: Decodable {
+    let subscribe: String
 }

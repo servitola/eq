@@ -89,6 +89,8 @@ extension CLIError {
         case .daemonNotRunning: return "daemonNotRunning"
         case .noMeter: return "noMeter"
         case .daemonClosedMeter: return "daemonClosedMeter"
+        case .noEvents: return "noEvents"
+        case .daemonClosedEvents: return "daemonClosedEvents"
         case .importUnrecognized: return "importUnrecognized"
         case .importNotFound: return "importNotFound"
         case .importAmbiguous: return "importAmbiguous"

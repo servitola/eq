@@ -15,6 +15,16 @@ its entries under a dated version.
   `boost:` line when any is set.
 - `eq watch`: `→`/`←` (or `.`/`,`, `ю`/`б`) turn the focused instrument's knob by 0.5 dB; the
   header shows it, and the focus bracket draws the character range bright.
+- `eq events` prints the daemon's state changes as JSON lines until Ctrl-C: `device`, `rate`,
+  `profile` (curve, preset or knob), `enabled`, `solo` and `daemon`, each with `t`. The first
+  line is the daemon's state now. Events ride the meter socket for clients that write
+  `{"subscribe":"events"}`, which never start the meter; `eq stream` and `eq watch` are
+  unchanged. It exits 1 when the daemon is not running or predates events.
+- Hooks: `"hooks": {"device": "…", "preset": "…"}` in `eq.json` runs a shell command when the
+  output or its rate changes, or when the preset does, once per burst, with `EQ_DEVICE`,
+  `EQ_PRESET` and `EQ_RATE` set. A hook is killed after 10 s, its output (up to 4 KB) goes to
+  the log, and it never affects the audio. `eq doctor` warns about a hook whose program is a
+  missing or non-executable absolute path.
 
 ### Changed
 

@@ -237,6 +237,94 @@ final class MeterServerTests: XCTestCase {
         XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == MeterServer.maxClients })
     }
 
+    private func readLines(_ fd: Int32, count: Int, within timeout: TimeInterval) -> [String] {
+        var received = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline, received.filter({ $0 == UInt8(ascii: "\n") }).count < count {
+            let n = read(fd, &buffer, buffer.count)
+            if n > 0 { received.append(contentsOf: buffer[0..<n]) }
+        }
+        return received.split(separator: UInt8(ascii: "\n")).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    private func kind(_ line: String) -> String? {
+        ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["event"] as? String
+    }
+
+    func testSubscribingNeitherMetersNorTicks() throws {
+        var frames = 0
+        let server = MeterServer(socketURL: socketURL, queue: queue, tick: 0.01,
+                                 source: { frames += 1; return MeterFrameTests.sample },
+                                 onClientsChanged: { [weak self] n in
+                                     self?.changesLock.lock(); self?.changes.append(n); self?.changesLock.unlock()
+                                 },
+                                 hello: { .daemon(state: .bypassed, version: "9", error: nil) })
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        defer { close(fd) }
+        send(fd, "{\"subscribe\":\"events\"}\n")
+        let hello = readLines(fd, count: 1, within: 0.3)
+        XCTAssertEqual(hello.count, 1)
+        XCTAssertTrue(hello[0].contains(#""state":"bypassed""#), hello[0])
+        usleep(100_000)
+        queue.sync { server.publish(.enabled(false)) }
+        let lines = readLines(fd, count: 1, within: 0.3)
+        XCTAssertEqual(lines.map(kind), ["enabled"], "\(lines)")
+        XCTAssertEqual(queue.sync { frames }, 0, "no frame was ever computed")
+        XCTAssertEqual(queue.sync { server.clients }, 0)
+        XCTAssertEqual(observedChanges(), [], "metering never switched on")
+    }
+
+    func testMeterAndEventClientsEachGetOnlyTheirOwnLines() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let meter = try connect()
+        defer { close(meter) }
+        let events = try connect()
+        send(events, "{\"subscribe\":\"events\"}\n")
+        XCTAssertEqual(readLines(events, count: 1, within: 0.3).map(kind), ["daemon"])
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == 1 })
+        queue.sync { server.publish(.solo(nil)) }
+        XCTAssertEqual(readLines(events, count: 1, within: 0.3).map(kind), ["solo"])
+        let frames = readLines(meter, count: 5, within: 0.5)
+        XCTAssertGreaterThanOrEqual(frames.count, 5)
+        XCTAssertTrue(frames.allSatisfy { kind($0) == nil && $0.contains("\"peak\"") }, "\(frames)")
+        close(events)
+        usleep(50_000)
+        XCTAssertEqual(observedChanges(), [1], "an events client coming and going never touches the meter count")
+    }
+
+    func testEventClientsCountTowardsTheCap() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let kept = try (0..<MeterServer.maxClients).map { _ in try connect() }
+        defer { kept.forEach { close($0) } }
+        for fd in kept { send(fd, "{\"subscribe\":\"events\"}\n") }
+        for fd in kept { XCTAssertEqual(readLines(fd, count: 1, within: 0.3).map(kind), ["daemon"]) }
+        let extra = try connect()
+        defer { close(extra) }
+        var byte: UInt8 = 0
+        var closed = false
+        let deadline = Date().addingTimeInterval(0.5)
+        while Date() < deadline, !closed { closed = read(extra, &byte, 1) == 0 }
+        XCTAssertTrue(closed, "the ninth client gets EOF")
+    }
+
+    func testSubscribeWithAnotherTopicIsMalformed() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let fd = try connect()
+        defer { close(fd) }
+        send(fd, "{\"subscribe\":\"volume\"}\n")
+        let lines = readLines(fd, count: 2, within: 0.3)
+        XCTAssertTrue(lines.count >= 2 && lines.allSatisfy { kind($0) == nil }, "still a meter client: \(lines)")
+    }
+
     func testStalePathIsReplaced() throws {
         try Data("stale".utf8).write(to: socketURL)
         let server = makeServer()

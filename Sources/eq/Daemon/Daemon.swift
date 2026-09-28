@@ -117,10 +117,13 @@ final class Daemon {
     private var tapSilence = TapSilence()
     private var filterWarnings: [String] = []
     private var loggedFilterWarnings: Set<String> = []
+    private let hooks: Hooks
+    private lazy var events = EventTracker(enabled: config.enabled, hooks: hooks) { [weak self] in self?.meterServer?.publish($0) }
 
-    init(store: ConfigStore, statusURL: URL) {
+    init(store: ConfigStore, statusURL: URL, runHook: @escaping (HookRun) -> Void = HookRunner.live()) {
         self.store = store
         self.statusURL = statusURL
+        hooks = Hooks(queue: queue, run: runHook)
         let builtIn = AudioDeviceManager.builtInOutputDevice()
         do {
             config = try store.loadOrCreate(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
@@ -137,6 +140,7 @@ final class Daemon {
             config = Config.initial(builtInUID: builtIn?.uid, builtInName: builtIn?.name)
             configError = "config rejected, using the built-in curve: \(error)"
         }
+        hooks.configure(config.hooks)
     }
 
     func run() -> Never {
@@ -199,7 +203,8 @@ final class Daemon {
                 processor.meteringEnabled = n > 0
                 Log.write("meter: \(n) client\(n == 1 ? "" : "s")")
             },
-            onSolo: { [unowned self] range in self.setSolo(range) })
+            onSolo: { [unowned self] range in self.setSolo(range) },
+            hello: { [unowned self] in self.events.current })
         do {
             try server.start()
             meterServer = server
@@ -214,11 +219,13 @@ final class Daemon {
             if solo != nil { logSolo("solo off") }
             solo = nil
             processor.clearSolo()
+            events.solo(nil)
             return true
         }
         guard processor.setSolo(low: range.low, high: range.high), let effective = processor.effectiveSolo else { return false }
         if solo != range { logSolo(String(format: "solo %.0f–%.0f Hz", effective.low, effective.high)) }
         solo = range
+        events.solo(effective)
         return true
     }
 
@@ -372,6 +379,10 @@ final class Daemon {
         for name in resolved.profile.unknownInstruments where loggedFilterWarnings.insert("\(device.uid) instrument \(name)").inserted {
             Log.write("profile \"\(profileName)\": no instrument \"\(name)\" — its boost is ignored")
         }
+        if engine.state == .running {
+            events.applied(device: Status.Device(uid: device.uid, name: device.name, transport: device.transportName),
+                           rate: engine.processor.sampleRate, profile: resolved.profile, source: resolved.source)
+        }
         // Read-modify-write from disk so a CLI edit not yet reloaded is not reverted, and skipped
         // while the file is rejected so a half-fixed hand edit survives. `config` is deliberately
         // left alone: the save wakes the watcher, whose reload then applies that pending edit too.
@@ -480,6 +491,8 @@ final class Daemon {
             }
             let enabledChanged = fresh.enabled != config.enabled
             config = fresh
+            hooks.configure(config.hooks)
+            events.enabled(config.enabled)
             applyProfile()
             if enabledChanged, state == .running || state == .bypassed {
                 setState(config.enabled ? .running : .bypassed, error: nil)
@@ -500,6 +513,7 @@ final class Daemon {
         state = new
         lastError = error
         Log.write("state → \(new.rawValue)\(error.map { ": \($0)" } ?? "")")
+        events.state(new, error: error)
         writeStatus()
     }
 
