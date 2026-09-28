@@ -345,6 +345,40 @@ final class APOFormatTests: XCTestCase {
         XCTAssertEqual(r.warnings, ["f4.txt line 2: not following Include: f5.txt, includes nest deeper than 4"])
     }
 
+    func testRelativeIncludeStaysInsideTheImportedFilesFolder() throws {
+        let root = try tree([
+            "outside.txt": "Filter: ON PK Fc 500 Hz Gain 5 dB Q 1",
+            "config/main.txt": "Include: ../outside.txt\nInclude: link.txt\nInclude: sub/../inside.txt\nFilter: ON PK Fc 1000 Hz Gain 1 dB Q 1",
+            "config/inside.txt": "Filter: ON PK Fc 2000 Hz Gain 2 dB Q 1",
+        ])
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("config/link.txt"),
+                                                   withDestinationURL: root.appendingPathComponent("outside.txt"))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("config/sub"), withIntermediateDirectories: true)
+        let r = try parseFile(root.appendingPathComponent("config/main.txt"))
+        XCTAssertEqual(r.filters.map(\.frequency), [2000, 1000])
+        XCTAssertEqual(r.warnings, [
+            "line 1: not following Include: ../outside.txt, it leads outside the imported file's folder",
+            "line 2: not following Include: link.txt, it leads outside the imported file's folder",
+        ])
+    }
+
+    func testAbsoluteIncludeIsFollowedOnlyToARegularFileOfSaneSize() throws {
+        let root = try tree([
+            "shared/eq.txt": "Filter: ON PK Fc 500 Hz Gain 5 dB Q 1",
+            "big.txt": String(repeating: "# padding\n", count: APOFormat.maxIncludeBytes / 10 + 1),
+        ])
+        let absolute = root.appendingPathComponent("shared/eq.txt").path
+        let big = root.appendingPathComponent("big.txt").path
+        let main = root.appendingPathComponent("config/main.txt")
+        try FileManager.default.createDirectory(at: main.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Include: \(absolute)\nInclude: /dev/zero\nInclude: \(big)\nFilter: ON PK Fc 1000 Hz Gain 1 dB Q 1".write(to: main, atomically: true, encoding: .utf8)
+        let r = try parseFile(main)
+        XCTAssertEqual(r.filters.map(\.frequency), [500, 1000])
+        XCTAssertEqual(r.warnings.count, 2, "\(r.warnings)")
+        XCTAssertTrue(r.warnings[0].hasPrefix("line 2: not following Include: /dev/zero, ") && r.warnings[0].hasSuffix("is not a regular file"), r.warnings[0])
+        XCTAssertTrue(r.warnings[1].hasSuffix("is larger than 1 MB"), r.warnings[1])
+    }
+
     func testIncludeFanOutIsLimited() throws {
         let includes = Array(repeating: "Include: leaf.txt", count: APOFormat.maxIncludedFiles + 1).joined(separator: "\n")
         let root = try tree(["main.txt": includes, "leaf.txt": "Filter: ON PK Fc 1000 Hz Gain 1 dB Q 1"])

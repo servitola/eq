@@ -35,6 +35,8 @@ its entries under a dated version.
   instead of being imported and refused later or dropped without a word; a total preamp
   outside −30…12 dB refuses the import with that reason. GraphicEQ gains beyond ±12 dB say
   they were limited.
+- A relative `Include:` no longer leaves the imported file's folder, and only a regular file of
+  up to 1 MB is included, so a downloaded config cannot point eq at `/dev/zero` or out of its folder.
 
 ## 2026.09.27.9 — 2026-09-27
 

@@ -397,7 +397,9 @@ backend of its own site, with no stated terms.
 left channel and warns when the right one differs; filters only for other channels (`C`,
 `LFE`, …) are skipped with a count. `Include:` is followed from a file, relative to the file
 that names it, at most four levels deep, never in a circle, and never from a URL or a
-headphone name. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`/`Else:`, `Delay:` and
+headphone name. A relative path must stay inside the imported file's folder (`..` or a symlink
+leading out of it is refused), so a downloaded config cannot reach into the rest of your home
+folder; an absolute path is followed as written. Only a regular file up to 1 MB is read. `Device:`, `Copy:`, `Stage:`, `Eval:`, `If:`/`Else:`, `Delay:` and
 `Convolution:` have no meaning for eq; each is named once in a warning and the filters around
 it are imported. All-pass and `IIR` filters are skipped with a warning.
 

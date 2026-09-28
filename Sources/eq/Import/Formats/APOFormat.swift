@@ -9,6 +9,8 @@ enum APOFormat: EQFormat {
     static let maxIncludeDepth = 4
     // Depth alone still lets a file include another one hundreds of times over.
     static let maxIncludedFiles = 64
+    // A config is a few kilobytes; the cap keeps a device file or a FIFO from being read forever.
+    static let maxIncludeBytes = 1 << 20
 
     static func sniff(_ data: Data, filename: String?) -> Bool {
         guard let text = ImportText.decode(data) else { return false }
@@ -27,6 +29,7 @@ enum APOFormat: EQFormat {
         guard let text = ImportText.decode(data) else { throw ImportError.unrecognized }
         var parser = Parser()
         let root = context.file.map { $0.absoluteURL.standardizedFileURL.resolvingSymlinksInPath() }
+        parser.folder = root?.deletingLastPathComponent().path
         parser.read(text, file: root, label: nil, depth: 0)
         return try parser.finish(isREW: text.contains("Room EQ") || text.contains("Filter Settings file"))
     }
@@ -302,6 +305,9 @@ enum APOFormat: EQFormat {
         var stack: [String] = []
         var includedFiles = 0
         var places: [String] = []
+        /// The imported file's folder. A relative `Include:` in a downloaded config stays inside it;
+        /// an absolute path is the file's author naming the file outright, as APO allows.
+        var folder: String?
 
         static let ignored: [String: String] = [
             "device": "Device: ignored, every filter is imported whatever device it names",
@@ -374,7 +380,17 @@ enum APOFormat: EQFormat {
             }
             let target = URL(fileURLWithPath: path, relativeTo: file.deletingLastPathComponent())
                 .absoluteURL.standardizedFileURL.resolvingSymlinksInPath()
+            if !path.hasPrefix("/"), let folder, target.path != folder, !target.path.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") {
+                warn(place, "not following Include: \(path), it leads outside the imported file's folder"); return
+            }
             guard !stack.contains(target.path) else { warn(place, "not following Include: \(path), it includes itself"); return }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: target.path)
+            if let attributes, attributes[.type] as? FileAttributeType != .typeRegular {
+                warn(place, "not following Include: \(path), \(target.path) is not a regular file"); return
+            }
+            if let size = attributes?[.size] as? Int, size > maxIncludeBytes {
+                warn(place, "not following Include: \(path), \(target.path) is larger than \(maxIncludeBytes >> 20) MB"); return
+            }
             guard let data = try? Data(contentsOf: target), let text = ImportText.decode(data) else {
                 warn(place, "not following Include: \(path), cannot read \(target.path)"); return
             }
