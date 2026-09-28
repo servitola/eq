@@ -97,6 +97,7 @@ final class AppFollower {
     typealias NowPlaying = (@escaping (String?) -> Void) -> Void
 
     static let debounce: TimeInterval = 1
+    static let retryDelay: TimeInterval = 30
 
     private let source: AudioProcessSource
     private let identify: (AudioProcess) -> PlayingApp?
@@ -105,6 +106,7 @@ final class AppFollower {
     private let excluding: pid_t
     private let onChange: (_ new: AppMatch?, _ previous: AppMatch?) -> Void
     private lazy var quiet = Debouncer(delay: Self.debounce, schedule: schedule) { [weak self] in self?.evaluate() }
+    private lazy var retry = Debouncer(delay: Self.retryDelay, schedule: schedule) { [weak self] in self?.retryListening() }
     private let schedule: Debouncer.Schedule
     private var rules: [AppRule] = []
     private var config: Config?
@@ -144,8 +146,10 @@ final class AppFollower {
         }
         if !enabled {
             enabled = true
-            listening = source.start { [weak self] in self?.quiet.trigger() }
-            if !listening { Log.write("apps: cannot listen for playing apps") }
+            listen()
+            if !listening { Log.write("apps: cannot listen for playing apps — retrying every \(Int(Self.retryDelay)) s") }
+        } else if !listening {
+            listen()
         }
         // `eq preset rename` renames the rules along with the preset, so the overlay's rule names
         // the new one; a removed preset leaves the rule matching nothing. Either way it is settled
@@ -165,12 +169,26 @@ final class AppFollower {
         return overlay
     }
 
+    private func listen() {
+        listening = source.start { [weak self] in self?.quiet.trigger() }
+        if !listening { retry.trigger() }
+    }
+
+    private func retryListening() {
+        guard enabled, !listening else { return }
+        listen()
+        guard listening else { return }
+        Log.write("apps: listening for playing apps")
+        quiet.trigger()
+    }
+
     private func stop() {
         guard enabled else { return }
         enabled = false
         if listening { source.stop() }
         listening = false
         quiet.cancel()
+        retry.cancel()
         generation += 1
         held = nil
         let previous = overlay

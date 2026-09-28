@@ -328,6 +328,36 @@ final class AppFollowerTests: XCTestCase {
         XCTAssertEqual(changes.count, 2)
     }
 
+    func testAFailedStartIsRetriedOnTheNextReloadAndOnATimer() {
+        source.refuses = true
+        follower.configure(config())
+        XCTAssertEqual(follower.status?.listening, false)
+        follower.configure(config())
+        XCTAssertEqual(source.starts, 2, "a reload tries again")
+        settle()
+        XCTAssertEqual(source.starts, 3, "and so does the wait")
+        source.refuses = false
+        settle()
+        XCTAssertEqual(source.starts, 4)
+        XCTAssertEqual(follower.status?.listening, true)
+        source.play(1, "com.spotify.client")
+        settle()
+        XCTAssertEqual(follower.overlay, spotifyMatch)
+        XCTAssertEqual(source.starts, 4, "no retry once listening")
+        follower.configure(config())
+        XCTAssertEqual(source.starts, 4)
+    }
+
+    func testTurningOffStopsTheRetry() {
+        source.refuses = true
+        follower.configure(config())
+        follower.configure(config(on: false))
+        source.refuses = false
+        settle()
+        XCTAssertEqual(source.starts, 1)
+        XCTAssertNil(follower.status)
+    }
+
     func testARuleChangeTakesEffectAndAListenerFailureIsReported() {
         follower.configure(config())
         source.play(1, "com.spotify.client")
