@@ -104,4 +104,24 @@ final class HookRunnerTests: XCTestCase {
         XCTAssertTrue(result.timedOut)
         XCTAssertEqual(result.output, "got-term\n")
     }
+
+    func testRunsQueuedBehindABusyHookCoalescePerName() {
+        let logged = expectation(description: "logged")
+        logged.expectedFulfillmentCount = 3
+        let lock = NSLock()
+        var lines: [String] = []
+        let run = HookRunner.live { line in
+            lock.lock(); lines.append(line); lock.unlock()
+            logged.fulfill()
+        }
+        run(HookRun(name: "busy", command: "sleep 0.3; echo busy", environment: [:]))
+        for rate in ["44100", "48000", "96000"] {
+            run(HookRun(name: "device", command: "echo \"$EQ_RATE\"", environment: ["EQ_RATE": rate]))
+        }
+        run(HookRun(name: "preset", command: "echo preset", environment: [:]))
+        wait(for: [logged], timeout: 5)
+        Thread.sleep(forTimeInterval: 0.2)
+        lock.lock(); defer { lock.unlock() }
+        XCTAssertEqual(lines, ["hook busy: ok: busy", "hook device: ok: 96000", "hook preset: ok: preset"])
+    }
 }
