@@ -130,6 +130,7 @@ final class ProcessTapEngine {
     private(set) var signalCallbacks: UInt64 = 0
     private(set) var latencyMs: Double?
     private(set) var deviceLatencyMs: Double?
+    var driftCompensation = true
     private var ioDelayTicks: UInt64 = 0
     private var ioDelayFrames: Double = 0
     /// The first sample after silence, as the tap stamped it and as eq sends it on: a click played
@@ -236,7 +237,7 @@ final class ProcessTapEngine {
             kAudioAggregateDeviceTapListKey: [
                 [
                     kAudioSubTapUIDKey: description.uuid.uuidString,
-                    kAudioSubTapDriftCompensationKey: true,
+                    kAudioSubTapDriftCompensationKey: driftCompensation,
                 ]
             ],
             kAudioAggregateDeviceTapAutoStartKey: true,
@@ -309,7 +310,7 @@ final class ProcessTapEngine {
         )
         latencyMs = path.milliseconds(sampleRate: sampleRate)
         deviceLatencyMs = path.deviceMilliseconds(sampleRate: sampleRate)
-        Log.write("path latency frames: \(path)")
+        Log.write("path latency frames: \(path), drift compensation \(driftCompensation)")
         installSampleRateListener(on: deviceID)
         transition(to: .running)
     }

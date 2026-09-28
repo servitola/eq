@@ -80,6 +80,14 @@ enum DaemonPolicy {
         guard let raw = env["EQ_IO_FRAMES"], let frames = Int(raw), (64...4096).contains(frames) else { return nil }
         return frames
     }
+
+    static func driftCompensation(from env: [String: String]) -> Bool? {
+        switch env["EQ_DRIFT_COMPENSATION"] {
+        case "1": return true
+        case "0": return false
+        default: return nil
+        }
+    }
 }
 
 final class Daemon {
@@ -163,6 +171,12 @@ final class Daemon {
             Log.write("IO buffer requested: \(frames) frames")
         } else if let raw = env["EQ_IO_FRAMES"] {
             Log.write("EQ_IO_FRAMES ignored: \(raw)")
+        }
+        if let drift = DaemonPolicy.driftCompensation(from: env) {
+            engine.driftCompensation = drift
+            Log.write("tap drift compensation: \(drift)")
+        } else if let raw = env["EQ_DRIFT_COMPENSATION"] {
+            Log.write("EQ_DRIFT_COMPENSATION ignored: \(raw)")
         }
         writeStatus()
         AudioDeviceManager.destroyStaleAggregates()

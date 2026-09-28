@@ -46,6 +46,14 @@ final class DaemonPolicyTests: XCTestCase {
         XCTAssertNil(DaemonPolicy.ioFrames(from: [:]))
     }
 
+    func testDriftCompensationEnv() {
+        XCTAssertEqual(DaemonPolicy.driftCompensation(from: ["EQ_DRIFT_COMPENSATION": "0"]), false)
+        XCTAssertEqual(DaemonPolicy.driftCompensation(from: ["EQ_DRIFT_COMPENSATION": "1"]), true)
+        XCTAssertNil(DaemonPolicy.driftCompensation(from: ["EQ_DRIFT_COMPENSATION": "yes"]))
+        XCTAssertNil(DaemonPolicy.driftCompensation(from: [:]))
+        XCTAssertTrue(ProcessTapEngine().driftCompensation)
+    }
+
     func testRateZeroIsSkippedAndAnyRealChangeRebuilds() {
         XCTAssertFalse(DaemonPolicy.shouldRebuildForRate(old: 48000, new: 0))
         XCTAssertFalse(DaemonPolicy.shouldRebuildForRate(old: 48000, new: 48000))
