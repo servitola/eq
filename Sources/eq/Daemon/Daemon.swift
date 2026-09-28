@@ -150,6 +150,7 @@ final class Daemon {
         }
         // A status file carrying `version` tells doctor SIGUSR1 is safe; the handler must exist before that file does.
         installSignalHandlers()
+        Self.ignoreBrokenPipes()
         startMeterServer()
         let env = ProcessInfo.processInfo.environment
         if let frames = DaemonPolicy.ioFrames(from: env) {
@@ -168,6 +169,11 @@ final class Daemon {
         rebuild(attempt: 1)
         RunLoop.main.run()
         exit(0)
+    }
+
+    /// Every client socket also sets SO_NOSIGPIPE; this covers one where that failed or was never set.
+    static func ignoreBrokenPipes() {
+        signal(SIGPIPE, SIG_IGN)
     }
 
     private func installSignalHandlers() {

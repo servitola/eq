@@ -325,6 +325,33 @@ final class MeterServerTests: XCTestCase {
         XCTAssertTrue(lines.count >= 2 && lines.allSatisfy { kind($0) == nil }, "still a meter client: \(lines)")
     }
 
+    /// The peer is gone before its connection is accepted: SO_NOSIGPIPE then fails with EINVAL,
+    /// so the hello write would raise SIGPIPE and kill the whole test process.
+    func testAClientGoneBeforeItsAcceptDoesNotKillTheProcess() throws {
+        let previous = signal(SIGPIPE, SIG_DFL)
+        defer { signal(SIGPIPE, previous) }
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        queue.suspend()
+        let gone = try connect()
+        send(gone, "{\"subscribe\":\"events\"}\n{\"solo\":{\"low\":300,\"high\":2800}}\n")
+        close(gone)
+        queue.resume()
+        let next = try connect()
+        defer { close(next) }
+        send(next, "{\"subscribe\":\"events\"}\n")
+        XCTAssertEqual(readLines(next, count: 1, within: 0.3).map(kind), ["daemon"])
+        XCTAssertEqual(observedSolos(), [], "a request from a peer already gone is never acted on")
+    }
+
+    func testTheDaemonIgnoresSIGPIPE() {
+        let previous = signal(SIGPIPE, SIG_DFL)
+        defer { signal(SIGPIPE, previous) }
+        Daemon.ignoreBrokenPipes()
+        XCTAssertEqual(signal(SIGPIPE, SIG_DFL).map { unsafeBitCast($0, to: Int.self) }, unsafeBitCast(SIG_IGN, to: Int.self))
+    }
+
     func testStalePathIsReplaced() throws {
         try Data("stale".utf8).write(to: socketURL)
         let server = makeServer()

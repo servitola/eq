@@ -123,7 +123,12 @@ final class MeterServer {
                 continue
             }
             var on: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            // macOS refuses the option with EINVAL once the peer has hung up; the first write to such
+            // a socket would raise SIGPIPE, so a client gone before its accept is simply closed.
+            guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+                close(fd)
+                continue
+            }
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
             clientFDs.append(fd)
             // Readable is also how a silent disconnect (EOF) is noticed before the next write fails.
