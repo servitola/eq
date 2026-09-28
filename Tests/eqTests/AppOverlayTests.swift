@@ -43,6 +43,23 @@ final class AppOverlayTests: XCTestCase {
         XCTAssertFalse(AppOverlay.edited(old, defaultTuned, uid: "BUILTIN"))
     }
 
+    func testRenamingOrRemovingTheDevicesPresetIsNoEdit() {
+        var old = config
+        old.devices["BUILTIN"]?.preset = "favourite"
+        old.devices["BUILTIN"]?.imported = "Sennheiser HD 600"
+        var renamed = old
+        renamed.devices["BUILTIN"]?.preset = "fav"
+        XCTAssertFalse(AppOverlay.edited(old, renamed, uid: "BUILTIN"))
+        var removed = old
+        removed.devices["BUILTIN"]?.preset = nil
+        removed.devices["BUILTIN"]?.imported = nil
+        XCTAssertFalse(AppOverlay.edited(old, removed, uid: "BUILTIN"))
+        var used = old
+        used.devices["BUILTIN"]?.preset = "voice"
+        used.devices["BUILTIN"]?.bands[0] = 4
+        XCTAssertTrue(AppOverlay.edited(old, used, uid: "BUILTIN"), "another preset's curve is still an edit")
+    }
+
     func testTheOverlayNeverReachesTheConfigFileOrItsHistory() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-overlay-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

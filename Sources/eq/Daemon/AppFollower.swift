@@ -213,13 +213,17 @@ enum AppOverlay {
         return profile
     }
 
-    /// A change someone made to the curve `uid` plays; the daemon's own rename of the device is none.
+    /// A change someone made to the curve `uid` plays. Labels are none: the daemon renames the
+    /// device, and `eq preset rename` or `rm` relabel the curve without changing what it sounds like.
     static func edited(_ old: Config, _ new: Config, uid: String) -> Bool {
-        var before = old.profile(forDeviceUID: uid).profile
-        var after = new.profile(forDeviceUID: uid).profile
-        before.name = nil
-        after.name = nil
-        return before != after
+        func curve(_ config: Config) -> Profile {
+            var profile = config.profile(forDeviceUID: uid).profile
+            profile.name = nil
+            profile.preset = nil
+            profile.imported = nil
+            return profile
+        }
+        return curve(old) != curve(new)
     }
 }
 
