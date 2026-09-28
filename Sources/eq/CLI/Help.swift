@@ -1,7 +1,7 @@
 import Foundation
 
 struct CommandHelp {
-    enum Group: String, CaseIterable { case look, tune, setup }
+    enum Group: String, CaseIterable { case look, tune, device, preset, filter, `import`, setup }
 
     enum Token: Equatable {
         case word(String), flag(String), placeholder(String), punctuation(String)
@@ -23,15 +23,20 @@ struct CommandHelp {
     }
 
     var group: Group
+    var usage: String
     /// One inner array per space-separated word, so `[--device` stays one unbreakable unit.
     var invocation: [[Token]]
     var summary: String
+    /// Changes the config (or the system output), so it takes `--dry-run`.
+    var writes: Bool
     var examples: [String] = []
 
-    init(_ group: Group, _ invocation: String, _ summary: String, examples: [String] = []) {
+    init(_ group: Group, _ invocation: String, _ summary: String, writes: Bool = false, examples: [String] = []) {
         self.group = group
+        self.usage = invocation
         self.invocation = invocation.split(separator: " ").map { Self.tokens(String($0)) }
         self.summary = summary
+        self.writes = writes
         self.examples = examples
     }
 
@@ -68,7 +73,6 @@ struct CommandHelp {
 
     static let all: [CommandHelp] = [
         CommandHelp(.look, "eq", "show the current device's curve"),
-        CommandHelp(.look, "eq devices", "known profiles and connected outputs; the current one marked *"),
         CommandHelp(.look, "eq status", "is the daemon alive, on which device, at what rate"),
         CommandHelp(.look, "eq watch [--zones]", "the live equalizer; tune with 1…0, h for keys, q to quit"),
         CommandHelp(.look, "eq zones", "instrument frequency ranges and the bands they touch"),
@@ -78,51 +82,158 @@ struct CommandHelp {
         CommandHelp(.look, "eq stream", "meter frames as JSON lines, 30 per second, until Ctrl-C"),
         CommandHelp(.look, "eq events", "state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon; never meter ticks",
                     examples: ["eq events | jq -r 'select(.event == \"device\") | .device'"]),
-        CommandHelp(.tune, "eq set [--device DEVICE] <band> <gain> …", "change bands on the current device, or on DEVICE",
+        CommandHelp(.tune, "eq set [--device DEVICE] <band> <gain> …", "change bands on the current device, or on DEVICE", writes: true,
                     examples: ["eq set 64hz +4 1khz -3", "eq set --device JBL 16khz +1"]),
-        CommandHelp(.tune, "eq preamp [--device DEVICE] <gain>", "the preamp of the curve", examples: ["eq preamp -1.5"]),
+        CommandHelp(.tune, "eq preamp [--device DEVICE] <gain>", "the preamp of the curve", writes: true, examples: ["eq preamp -1.5"]),
         CommandHelp(.tune, "eq bass [--device DEVICE] <gain>", "bass boost on top of the curve: AutoEq's low shelf at 105 Hz, Q 0.7; 0 removes it",
-                    examples: ["eq bass +3"]),
+                    writes: true, examples: ["eq bass +3"]),
         CommandHelp(.tune, "eq treble [--device DEVICE] <gain>", "treble boost on top of the curve: AutoEq's high shelf at 10 kHz, Q 0.7",
-                    examples: ["eq treble -2"]),
+                    writes: true, examples: ["eq treble -2"]),
         CommandHelp(.tune, "eq tilt [--device DEVICE] <slope>", "tilt the whole curve by <slope> dB per octave around 632 Hz, -1.2…+1.2; positive is brighter",
-                    examples: ["eq tilt -0.5"]),
+                    writes: true, examples: ["eq tilt -0.5"]),
         CommandHelp(.tune, "eq boost [<instrument> <gain>] [--device DEVICE]",
                     "turn an instrument up or down: one peak over its character range (voice 2–5 kHz, kick 50–100 Hz, …), -12…+12 dB; 0 removes it, alone it lists every instrument's range and gain",
-                    examples: ["eq boost voice +3", "eq boost kick -2", "eq boost"]),
-        CommandHelp(.tune, "eq flat [--device DEVICE]", "everything to 0, dropping the preset, filters, bass/treble/tilt, boosts and any import"),
-        CommandHelp(.tune, "eq copy --to DEVICE", "copy the current device's curve onto DEVICE", examples: ["eq copy --to AirPods"]),
-        CommandHelp(.tune, "eq preset", "list presets; the current device's one marked *"),
-        CommandHelp(.tune, "eq preset save|use <name> [--device DEVICE]", "save the curve as <name> / apply <name>",
-                    examples: ["eq preset save night", "eq preset use favourite"]),
-        CommandHelp(.tune, "eq preset show|rm <name>", "show / delete a preset"),
-        CommandHelp(.tune, "eq preset rename <old> <new>", "rename a preset; devices using it follow"),
-        CommandHelp(.tune, "eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--variant VARIANT] [--keep-bands] [--refresh]",
-                    "apply a correction by headphone name (AutoEq, then OPRA), or from a file or URL; VARIANT picks a state like anc-on, --source opra asks OPRA only",
-                    examples: ["eq import \"WH-1000XM4\"", "eq import \"airpods pro 2\" --variant anc-on", "eq import \"HD 600\" --source opra", "eq import file.txt"]),
-        CommandHelp(.tune, "eq import --search <name> [--source SOURCE] [--refresh]",
-                    "list the headphones a name matches in AutoEq and OPRA, with source and variant, without importing",
-                    examples: ["eq import --search wh1000xm4"]),
-        CommandHelp(.tune, "eq import --clear [--device DEVICE]", "drop the imported correction, keep hand-tuned bands and filters"),
-        CommandHelp(.tune, "eq filter [--device DEVICE]", "list the parametric filters, numbered as eq shows them"),
-        CommandHelp(.tune, "eq filter add <type> <freq> <gain> [<q>] [--device DEVICE]",
-                    "add a filter: peak lowshelf highshelf lowpass highpass notch bandpass; Q defaults to 1.41 for peak, notch and bandpass, 0.707 otherwise",
-                    examples: ["eq filter add peak 3k -2 2", "eq filter add highpass 30 0"]),
-        CommandHelp(.tune, "eq filter set <n> <key>=<value> … [--device DEVICE]", "change filter <n>: freq, gain, q or type",
-                    examples: ["eq filter set 2 gain=-3 q=4"]),
-        CommandHelp(.tune, "eq filter rm <n>|all [--device DEVICE]", "remove filter <n>, or every filter"),
-        CommandHelp(.tune, "eq undo [--list]", "step the config back one saved version; repeat to go further back; --list is now eq history"),
-        CommandHelp(.tune, "eq redo", "step forward again after eq undo"),
+                    writes: true, examples: ["eq boost voice +3", "eq boost kick -2", "eq boost"]),
+        CommandHelp(.tune, "eq flat [--device DEVICE]", "everything to 0, dropping the preset, filters, bass/treble/tilt, boosts and any import", writes: true),
+        CommandHelp(.tune, "eq on | eq off", "enable / bypass", writes: true),
+        CommandHelp(.tune, "eq undo [--list]", "step the config back one saved version; repeat to go further back; --list is now eq history", writes: true),
+        CommandHelp(.tune, "eq redo", "step forward again after eq undo", writes: true),
         CommandHelp(.tune, "eq history", "list saved versions with their time and curve, marking the current one",
                     examples: ["eq undo --list"]),
-        CommandHelp(.tune, "eq on | eq off", "enable / bypass"),
-        CommandHelp(.setup, "eq init", "write the default config if none exists"),
+        CommandHelp(.device, "eq device [list]", "known profiles and connected outputs; the current one marked *"),
+        CommandHelp(.device, "eq device use DEVICE", "make DEVICE the system output; its curve follows it", writes: true,
+                    examples: ["eq device use AirPods"]),
+        CommandHelp(.device, "eq device copy --to|--device DEVICE", "copy the current device's curve onto DEVICE", writes: true,
+                    examples: ["eq device copy --to AirPods"]),
+        CommandHelp(.preset, "eq preset [list]", "list presets; the current device's one marked *"),
+        CommandHelp(.preset, "eq preset save|use <name> [--device DEVICE]", "save the curve as <name> / apply <name>", writes: true,
+                    examples: ["eq preset save night", "eq preset use favourite"]),
+        CommandHelp(.preset, "eq preset show <name>", "show a preset"),
+        CommandHelp(.preset, "eq preset rm <name>", "delete a preset", writes: true),
+        CommandHelp(.preset, "eq preset rename <old> <new>", "rename a preset; devices using it follow", writes: true),
+        CommandHelp(.filter, "eq filter [list] [--device DEVICE]", "list the parametric filters, numbered as eq shows them"),
+        CommandHelp(.filter, "eq filter add <type> <freq> <gain> [<q>] [--device DEVICE]",
+                    "add a filter: peak lowshelf highshelf lowpass highpass notch bandpass; Q defaults to 1.41 for peak, notch and bandpass, 0.707 otherwise",
+                    writes: true, examples: ["eq filter add peak 3k -2 2", "eq filter add highpass 30 0"]),
+        CommandHelp(.filter, "eq filter set <n> <key>=<value> … [--device DEVICE]", "change filter <n>: freq, gain, q or type", writes: true,
+                    examples: ["eq filter set 2 gain=-3 q=4"]),
+        CommandHelp(.filter, "eq filter rm <n>|all [--device DEVICE]", "remove filter <n>, or every filter", writes: true),
+        CommandHelp(.import, "eq import <file|url|name> [--device DEVICE] [--source SOURCE] [--variant VARIANT] [--keep-bands] [--refresh]",
+                    "apply a correction by headphone name (AutoEq, then OPRA), or from a file or URL; VARIANT picks a state like anc-on, --source opra asks OPRA only",
+                    writes: true,
+                    examples: ["eq import \"WH-1000XM4\"", "eq import \"airpods pro 2\" --variant anc-on", "eq import \"HD 600\" --source opra", "eq import file.txt"]),
+        CommandHelp(.import, "eq import --search <name> [--source SOURCE] [--refresh]",
+                    "list the headphones a name matches in AutoEq and OPRA, with source and variant, without importing",
+                    examples: ["eq import --search wh1000xm4"]),
+        CommandHelp(.import, "eq import --clear [--device DEVICE]", "drop the imported correction, keep hand-tuned bands and filters", writes: true),
+        CommandHelp(.setup, "eq init", "write the default config if none exists", writes: true),
         CommandHelp(.setup, "eq doctor", "diagnose config, daemon, permission and audio"),
+        CommandHelp(.setup, "eq completions zsh|bash|fish", "print the shell completion script; the Homebrew cask installs all three",
+                    examples: ["eq completions zsh > ~/.zfunc/_eq"]),
+        CommandHelp(.setup, "eq man", "print the man page (roff)", examples: ["eq man | mandoc -a"]),
         CommandHelp(.setup, "eq daemon", "run the audio engine (used by the LaunchAgent)"),
     ]
 
+    /// Spellings from before the noun groups, rewritten to the new shape before dispatch.
+    static let aliases: [(old: String, new: [String])] = [("devices", ["device", "list"]), ("copy", ["device", "copy"])]
+
+    static func canonical(_ args: [String]) -> [String] {
+        guard let first = args.first, let alias = aliases.first(where: { $0.old == first }) else { return args }
+        return alias.new + args.dropFirst()
+    }
+
     static func entries(for command: String) -> [CommandHelp] {
-        all.filter { $0.commands.contains(command) }
+        let command = canonical([command]).first ?? command
+        return all.filter { $0.commands.contains(command) }
+    }
+}
+
+/// The grammar the help table spells out, read back for completions, the man page and `--dry-run`.
+extension CommandHelp {
+    struct Flag: Equatable {
+        var name: String
+        /// The upper-case placeholder that follows, `DEVICE` in `--device DEVICE`; lower-case `<name>` after
+        /// a flag is an operand, as in `--search <name>`.
+        var value: String?
+        var required: Bool
+        /// Flags spelled together, `--to|--device`, share a group: either one satisfies it.
+        var group: Int
+    }
+
+    struct Form: Equatable {
+        var path: [String]
+        var flags: [Flag]
+        var operands: [String]
+        /// The operands repeat, as the `…` in `eq set <band> <gain> …` says.
+        var repeats: Bool
+        var writes: Bool
+    }
+
+    var forms: [Form] {
+        usage.components(separatedBy: " | ").flatMap { Self.forms(of: $0, writes: writes) }
+    }
+
+    private static func isCommandWord(_ core: Substring) -> Bool {
+        !core.isEmpty && core.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "|" || $0 == "-" } && !core.hasPrefix("-")
+    }
+
+    private static func forms(of usage: String, writes: Bool) -> [Form] {
+        let words = usage.split(separator: " ").dropFirst().map(Substring.init)
+        var paths: [[String]] = [[]]
+        var flags: [Flag] = []
+        var operands: [String] = []
+        var repeats = false
+        var inPath = true
+        var index = 0
+        func core(_ word: Substring) -> Substring { word.drop { $0 == "[" }.reversed().drop { $0 == "]" }.reversed().reduce(into: "") { $0.append($1) } }
+        while index < words.count {
+            let word = words[index]
+            let bare = core(word)
+            index += 1
+            if inPath, isCommandWord(bare) {
+                let alternatives = bare.split(separator: "|").map(String.init)
+                let extended = paths.flatMap { path in alternatives.map { path + [$0] } }
+                paths = word.hasPrefix("[") ? paths + extended : extended
+                continue
+            }
+            inPath = false
+            if bare.hasPrefix("-") {
+                var value: String?
+                if index < words.count, case let next = core(words[index]), !next.isEmpty, next.allSatisfy(\.isUppercase) {
+                    value = String(next)
+                    index += 1
+                }
+                for name in bare.split(separator: "|") {
+                    flags.append(Flag(name: String(name), value: value, required: !word.hasPrefix("["), group: index))
+                }
+            } else if bare == "…" {
+                repeats = true
+            } else if bare.hasPrefix("<") || (!bare.isEmpty && bare.allSatisfy(\.isUppercase)) {
+                operands.append(String(bare))
+            }
+        }
+        return paths.map { Form(path: $0, flags: flags, operands: operands, repeats: repeats, writes: writes) }
+    }
+
+    /// The form an argument list is an instance of: the longest path it starts with, among those whose
+    /// required flags it has and whose flags cover every flag it uses. Old spellings are read as new.
+    static func form(matching args: [String]) -> Form? {
+        let args = canonical(args)
+        // Only `--` flags: a lone dash starts a negative gain.
+        let used = Set(args.filter { $0.hasPrefix("--") })
+        let forms = all.flatMap(\.forms)
+        let takesValue = Set(forms.flatMap { $0.flags.filter { $0.value != nil }.map(\.name) })
+        var positional: [String] = []
+        var skip = false
+        for arg in args {
+            if skip { skip = false } else if arg.hasPrefix("--") { skip = takesValue.contains(arg) } else { positional.append(arg) }
+        }
+        let candidates = forms.filter { form in
+            guard positional.starts(with: form.path), !form.path.isEmpty || positional.isEmpty, used.isSubset(of: Set(form.flags.map(\.name))) else { return false }
+            let required = Set(form.flags.filter(\.required).map(\.group))
+            return required.allSatisfy { group in form.flags.contains { $0.group == group && used.contains($0.name) } }
+        }
+        return candidates.max { $0.path.count < $1.path.count }
     }
 }
 
@@ -209,10 +320,14 @@ enum HelpRenderer {
         let bands = [[Run("bands:", .dim)]] + Config.bandLabels.map { [Run($0, .yellow)] as Word }
         let range = "\(Int(Config.gainRange.lowerBound))…+\(Int(Config.gainRange.upperBound))"
         let gains: [Word] = [[Run("gains:", .dim)], [Run(range, .yellow)], [Run("dB", nil)]]
-        let json: [Word] = [[Run("--json", .cyan)]] + "on any command: the answer as JSON".split(separator: " ").map { [Run(String($0), nil)] }
-        let one: [Word] = [[Run("eq", nil)], [Run("<command>", .yellow)], [Run("--help", .cyan)]]
-            + "for one command".split(separator: " ").map { [Run(String($0), nil)] }
-        return [bands, gains, json, one].flatMap { wrap($0, width: width, hang: 2) }
+        func prose(_ text: String) -> [Word] { text.split(separator: " ").map { [Run(String($0), nil)] } }
+        let json: [Word] = [[Run("--json", .cyan)]] + prose("on any command: the answer as JSON")
+        let dryRun: [Word] = [[Run("--dry-run", .cyan)]] + prose("on a command that changes something: before → after, nothing written")
+        let old: [Word] = [[Run("old spellings:", .dim)]] + CommandHelp.aliases.enumerated().flatMap { index, alias -> [Word] in
+            [[Run("eq", nil)], [Run(alias.old, .bold), Run(index < CommandHelp.aliases.count - 1 ? "," : "", nil)]]
+        } + prose("still work")
+        let one: [Word] = [[Run("eq", nil)], [Run("<command>", .yellow)], [Run("--help", .cyan)]] + prose("for one command")
+        return [bands, gains, json, dryRun, old, one].flatMap { wrap($0, width: width, hang: 4) }
     }
 
     private static func words(_ invocation: [[CommandHelp.Token]]) -> [Word] {

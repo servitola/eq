@@ -47,6 +47,17 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | Command | |
 | --- | --- |
 | `eq` | the curve in effect on the current output |
+| `eq status [--json]` | is the daemon alive, on which device, at what rate |
+| `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
+| `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
+| `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
+| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
+| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon; never meter ticks |
+
+Tune the curve:
+
+| Command | |
+| --- | --- |
 | `eq set 64hz +4 1khz -3` | change bands on the current output's curve |
 | `eq set --device JBL 16khz +1` | on another device, by a piece of its name |
 | `eq preamp -1.5` | preamp for the current curve |
@@ -54,34 +65,56 @@ it runs `/Applications/EQ.app/Contents/MacOS/eq daemon` at login and restarts it
 | `eq tilt -0.5` | tilt the whole curve, in dB per octave |
 | `eq boost voice +3` | turn one instrument up or down on its character range, `0` removes it; `eq boost` lists them |
 | `eq flat` | reset: everything to 0, dropping the preset label, filters, bass/treble/tilt, boosts and any import |
-| `eq copy --to AirPods` | give another device this curve |
-| `eq devices` | who has a curve, who is connected, which is active |
 | `eq off`, `eq on` | bypass, and back |
-| `eq status [--json]` | is the daemon alive, on which device, at what rate |
-| `eq init` | write the default config if there is none |
+| `eq undo`, `eq redo` | step the config back one saved version at a time, and forward again |
+| `eq history` | list saved versions with their time and curve, marking the current one (`eq undo --list` is an alias) |
+
+Devices, presets, filters and imports each have their own group:
+
+| Command | |
+| --- | --- |
+| `eq device list` | who has a curve, who is connected, which is active (`eq device` alone too) |
+| `eq device use AirPods` | make AirPods the system output; its curve follows |
+| `eq device copy --to AirPods` | give another device this curve (`--device AirPods` works the same) |
+| `eq preset list` | list presets; the current device's one marked `*` (`eq preset` alone too) |
+| `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
+| `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
+| `eq filter list` | the parametric filters, numbered, with where each came from (`eq filter` alone too) |
+| `eq filter add peak 3k -2 2` | add a filter by hand: type, frequency, gain, optional Q |
+| `eq filter set 2 gain=-3 q=4`, `eq filter rm 2\|all` | change or remove filters by number |
 | `eq import "WH-1000XM4"` | fetch and apply an AutoEq correction by headphone name |
 | `eq import "airpods pro 2" --variant anc-on` | pick one device state when a model has several |
 | `eq import --search wh1000xm4` | list what a name matches in AutoEq and OPRA, with source and variant, without importing |
 | `eq import "HD 600" --source opra` | take the correction from OPRA instead of AutoEq |
 | `eq import file.txt` | apply an AutoEq correction from a local file or URL |
 | `eq import --clear` | drop the imported correction, keep hand-tuned bands and filters |
-| `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
-| `eq filter` | the parametric filters, numbered, with where each came from |
-| `eq filter add peak 3k -2 2` | add a filter by hand: type, frequency, gain, optional Q |
-| `eq filter set 2 gain=-3 q=4`, `eq filter rm 2\|all` | change or remove filters by number |
-| `eq preset` | list presets; the current device's one marked `*` |
-| `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
-| `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
-| `eq undo`, `eq redo` | step the config back one saved version at a time, and forward again |
-| `eq history` | list saved versions with their time and curve, marking the current one (`eq undo --list` is an alias) |
+
+Setup:
+
+| Command | |
+| --- | --- |
+| `eq init` | write the default config if there is none |
 | `eq doctor` | one-shot health check: config, daemon, permission, audio |
-| `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
-| `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
-| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
-| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon; never meter ticks |
+| `eq completions zsh\|bash\|fish` | the shell completion script |
+| `eq man` | the man page, as roff |
+
+The spellings from before the groups still work and mean the same: `eq devices` is
+`eq device list`, `eq copy --to AirPods` is `eq device copy --to AirPods`.
 
 `--json` works on any command; the answer becomes one JSON document on stdout, exit codes
 unchanged.
+
+`--dry-run` works on every command that changes something: it prints the curve before and
+after, in the same form as `eq`, and writes nothing — no save, no backup, no history entry.
+With `--json` the answer is `{"before": …, "after": …}`. It runs the real command against a
+copy of `eq.json` and its history, so a bad band or an unreadable backup fails exactly as it
+would for real. `eq device use --dry-run` shows both curves and leaves the output alone.
+
+The Homebrew cask installs zsh, bash and fish completions and the man page (`man eq`). From a
+source build, `eq completions zsh > ~/.zfunc/_eq` (a directory in `fpath`), `eq completions
+bash > $(brew --prefix)/etc/bash_completion.d/eq`, `eq completions fish >
+~/.config/fish/completions/eq.fish`. Device names, presets, instruments and export formats
+complete too: the scripts ask `eq` for them, without the daemon.
 
 Bands are `32hz 64hz 125hz 250hz 500hz 1khz 2khz 4khz 8khz 16khz`, gains `-12` to `+12` dB.
 A device without its own curve gets `default`; the first `eq set` on it makes a copy.

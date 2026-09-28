@@ -58,6 +58,13 @@ enum AudioDeviceManager {
         return id
     }
 
+    static func setDefaultOutputDevice(_ id: AudioObjectID) -> OSStatus {
+        var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
+        var id = id
+        return AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
+                                          UInt32(MemoryLayout<AudioObjectID>.size), &id)
+    }
+
     // MARK: - Device properties
 
     static func stringProperty(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {

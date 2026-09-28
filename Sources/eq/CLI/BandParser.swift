@@ -29,6 +29,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case noSuchFilter(String, Int)
     case exportRefused(String)
     case exportFailed(String)
+    case notConnected(String)
+    case switchFailed(String)
 
     var description: String {
         switch self {
@@ -36,7 +38,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .unknownBand(let token): return "unknown band \"\(token)\" — use one of \(Config.bandLabels.joined(separator: " "))"
         case .badGain(let token): return "not a gain: \"\(token)\" (examples: +4, -3.1, 0)"
         case .gainOutOfRange(let g): return "gain \(g) dB outside \(Config.gainRange.lowerBound)…\(Config.gainRange.upperBound)"
-        case .noSuchDevice(let q): return "no device or profile matches \"\(q)\" — see `eq devices`"
+        case .noSuchDevice(let q): return "no device or profile matches \"\(q)\" — see `eq device list`"
         case .ambiguousDevice(let q, let names): return "\"\(q)\" matches several devices: \(names.joined(separator: ", "))"
         case .noCurrentDevice: return "cannot determine the current output device"
         case .daemonNotRunning: return "eq daemon is not running — launchctl kickstart gui/$UID/com.servitola.eq"
@@ -68,6 +70,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
             return count == 0 ? "no filter \"\(token)\" — this curve has no filters" : "no filter \"\(token)\" — pick 1…\(count), see `eq filter`"
         case .exportRefused(let why): return "not exported: \(why)"
         case .exportFailed(let why): return "export failed: \(why)"
+        case .notConnected(let name): return "\(name) is not connected — see `eq device list`"
+        case .switchFailed(let why): return "could not switch the output: \(why)"
         }
     }
 }

@@ -9,7 +9,7 @@ func paintStderrError(_ text: String) -> String {
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
-if arguments.first == "daemon" && !arguments.contains("--help") && !arguments.contains("-h") {
+if arguments.first == "daemon" && !arguments.contains("--help") && !arguments.contains("-h") && !arguments.contains("--dry-run") {
     let daemon = Daemon(store: ConfigStore(url: ConfigStore.defaultURL), statusURL: Status.defaultURL)
     daemon.run()
 }

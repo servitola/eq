@@ -25,9 +25,22 @@ its entries under a dated version.
   `EQ_PRESET` and `EQ_RATE` set. A hook is killed after 10 s, its output (up to 4 KB) goes to
   the log, and it never affects the audio. `eq doctor` warns about a hook whose program is a
   missing or non-executable absolute path.
+- Noun groups: `eq device list|use|copy`, `eq preset list`, `eq filter list`. `eq device use
+  AirPods` switches the system output. `eq device copy` takes `--device` as well as `--to`.
+  `eq devices` and `eq copy` still work, as aliases of the new forms.
+- `--dry-run` on every command that changes the config (and on `eq device use`): the curve
+  before and after, in `eq`'s own form, or `{"before": …, "after": …}` with `--json`, and
+  nothing written — no save, no backup, no history entry. It runs the real command against a
+  copy, so it fails where the real run would. A command that writes nothing refuses it.
+- `eq completions zsh|bash|fish` and `eq man`, generated from the same table as `--help`. The
+  scripts complete commands, subcommands, flags, bands and filter types, and ask `eq` for
+  device names, presets, instruments and export formats. The cask installs all of them.
 
 ### Changed
 
+- `eq --help` groups the commands by what they act on: look, tune, device, preset, filter,
+  import, setup. Its footer names `--dry-run` and the old spellings.
+- An unknown device points at `eq device list` instead of `eq devices`.
 - `l` in `eq watch` listens to the focused instrument's character range instead of its whole
   outer span, so voice is heard at 2–5 kHz rather than 85 Hz–9 kHz.
 

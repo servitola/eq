@@ -29,6 +29,15 @@ mkdir -p "$app/Contents/MacOS"
 cp "$bin" "$app/Contents/MacOS/eq"
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" Resources/Info.plist > "$app/Contents/Info.plist"
 
+# Made by the binary just built, so they always match its commands; the cask links them into
+# Homebrew's completion and man directories. Before signing: the signature seals Resources.
+resources=$app/Contents/Resources
+mkdir -p "$resources/completions" "$resources/man"
+"$app/Contents/MacOS/eq" completions zsh > "$resources/completions/_eq"
+"$app/Contents/MacOS/eq" completions bash > "$resources/completions/eq.bash"
+"$app/Contents/MacOS/eq" completions fish > "$resources/completions/eq.fish"
+"$app/Contents/MacOS/eq" man > "$resources/man/eq.1"
+
 if [[ $identity == - ]]; then
   codesign --force --sign - --identifier com.servitola.eq \
     --requirements '=designated => identifier "com.servitola.eq"' "$app"
