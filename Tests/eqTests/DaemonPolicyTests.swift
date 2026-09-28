@@ -39,6 +39,20 @@ final class DaemonPolicyTests: XCTestCase {
         XCTAssertEqual(DaemonPolicy.stallTicks, 2)
     }
 
+    func testRingSlipsRisingOnThreeTicksInARowRebuild() {
+        var r = DaemonPolicy.ringFailing(previous: 0, current: 4, risingTicks: 0)
+        XCTAssertEqual(r.risingTicks, 1); XCTAssertFalse(r.failing)
+        r = DaemonPolicy.ringFailing(previous: 4, current: 9, risingTicks: 1)
+        XCTAssertEqual(r.risingTicks, 2); XCTAssertFalse(r.failing)
+        r = DaemonPolicy.ringFailing(previous: 9, current: 12, risingTicks: 2)
+        XCTAssertEqual(r.risingTicks, 3); XCTAssertTrue(r.failing)
+        r = DaemonPolicy.ringFailing(previous: 12, current: 12, risingTicks: 2)
+        XCTAssertEqual(r.risingTicks, 0); XCTAssertFalse(r.failing, "one quiet tick clears it")
+        r = DaemonPolicy.ringFailing(previous: 12, current: 3, risingTicks: 2)
+        XCTAssertEqual(r.risingTicks, 0); XCTAssertFalse(r.failing, "a restarted engine counts from zero")
+        XCTAssertEqual(DaemonPolicy.ringFailingTicks, 3)
+    }
+
     func testIOFramesEnv() {
         XCTAssertEqual(DaemonPolicy.ioFrames(from: ["EQ_IO_FRAMES": "512"]), 512)
         XCTAssertNil(DaemonPolicy.ioFrames(from: ["EQ_IO_FRAMES": "7"]))

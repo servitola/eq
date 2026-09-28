@@ -737,6 +737,12 @@ final class CLITests: XCTestCase {
         status.underruns = 1
         status.overruns = 3
         XCTAssertEqual(CLI.ringText(status), "1 underrun, 3 overruns")
+        status.dropouts = 2
+        XCTAssertEqual(CLI.ringText(status), "1 underrun, 3 overruns, 2 dropouts")
+        status.underruns = 0
+        status.overruns = 0
+        status.dropouts = 1
+        XCTAssertEqual(CLI.ringText(status), "0 underruns, 0 overruns, 1 dropout")
     }
 
     func testStreamExitsOneWhenDaemonCloses() throws {

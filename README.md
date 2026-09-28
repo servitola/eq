@@ -588,8 +588,9 @@ measured 12.8 ms at 44.1 kHz with clicks played from another process.
 What eq adds is the tap's buffer, a ring cushion (one output buffer, one tap buffer and 64
 frames of scheduling slack, 320 frames at the defaults) and the output buffer. `eq status`
 shows it as "eq adds", measured from the two callbacks' host timestamps on the same samples,
-and lists ring underruns and overruns if the two sides ever slip. `scripts/measure-latency.sh`
-times it end to end.
+and lists ring underruns, overruns and dropped buffers if the two sides ever slip; when they
+keep slipping for 15 s, the daemon rebuilds the engine. `scripts/measure-latency.sh` times it
+end to end.
 
 The IO buffer is 128 frames on both sides; `EQ_IO_FRAMES` (daemon only, 64–4096) overrides
 it. Core Audio keeps the buffer size per process, so asking the shared output device for 128

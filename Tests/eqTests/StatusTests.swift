@@ -99,6 +99,7 @@ final class StatusTests: XCTestCase {
         status.lastOnset = Status.Onset(tapHostSeconds: 100.25, outputHostSeconds: 100.5, count: 3)
         status.underruns = 2
         status.overruns = 0
+        status.dropouts = 5
         try status.write(to: url)
         XCTAssertEqual(Status.read(from: url), status)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])

@@ -531,11 +531,17 @@ enum CLI {
         return Output(lines.joined(separator: "\n"), status)
     }
 
-    /// Only when something went wrong: a healthy ring never under- or overruns.
+    /// Only when something went wrong: a healthy ring never under- or overruns, and a healthy engine drops nothing.
     static func ringText(_ status: Status) -> String? {
-        let underruns = status.underruns ?? 0, overruns = status.overruns ?? 0
-        guard underruns > 0 || overruns > 0 else { return nil }
-        return Paint.ink(.yellow, "\(underruns) underrun\(underruns == 1 ? "" : "s"), \(overruns) overrun\(overruns == 1 ? "" : "s")")
+        ringCounts(status).map { Paint.ink(.yellow, $0) }
+    }
+
+    static func ringCounts(_ status: Status) -> String? {
+        let underruns = status.underruns ?? 0, overruns = status.overruns ?? 0, dropouts = status.dropouts ?? 0
+        guard underruns > 0 || overruns > 0 || dropouts > 0 else { return nil }
+        func count(_ n: UInt64, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
+        let slips = count(underruns, "underrun") + ", " + count(overruns, "overrun")
+        return dropouts > 0 ? slips + ", " + count(dropouts, "dropout") : slips
     }
 
     /// Whole milliseconds once the daemon splits the path: the device is what a player compensates, the rest it cannot.

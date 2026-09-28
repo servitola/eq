@@ -8,6 +8,9 @@ enum DaemonPolicy {
     static let failedRetry: TimeInterval = 30
     static let statusInterval: TimeInterval = 5
     static let stallTicks = 2
+    // 15 s of slips on every tick: a healthy ring never slips, since the tap writes zeros through
+    // silence, so this is a path that stopped keeping pace, not one glitch.
+    static let ringFailingTicks = 3
     static let heartbeat: TimeInterval = 30
     // FineTune #86/#324: device events arrive in bursts and a rate can read 0 mid-negotiation; 150 ms lets both settle.
     static let settleDelay: TimeInterval = 0.15
@@ -76,6 +79,13 @@ enum DaemonPolicy {
         return (ticks >= stallTicks, ticks)
     }
 
+    /// `current` is underruns + overruns + dropouts; a restarted engine starts again from zero.
+    static func ringFailing(previous: UInt64, current: UInt64, risingTicks: Int) -> (failing: Bool, risingTicks: Int) {
+        guard current > previous else { return (false, 0) }
+        let ticks = risingTicks + 1
+        return (ticks >= ringFailingTicks, ticks)
+    }
+
     static func ioFrames(from env: [String: String]) -> Int? {
         guard let raw = env["EQ_IO_FRAMES"], let frames = Int(raw), (64...4096).contains(frames) else { return nil }
         return frames
@@ -110,6 +120,9 @@ final class Daemon {
     private var unchangedTicks = 0
     private var lastTapCallbacks: UInt64 = 0
     private var unchangedTapTicks = 0
+    private var lastRingSlips: UInt64 = 0
+    private var risingRingTicks = 0
+    private var loggedDropout = false
     private var loggedUnderrun = false
     private var loggedOverrun = false
     private var retryWork: DispatchWorkItem?
@@ -601,13 +614,27 @@ final class Daemon {
                     self.rebuild(attempt: 1)
                     return
                 }
+                self.noteRingEvents()
+                let slips = self.ringSlips
+                let ring = DaemonPolicy.ringFailing(previous: self.lastRingSlips, current: slips, risingTicks: self.risingRingTicks)
+                self.lastRingSlips = slips
+                self.risingRingTicks = ring.risingTicks
+                if ring.failing {
+                    Log.write("ring slipped on \(DaemonPolicy.ringFailingTicks) status ticks in a row (\(self.engine.underruns) underruns, \(self.engine.overruns) overruns, \(self.engine.dropouts) dropouts) — rebuilding")
+                    self.lastRingSlips = 0
+                    self.risingRingTicks = 0
+                    self.rebuild(attempt: 1)
+                    return
+                }
             } else {
                 self.unchangedTicks = 0
                 self.unchangedTapTicks = 0
+                self.risingRingTicks = 0
+                self.lastRingSlips = self.ringSlips
+                self.noteRingEvents()
             }
             self.lastCallbacks = self.engine.callbacks
             self.lastTapCallbacks = self.engine.tapCallbacks
-            self.noteRingEvents()
             // Observed every tick, not only on writes, so the silence start is known to within one interval.
             _ = self.observeTap()
             // Nothing changed on this tick: only the 30 s heartbeat justifies a write, to keep disk wear low.
@@ -618,6 +645,8 @@ final class Daemon {
         timer.resume()
         statusTimer = timer
     }
+
+    private var ringSlips: UInt64 { engine.underruns &+ engine.overruns &+ engine.dropouts }
 
     /// The first of each kind per engine run; the rest only count in the status.
     private func noteRingEvents() {
@@ -632,6 +661,12 @@ final class Daemon {
         } else if !loggedOverrun {
             Log.write("ring overrun: audio piled up behind the output, which dropped the oldest to keep the delay down")
             loggedOverrun = true
+        }
+        if engine.dropouts == 0 {
+            loggedDropout = false
+        } else if !loggedDropout {
+            Log.write("dropout: a tap or output buffer came in a shape eq did not prepare for and was dropped whole")
+            loggedDropout = true
         }
     }
 
@@ -665,7 +700,8 @@ final class Daemon {
             addedLatencyFrames: running ? added?.frames : nil,
             lastOnset: running ? engine.lastOnset : nil,
             underruns: running ? engine.underruns : nil,
-            overruns: running ? engine.overruns : nil)
+            overruns: running ? engine.overruns : nil,
+            dropouts: running ? engine.dropouts : nil)
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }

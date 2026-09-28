@@ -171,13 +171,38 @@ final class TapPathTests: XCTestCase {
         XCTAssertEqual(engine.overruns, 0)
     }
 
+    func testTapBuffersTheRingCannotTakeCountAsDropouts() {
+        tap(level)
+        XCTAssertEqual(engine.dropouts, 0)
+        tap(channels: 1, level)
+        XCTAssertEqual(engine.dropouts, 1, "fewer channels than prepared")
+        var list = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(mNumberChannels: 2, mDataByteSize: 1024, mData: nil))
+        engine.renderTap(input: &list, inputTime: stamp(frame: tapPosition))
+        XCTAssertEqual(engine.dropouts, 2, "no data")
+        XCTAssertEqual(engine.tapCallbacks, 3)
+    }
+
+    func testOutputBufferPastTheScratchIsSilentAndCountsAsADropout() {
+        for _ in 0..<10 {
+            tap(level)
+            output()
+        }
+        outBuffer.update(repeating: 1, count: 2 * Self.largest)
+        let played = output(frames: Self.largest)
+        XCTAssertTrue(played.allSatisfy { $0 == 0 })
+        XCTAssertEqual(engine.dropouts, 1)
+        XCTAssertEqual(engine.underruns, 0)
+    }
+
     func testStopClearsTheCounters() {
         tap(level)
         output()
+        tap(channels: 1, level)
         engine.stop()
         XCTAssertEqual(engine.callbacks, 0)
         XCTAssertEqual(engine.tapCallbacks, 0)
         XCTAssertEqual(engine.underruns, 0)
+        XCTAssertEqual(engine.dropouts, 0)
         XCTAssertNil(engine.addedLatency)
     }
 }

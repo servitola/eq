@@ -76,6 +76,7 @@ enum Doctor {
             engineCheck(live),
             tapCheck(refreshed),
             latencyCheck(refreshed),
+            ringCheck(refreshed),
             filtersCheck(live),
         ]
         let ok = checks.allSatisfy { $0.warning || $0.ok }
@@ -188,6 +189,21 @@ enum Doctor {
         }
         return DoctorCheck(name: "latency", ok: false,
                            detail: detail + " — video players do not compensate for it, so sound trails lips past the \(Table.whole(addedLatencyLimitMs)) ms that viewers notice",
+                           warning: true)
+    }
+
+    static func ringCheck(_ live: Status?) -> DoctorCheck {
+        guard let live, live.state == .running || live.state == .bypassed else {
+            return DoctorCheck(name: "ring", ok: true, detail: "skipped (engine not running)", warning: false)
+        }
+        guard live.underruns != nil else {
+            return DoctorCheck(name: "ring", ok: true, detail: "skipped (not reported by this daemon)", warning: false)
+        }
+        guard let counts = CLI.ringCounts(live) else {
+            return DoctorCheck(name: "ring", ok: true, detail: "no slips", warning: false)
+        }
+        return DoctorCheck(name: "ring", ok: false,
+                           detail: counts + " — the tap and the output slipped, audio had gaps; the daemon rebuilds the engine if it keeps happening",
                            warning: true)
     }
 

@@ -36,7 +36,7 @@ final class DoctorTests: XCTestCase {
     func testAllGreen() {
         let report = Doctor.run(probes(status: running(), callbacksLater: 20))
         XCTAssertTrue(report.ok, Doctor.text(report))
-        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "hooks", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "latency", "filters"])
+        XCTAssertEqual(report.checks.map(\.name), ["macOS", "config", "hooks", "output", "daemon", "permission", "launch agent", "binary", "audio", "engine", "tap", "latency", "ring", "filters"])
         XCTAssertTrue(report.checks.allSatisfy(\.ok))
     }
 
@@ -295,6 +295,22 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(Doctor.program(of: "\"/a b/c"), "/a b/c")
         XCTAssertEqual(Doctor.program(of: "echo"), "echo")
         XCTAssertNil(Doctor.program(of: "   "))
+    }
+
+    func testRingWarnsOnceTheTapAndTheOutputSlip() {
+        var s = running()
+        XCTAssertEqual(Doctor.ringCheck(s), DoctorCheck(name: "ring", ok: true, detail: "skipped (not reported by this daemon)", warning: false))
+        s.underruns = 0
+        s.overruns = 0
+        s.dropouts = 0
+        XCTAssertEqual(Doctor.ringCheck(s), DoctorCheck(name: "ring", ok: true, detail: "no slips", warning: false))
+        s.dropouts = 3
+        let slipped = Doctor.ringCheck(s)
+        XCTAssertFalse(slipped.ok)
+        XCTAssertTrue(slipped.warning)
+        XCTAssertTrue(slipped.detail.hasPrefix("0 underruns, 0 overruns, 3 dropouts — "), slipped.detail)
+        s.state = .failed
+        XCTAssertEqual(Doctor.ringCheck(s).detail, "skipped (engine not running)")
     }
 
     func testLatencyWarnsPastTheLipSyncLimit() {

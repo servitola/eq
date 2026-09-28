@@ -10,6 +10,14 @@ its entries under a dated version.
 - When macOS grew the tap's or the output's IO buffer while eq ran, the ring between them
   slipped on nearly every cycle and a third to two thirds of the audio became silence. The ring
   cushion now follows the buffer sizes the two callbacks actually get, up to 4096 frames each.
+- The daemon rebuilds the engine when the ring keeps slipping: underruns, overruns or dropped
+  buffers rising on three status ticks in a row, about 15 s. Before, only a stalled callback
+  triggered a rebuild, and a path that played gaps went on playing them.
+
+### Added
+
+- `eq status` and `eq status --json` count `dropouts`: tap or output buffers eq could not take
+  and dropped whole. `eq doctor` has a `ring` row that warns once the ring slipped or dropped.
 
 ## 2026.09.28.5 — 2026-09-28
 

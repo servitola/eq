@@ -118,6 +118,11 @@ final class ProcessTapEngine {
     /// Output cycles that found the ring short (silence filled the gap) or overfull (oldest dropped).
     private(set) var underruns: UInt64 = 0
     private(set) var overruns: UInt64 = 0
+    /// Buffers dropped whole: a tap buffer the ring cannot take, an output buffer past the scratch.
+    /// One counter per thread, so each has a single writer.
+    private var tapDropouts: UInt64 = 0
+    private var outputDropouts: UInt64 = 0
+    var dropouts: UInt64 { tapDropouts &+ outputDropouts }
     private(set) var deviceLatencyMs: Double?
     private var estimatedAddedMs: Double?
     /// Passed to the aggregate for its one sub-tap. With no sub-device beside it there is no other
@@ -337,6 +342,8 @@ final class ProcessTapEngine {
         signalCallbacks = 0
         underruns = 0
         overruns = 0
+        tapDropouts = 0
+        outputDropouts = 0
         deviceLatencyMs = nil
         estimatedAddedMs = nil
         ioDelayTicks = 0
@@ -457,9 +464,15 @@ final class ProcessTapEngine {
         for buffer in inputList {
             let channels = Int(buffer.mNumberChannels)
             guard channels > 0 else { continue }
-            guard let data = buffer.mData else { return }
+            guard let data = buffer.mData else {
+                tapDropouts &+= 1
+                return
+            }
             let frames = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / channels
-            if frameCount < 0 { frameCount = frames } else if frames != frameCount { return }
+            if frameCount < 0 { frameCount = frames } else if frames != frameCount {
+                tapDropouts &+= 1
+                return
+            }
             let samples = UnsafePointer(data.assumingMemoryBound(to: Float.self))
             for offset in 0..<channels where channel < tapChannels {
                 tapSources[channel] = AudioRing.Source(pointer: samples + offset, stride: channels)
@@ -467,7 +480,10 @@ final class ProcessTapEngine {
             }
         }
         // Half the ring at most: the consumer must always find the frames it snaps back to intact.
-        guard channel == tapChannels, frameCount > 0, frameCount <= ring.capacity / 2 else { return }
+        guard channel == tapChannels, frameCount > 0, frameCount <= ring.capacity / 2 else {
+            tapDropouts &+= 1
+            return
+        }
 
         var firstSignalFrame = -1
         signalSearch: for frame in 0..<frameCount {
@@ -505,6 +521,7 @@ final class ProcessTapEngine {
             break
         }
         guard frameCount > 0, frameCount <= scratchCapacity else {
+            if frameCount > 0 { outputDropouts &+= 1 }
             zero(outputList)
             return
         }
