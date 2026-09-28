@@ -2,6 +2,13 @@
 // the way coreaudiod would: property queries, a configuration change, StartIO, zero time stamps and
 // WriteMix from a timed IO thread. The plug-in's target side is a normal HAL client, so it really
 // opens IO; the harness points it at the built-in output and writes silence.
+//   host-harness <bundle>                     the full run above
+//   host-harness <bundle> --idle sync|wait|async
+//                                             never calls StartIO, so the target IOProc is created
+//                                             but never started; checks the configuration change
+//                                             with Perform run inside Request, on another thread
+//                                             while Request waits, or after Request returned
+//   host-harness <bundle> --killed            kill file present
 
 #include "../Source/HAL.h"
 
@@ -17,6 +24,7 @@
 #include <cstdio>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 using namespace eqd;
@@ -34,6 +42,11 @@ static AudioServerPlugInDriverRef driver;
 static AudioServerPlugInDriverInterface *vt() { return *driver; }
 static CFMutableDictionaryRef storage;
 static std::atomic<int> configChanges{0};
+static std::atomic<int> configRequests{0};
+static std::atomic<int> performFailures{0};
+static std::atomic<int> requestTimeouts{0};
+enum class ChangeMode { Sync, Wait, Async };
+static ChangeMode changeMode = ChangeMode::Sync;
 static std::atomic<int> notifications{0};
 static std::atomic<bool> ioPaused{false};
 static std::atomic<bool> ioInCycle{false};
@@ -55,15 +68,39 @@ static OSStatus deleteFromStorage(AudioServerPlugInHostRef, CFStringRef key) {
     CFDictionaryRemoveValue(storage, key);
     return noErr;
 }
-// Like the HAL: stop IO, perform the change on another thread, resume.
+// Like the HAL: stop IO, perform the change, resume.
+static void performChange(AudioObjectID device, UInt64 action, void *info) {
+    ioPaused = true;
+    while (ioInCycle) std::this_thread::yield();
+    if (vt()->PerformDeviceConfigurationChange(driver, device, action, info) == noErr) ++configChanges;
+    else ++performFailures;
+    ioPaused = false;
+}
+
+// coreaudiod does not document which thread runs Perform or whether Request waits for it, so the
+// fake host tries each: a plug-in that holds a lock across Request deadlocks in the first two.
 static OSStatus requestChange(AudioServerPlugInHostRef, AudioObjectID device, UInt64 action, void *info) {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        ioPaused = true;
-        while (ioInCycle) std::this_thread::yield();
-        vt()->PerformDeviceConfigurationChange(driver, device, action, info);
-        ++configChanges;
-        ioPaused = false;
-    });
+    ++configRequests;
+    dispatch_queue_t other = dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
+    switch (changeMode) {
+    case ChangeMode::Sync: performChange(device, action, info); break;
+    case ChangeMode::Wait: {
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        dispatch_async(other, ^{
+            performChange(device, action, info);
+            dispatch_semaphore_signal(done);
+        });
+        // Leaked on timeout: the block still signals it later.
+        if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) != 0) {
+            std::printf("  FAIL: Perform did not run within 5 s of Request (deadlock)\n");
+            ++requestTimeouts;
+        } else {
+            dispatch_release(done);
+        }
+        break;
+    }
+    case ChangeMode::Async: dispatch_async(other, ^{ performChange(device, action, info); }); break;
+    }
     return noErr;
 }
 static AudioServerPlugInHostInterface host = {propertiesChanged, copyFromStorage, writeToStorage, deleteFromStorage,
@@ -170,8 +207,55 @@ static void checkPropertySurface() {
     std::printf("  %d properties answer with their announced size; input streams: %u\n", checked, inputStreams / 4);
 }
 
+// A deadlocked plug-in must fail the run, not hang it.
+static void failAfter(int seconds) {
+    std::thread([seconds] {
+        std::this_thread::sleep_for(std::chrono::seconds(seconds));
+        std::printf("  FAIL: still running after %d s (deadlock?)\n", seconds);
+        std::fflush(stdout);
+        _exit(1);
+    }).detach();
+}
+
+static int idle(AudioObjectID speakers) {
+    Float64 speakersRate = 0;
+    hal::get(speakers, hal::address(kAudioDevicePropertyNominalSampleRate), speakersRate);
+    for (int i = 0; i < 160 && configChanges == 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    UInt32 latency = 0;
+    Float64 rate = 0;
+    get(2, kAudioDevicePropertyLatency, latency, kAudioObjectPropertyScopeOutput);
+    get(2, kAudioDevicePropertyNominalSampleRate, rate);
+    CFDictionaryRef h = health();
+    std::printf("  requests %d, changes %d, perform failures %d, request timeouts %d, latency %u, rate %.0f "
+                "(target %.0f), io %.0f, error \"%s\"\n",
+                configRequests.load(), configChanges.load(), performFailures.load(), requestTimeouts.load(), latency,
+                rate, speakersRate, number(h, "ioRunning"), text(h, "lastError").c_str());
+    CHECK(configRequests >= 1 && configChanges >= 1);
+    CHECK(performFailures == 0 && requestTimeouts == 0);
+    CHECK(latency > 0);
+    CHECK(speakersRate <= 0 || rate == speakersRate);
+    CHECK(number(h, "ioRunning") == 0 && number(h, "clients") == 0);
+    CFRelease(h);
+
+    std::printf("\nhost harness (idle): %s\n", failures ? "FAILED" : "ok");
+    return failures ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : "build/EQDriver.driver";
+    std::string mode = argc > 2 ? argv[2] : "";
+    if (mode == "--idle") {
+        std::string how = argc > 3 ? argv[3] : "sync";
+        if (how == "wait") changeMode = ChangeMode::Wait;
+        else if (how == "async") changeMode = ChangeMode::Async;
+        else if (how != "sync") {
+            std::printf("unknown change mode %s\n", how.c_str());
+            return 2;
+        }
+        std::printf("idle, Perform %s\n", how.c_str());
+    }
+    failAfter(mode == "--idle" ? 20 : 60);
     AudioObjectID speakers = kAudioObjectUnknown;
     for (AudioObjectID id : hal::devices()) {
         if (hal::uint32Property(id, kAudioDevicePropertyTransportType) != kAudioDeviceTransportTypeBuiltIn) continue;
@@ -207,7 +291,9 @@ int main(int argc, char **argv) {
     CHECK(vt()->QueryInterface(driver, CFUUIDGetUUIDBytes(kAudioServerPlugInDriverInterfaceUUID), &iface) == 0);
     CHECK(vt()->Initialize(driver, &host) == noErr);
 
-    if (argc > 2 && std::string(argv[2]) == "--killed") {
+    if (mode == "--idle") return idle(speakers);
+
+    if (mode == "--killed") {
         std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         UInt32 hidden = 0, canBeDefault = 1;
         get(2, kAudioDevicePropertyIsHidden, hidden);

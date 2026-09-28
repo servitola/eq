@@ -819,22 +819,35 @@ class Driver : TargetExecutor {
                                   DISPATCH_TIME_FOREVER, NSEC_PER_MSEC * 10);
     }
 
+    // No lock may be held across a host call: the host may run Perform or Abort, which take
+    // configMutex_, inside Request on this thread or on another thread while Request waits.
     void requestConfiguration(std::optional<double> rate, std::optional<UInt32> latency) {
-        std::lock_guard<std::mutex> lock(configMutex_);
-        if (!configRequested_) {
-            pendingRate_ = sampleRate_;
-            pendingLatency_ = latency_;
+        double wantRate;
+        UInt32 wantLatency;
+        bool send;
+        {
+            std::lock_guard<std::mutex> lock(configMutex_);
+            if (!configRequested_) {
+                pendingRate_ = sampleRate_;
+                pendingLatency_ = latency_;
+            }
+            if (rate) pendingRate_ = *rate;
+            if (latency) pendingLatency_ = *latency;
+            if (pendingRate_ == sampleRate_.load() && pendingLatency_ == latency_.load()) return;
+            wantRate = pendingRate_;
+            wantLatency = pendingLatency_;
+            send = !configRequested_;
+            configRequested_ = true;
         }
-        if (rate) pendingRate_ = *rate;
-        if (latency) pendingLatency_ = *latency;
-        if (pendingRate_ == sampleRate_.load() && pendingLatency_ == latency_.load()) return;
-        storeDouble("sampleRate", pendingRate_);
-        storeDouble("latency", pendingLatency_);
-        if (configRequested_) return;
-        configRequested_ = true;
+        storeDouble("sampleRate", wantRate);
+        storeDouble("latency", wantLatency);
+        if (!send) return;
         OSStatus err = host_->RequestDeviceConfigurationChange(host_, kObjectDevice, kChangeApplyPending, nullptr);
         if (err != noErr) {
-            configRequested_ = false;
+            {
+                std::lock_guard<std::mutex> lock(configMutex_);
+                configRequested_ = false;
+            }
             setError("configuration change refused", err);
         }
     }

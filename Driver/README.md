@@ -14,11 +14,13 @@ Derived from [Proxy Audio Device](https://github.com/briankendall/proxy-audio-de
 ## Build
 
 ```sh
-Driver/build.sh           # build/EQDriver.driver and build/probe, Developer ID + hardened runtime
-Driver/build.sh --adhoc   # ad-hoc signed
-Driver/test.sh            # ring, clock servo, timeline checks, latency, target state machine
-Driver/test.sh --host     # also loads the built plug-in into a fake host; plays silence on the
-                          # built-in output for about 25 s
+Driver/build.sh             # build/EQDriver.driver and build/probe, Developer ID + hardened runtime
+Driver/build.sh --adhoc     # ad-hoc signed
+Driver/test.sh              # ring, clock servo, timeline checks, latency, target state machine
+Driver/test.sh --host-idle  # also loads the built plug-in into a fake host that never starts IO:
+                            # configuration changes performed inside Request, on another thread
+                            # while Request waits, and after it returns; the kill file
+Driver/test.sh --host       # the same, then plays silence on the built-in output for about 25 s
 ```
 
 ## Development install
