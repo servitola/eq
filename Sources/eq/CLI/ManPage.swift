@@ -71,6 +71,7 @@ enum ManPage {
             ".TP", ".B EQ_CONFIG", escape("The config file instead of ~/.config/eq/eq.json."),
             ".TP", ".B EQ_STATUS", escape("The daemon's status file instead of the default."),
             ".TP", ".B EQ_CACHE", escape("The AutoEq index cache directory instead of ~/.cache/eq."),
+            ".TP", ".B EQ_LOG", escape("eq daemon only: append its log to this file (~ expanded). The bundled login item sets ~/Library/Logs/eq.log."),
             ".TP", ".B NO_COLOR", escape("Set to anything: no colour. Colour is also off when stdout is not a terminal or TERM is dumb."),
             ".SH FILES",
             ".TP", ".I ~/.config/eq/eq.json", escape("Curves per device, presets, hooks. Edited by hand or by eq; the daemon watches it."),

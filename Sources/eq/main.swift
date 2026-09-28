@@ -10,6 +10,7 @@ func paintStderrError(_ text: String) -> String {
 let arguments = Array(CommandLine.arguments.dropFirst())
 
 if arguments.first == "daemon" && !arguments.contains("--help") && !arguments.contains("-h") && !arguments.contains("--dry-run") {
+    if let log = ProcessInfo.processInfo.environment["EQ_LOG"], !log.isEmpty { Log.redirect(to: log) }
     let daemon = Daemon(store: ConfigStore(url: ConfigStore.defaultURL), statusURL: Status.defaultURL)
     daemon.run()
 }
