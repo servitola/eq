@@ -1,39 +1,52 @@
 import EQAtomics
 
 /// Single-producer, single-consumer ring of interleaved Float frames: the tap's IOProc writes,
-/// the output device's IOProc reads. Positions count frames since the ring was made and never
-/// wrap, so `written - read` is the fill. Nothing here allocates, locks or retains after `init`.
+/// the output device's IOProc reads. Positions count frames since the last reset and never
+/// wrap, so `written - read` is the fill. Writing and reading never allocate, lock or retain.
 final class AudioRing {
     struct Source {
         var pointer: UnsafePointer<Float>
         var stride: Int
     }
 
-    let channels: Int
-    let capacity: Int
-    private let mask: Int64
-    private let samples: UnsafeMutablePointer<Float>
+    private(set) var channels = 1
+    private(set) var capacity = 1
+    private var mask: Int64 = 0
+    private var samples: UnsafeMutablePointer<Float>
     // `written` at [0], `read` at [cursorGap]: a cache line apart, so each thread's store does not
     // invalidate the line the other one keeps loading.
     private let cursors: UnsafeMutablePointer<Int64>
     private static let cursorGap = 16
 
     init(channels: Int, minimumCapacity: Int) {
-        precondition(channels > 0 && minimumCapacity > 0)
-        self.channels = channels
-        var capacity = 1
-        while capacity < minimumCapacity { capacity <<= 1 }
-        self.capacity = capacity
-        mask = Int64(capacity - 1)
-        samples = .allocate(capacity: capacity * channels)
-        samples.initialize(repeating: 0, count: capacity * channels)
+        samples = .allocate(capacity: 1)
         cursors = .allocate(capacity: 2 * Self.cursorGap)
         cursors.initialize(repeating: 0, count: 2 * Self.cursorGap)
+        reset(channels: channels, minimumCapacity: minimumCapacity)
     }
 
     deinit {
         samples.deallocate()
         cursors.deallocate()
+    }
+
+    /// Empties the ring and reshapes it. Only while neither IOProc runs: the IOProcs hold this
+    /// object for the engine's whole life, so a new shape never means a new object, and the
+    /// render threads never pay for a reference count.
+    func reset(channels: Int, minimumCapacity: Int) {
+        precondition(channels > 0 && minimumCapacity > 0)
+        var capacity = 1
+        while capacity < minimumCapacity { capacity <<= 1 }
+        if capacity * channels != self.capacity * self.channels {
+            samples.deallocate()
+            samples = .allocate(capacity: capacity * channels)
+        }
+        samples.initialize(repeating: 0, count: capacity * channels)
+        self.channels = channels
+        self.capacity = capacity
+        mask = Int64(capacity - 1)
+        eq_store_release(cursors, 0)
+        eq_store_release(cursors + Self.cursorGap, 0)
     }
 
     var written: Int64 { eq_load_acquire(cursors) }

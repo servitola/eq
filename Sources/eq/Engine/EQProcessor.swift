@@ -12,7 +12,7 @@ final class EQProcessor {
         var coefficients: [BiquadCoefficients] = []
         // Filter history travels with the coefficients so a new filter count arrives with its
         // storage already allocated on the main queue; the render thread never resizes it for a
-        // band-count change. Flattened [channel][band], sized for stereo.
+        // band-count change. Flattened [channel][band], sized for `channelCount`.
         var states: [BiquadState] = []
         var preampLinear: Float = 1
         var outputGainLinear: Float = 1
@@ -44,6 +44,7 @@ final class EQProcessor {
     private var limiterEnvelope: Float = 0
     private var limiterRelease = Float(exp(-1.0 / (0.080 * 48000)))
     private(set) var sampleRate: Double = 48000
+    private(set) var channelCount = 2
 
     let meter = BandMeter(frequencies: Config.bandFrequencies)
     /// Written on the main queue, read once per callback on the audio thread.
@@ -65,11 +66,14 @@ final class EQProcessor {
 
     deinit { meterInput.deallocate() }
 
-    /// Call only while the IOProc is stopped.
-    func configure(sampleRate: Double) {
+    /// Call only while the IOProc is stopped. A profile already applied is rebuilt for the new
+    /// rate and channel count, so the first render never resizes filter state.
+    func configure(sampleRate: Double, channels: Int = 2) {
         self.sampleRate = sampleRate
+        channelCount = max(channels, 1)
         limiterRelease = Float(exp(-1.0 / (0.080 * sampleRate)))
         meter.configure(sampleRate: sampleRate)
+        rebuild()
     }
 
     /// Audio thread only. Clear filter and limiter history before the engine
@@ -143,7 +147,7 @@ final class EQProcessor {
                 if bypassed { snap.coefficients = [] }
                 snap.coefficients += Self.soloCoefficients(solo, sampleRate: sampleRate)
             }
-            snap.states = Array(repeating: BiquadState(), count: 2 * snap.coefficients.count)
+            snap.states = Array(repeating: BiquadState(), count: channelCount * snap.coefficients.count)
             snap.preampLinear = bypassed ? 1 : Float(pow(10, preampDB / 20))
             snap.outputGainLinear = bypassed ? 1 : Float(pow(10, outputGainDB / 20))
             snap.limiterEnabled = limiterEnabled
@@ -207,8 +211,8 @@ final class EQProcessor {
         let channelCount = channels.count
         let bandCount = coefficients.count
 
-        // update() sizes states for stereo; only a device with another channel count gets here,
-        // and that allocates once, on the first cycle after the swap.
+        // update() sizes states for the configured channel count; only a caller passing another
+        // count gets here, and that allocates once, on the first cycle after the swap.
         if snapshot.states.count != channelCount * bandCount {
             snapshot.states = Array(repeating: BiquadState(), count: channelCount * bandCount)
             limiterEnvelope = 0

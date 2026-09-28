@@ -1,4 +1,5 @@
 import XCTest
+import EQAtomics
 @testable import eq
 
 final class AudioRingTests: XCTestCase {
@@ -131,5 +132,26 @@ final class AudioRingTests: XCTestCase {
         while ring.written < total { usleep(100) }
         XCTAssertEqual(failures, 0)
         XCTAssertGreaterThan(reads, 1000)
+    }
+
+    /// A reader on another thread sees each (position, host) pair whole or not at all.
+    func testStampIsNeverReadHalfWritten() {
+        let cells = UnsafeMutablePointer<Int64>.allocate(capacity: 3)
+        cells.initialize(repeating: 0, count: 3)
+        defer { cells.deallocate() }
+        var position: Int64 = 0, host: Int64 = 0
+        XCTAssertEqual(eq_stamp_read(cells, &position, &host), 0, "nothing published yet")
+        let writer = Thread {
+            for i in Int64(1)...500_000 { eq_stamp_publish(cells, i, 3 * i) }
+        }
+        writer.start()
+        var torn = 0, seen = 0
+        while position < 500_000 {
+            guard eq_stamp_read(cells, &position, &host) != 0 else { continue }
+            if host != 3 * position { torn += 1 }
+            seen += 1
+        }
+        XCTAssertEqual(torn, 0)
+        XCTAssertGreaterThan(seen, 0)
     }
 }

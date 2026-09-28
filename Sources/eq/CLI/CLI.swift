@@ -524,10 +524,18 @@ enum CLI {
         let version = Paint.ink(.yellow, status.version ?? "-")
         let enabled = Paint.ink(status.enabled ? .green : .yellow, "\(status.enabled)")
         lines.append("\(label("callbacks")) \(callbacks)  \(label("frames")) \(frames)  \(label("enabled")) \(enabled)  \(label("pid")) \(pid)  \(label("version")) \(version)")
+        if let text = ringText(status) { lines.append("\(label("ring")) \(text)") }
         if let error = status.error { lines.append("\(Paint.ink(.red, "error:")) \(error)") }
         lines.append(contentsOf: (status.warnings ?? []).map { "\(Paint.ink(.yellow, "warning:")) \($0)" })
         if status.state == .noPermission { lines.append(Paint.ink(.yellow, permissionHint)) }
         return Output(lines.joined(separator: "\n"), status)
+    }
+
+    /// Only when something went wrong: a healthy ring never under- or overruns.
+    static func ringText(_ status: Status) -> String? {
+        let underruns = status.underruns ?? 0, overruns = status.overruns ?? 0
+        guard underruns > 0 || overruns > 0 else { return nil }
+        return Paint.ink(.yellow, "\(underruns) underrun\(underruns == 1 ? "" : "s"), \(overruns) overrun\(overruns == 1 ? "" : "s")")
     }
 
     /// Whole milliseconds once the daemon splits the path: the device is what a player compensates, the rest it cannot.

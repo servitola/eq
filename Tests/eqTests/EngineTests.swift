@@ -11,17 +11,24 @@ final class EngineTests: XCTestCase {
             mChannelsPerFrame: channels, mBitsPerChannel: 32, mReserved: 0)
     }
 
-    func testTapSelectionPicksTheOnlyStereoFloatStream() {
-        let selection = TapInputSelection.select(
-            tapFormat: asbd(), aggregateInputFormats: [asbd(channels: 1), asbd()], aggregateInputChannels: [1, 2])
-        XCTAssertEqual(selection, TapInputSelection(bufferIndex: 1, channels: 2))
+    func testTapFormatTakesAnyFloatChannelCountTheAggregateCarries() {
+        XCTAssertEqual(TapFormat.channels(tap: asbd(), deviceRate: 48000, aggregateRate: 48000, aggregateInputChannels: [2]), 2)
+        XCTAssertEqual(TapFormat.channels(tap: asbd(rate: 16000, channels: 1), deviceRate: 16000, aggregateRate: 16000,
+                                          aggregateInputChannels: [1]), 1)
+        XCTAssertEqual(TapFormat.channels(tap: asbd(channels: 8), deviceRate: 48000, aggregateRate: 48000, aggregateInputChannels: [8]), 8)
     }
 
-    func testTapSelectionUsesChannelBoundaryWhenAmbiguous() {
-        let selection = TapInputSelection.select(
-            tapFormat: asbd(), aggregateInputFormats: [asbd(), asbd()], aggregateInputChannels: [2, 2],
-            aggregateInputStartingChannels: [1, 3], physicalInputChannelCount: 2)
-        XCTAssertEqual(selection, TapInputSelection(bufferIndex: 1, channels: 2))
+    func testTapFormatRefusesWhatTheRingCannotCarry() {
+        var integer = asbd()
+        integer.mFormatFlags = kAudioFormatFlagIsSignedInteger
+        XCTAssertNil(TapFormat.channels(tap: integer, deviceRate: 48000, aggregateRate: 48000, aggregateInputChannels: [2]))
+        XCTAssertNil(TapFormat.channels(tap: asbd(), deviceRate: 44100, aggregateRate: 44100, aggregateInputChannels: [2]),
+                     "a tap still at the old rate after a device switch")
+        XCTAssertNil(TapFormat.channels(tap: asbd(), deviceRate: 48000, aggregateRate: 44100, aggregateInputChannels: [2]))
+        XCTAssertNil(TapFormat.channels(tap: asbd(), deviceRate: 48000, aggregateRate: 48000, aggregateInputChannels: [2, 2]),
+                     "anything in the aggregate besides the tap")
+        XCTAssertNil(TapFormat.channels(tap: asbd(channels: 32), deviceRate: 48000, aggregateRate: 48000, aggregateInputChannels: [32]))
+        XCTAssertNil(TapFormat.channels(tap: asbd(), deviceRate: 0, aggregateRate: 0, aggregateInputChannels: [2]))
     }
 
     func testPeakFilterAtZeroGainIsUnity() {
@@ -150,50 +157,45 @@ final class EngineTests: XCTestCase {
 }
 
 final class PathLatencyTests: XCTestCase {
+    private let latency = PathLatency(outputDevice: 40 + 24, outputStream: 16, outputBuffer: 128, tapInput: 30, ringTarget: 320)
+
     func testSumsAllStagesAtTheNominalRate() throws {
-        let latency = PathLatency(outputDevice: 40 + 24, outputStream: 0, buffer: 256, tapInput: 238)
-        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 48000)), 814.0 / 48, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 44100)), 814.0 / 44.1, accuracy: 1e-9)
-    }
-
-    func testBufferCountsForInputAndOutput() {
-        XCTAssertEqual(PathLatency(outputDevice: 0, outputStream: 0, buffer: 240, tapInput: 0).milliseconds(sampleRate: 48000), 10)
-    }
-
-    func testNoRateNoNumber() {
-        XCTAssertNil(PathLatency(outputDevice: 1, outputStream: 1, buffer: 256, tapInput: 1).milliseconds(sampleRate: 0))
-        XCTAssertNil(PathLatency(outputDevice: 1, outputStream: 1, buffer: 256, tapInput: 1).deviceMilliseconds(sampleRate: 0))
+        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 48000)), 558.0 / 48, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(latency.milliseconds(sampleRate: 44100)), 558.0 / 44.1, accuracy: 1e-9)
     }
 
     func testDeviceShareIsWhatAPlayerSees() throws {
-        let latency = PathLatency(outputDevice: 9274, outputStream: 0, buffer: 256, tapInput: 9274)
-        XCTAssertEqual(try XCTUnwrap(latency.deviceMilliseconds(sampleRate: 44100)), 9274 / 44.1, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(latency.deviceMilliseconds(sampleRate: 48000)), 80.0 / 48, accuracy: 1e-9)
+    }
+
+    func testAddedShareIsTapHoldRingAndOutputBuffer() throws {
+        XCTAssertEqual(try XCTUnwrap(latency.addedMilliseconds(sampleRate: 48000)), 478.0 / 48, accuracy: 1e-9)
+    }
+
+    func testNoRateNoNumber() {
+        XCTAssertNil(latency.milliseconds(sampleRate: 0))
+        XCTAssertNil(latency.deviceMilliseconds(sampleRate: 0))
+        XCTAssertNil(latency.addedMilliseconds(sampleRate: 0))
     }
 }
 
 final class IODelayTests: XCTestCase {
-    private func stamp(host: UInt64, sample: Double, flags: AudioTimeStampFlags = [.hostTimeValid, .sampleTimeValid]) -> AudioTimeStamp {
-        var t = AudioTimeStamp()
-        t.mHostTime = host
-        t.mSampleTime = sample
-        t.mFlags = flags
-        return t
-    }
-
-    /// Apple silicon's timebase: 125/3 ns per tick.
+    /// Apple silicon's timebase: 125/3 ns per tick, so 500 ticks per frame at 48 kHz.
     private let appleSilicon: (UInt64) -> UInt64 = { $0 * 125 / 3 }
 
-    func testOutputMinusInputInTicksAndFrames() throws {
-        let delay = try XCTUnwrap(IODelay.measure(input: stamp(host: 1_000, sample: 100), output: stamp(host: 1_000 + 24_000, sample: 100 + 512)))
-        XCTAssertEqual(delay, IODelay(hostTicks: 24_000, frames: 512))
-        XCTAssertEqual(delay.milliseconds(nanos: appleSilicon), 1.0, accuracy: 1e-9)
+    func testCarriesTheTapStampForwardToTheFrameThatLeaves() throws {
+        // The tap stamped position 1000 at tick 1_000_000; position 800 left at tick 1_300_000.
+        let delay = try XCTUnwrap(IODelay.between(tapPosition: 1000, tapHost: 1_000_000, outputPosition: 800,
+                                                  outputHost: 1_300_000, ticksPerFrame: 500))
+        XCTAssertEqual(delay, IODelay(hostTicks: 400_000, frames: 800))
+        XCTAssertEqual(delay.milliseconds(nanos: appleSilicon), 16.666, accuracy: 0.001)
     }
 
-    func testInvalidOrBackwardsStampsMeasureNothing() {
-        XCTAssertNil(IODelay.measure(input: stamp(host: 1, sample: 0, flags: [.sampleTimeValid]), output: stamp(host: 9, sample: 8)))
-        XCTAssertNil(IODelay.measure(input: stamp(host: 1, sample: 0), output: stamp(host: 9, sample: 8, flags: [.hostTimeValid])))
-        XCTAssertNil(IODelay.measure(input: AudioTimeStamp(), output: stamp(host: 9, sample: 8)))
-        XCTAssertNil(IODelay.measure(input: stamp(host: 9, sample: 8), output: stamp(host: 9, sample: 8)))
+    func testNoStampOrBackwardsTimeMeasuresNothing() {
+        XCTAssertNil(IODelay.between(tapPosition: 0, tapHost: 0, outputPosition: 0, outputHost: 9, ticksPerFrame: 500))
+        XCTAssertNil(IODelay.between(tapPosition: 0, tapHost: 9, outputPosition: 0, outputHost: 0, ticksPerFrame: 500))
+        XCTAssertNil(IODelay.between(tapPosition: 0, tapHost: 9, outputPosition: 0, outputHost: 9, ticksPerFrame: 500))
+        XCTAssertNil(IODelay.between(tapPosition: 0, tapHost: 1, outputPosition: 0, outputHost: 9, ticksPerFrame: 0))
     }
 
     func testRealClockRoundTrips() {

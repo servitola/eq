@@ -38,10 +38,13 @@ struct Status: Codable, Equatable {
     /// Written as [] when there is nothing to say, so nil means a daemon too old to check.
     var warnings: [String]? = nil
     var deviceLatencyMs: Double? = nil
-    /// Measured from the IO cycle's own timestamps; players compensate for the device, never for this.
+    /// From the tap's host timestamp on a frame to the output's on the same frame; players compensate for the device, never for this.
     var addedLatencyMs: Double? = nil
     var addedLatencyFrames: Double? = nil
     var lastOnset: Onset? = nil
+    /// Output cycles that found the tap's ring short (silence filled the gap) or overfull (oldest dropped).
+    var underruns: UInt64? = nil
+    var overruns: UInt64? = nil
 
     static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["EQ_STATUS"], !override.isEmpty {
@@ -85,7 +88,7 @@ struct Status: Codable, Equatable {
 extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
-        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset
+        case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -111,5 +114,7 @@ extension Status {
         addedLatencyMs = try c.decodeIfPresent(Double.self, forKey: .addedLatencyMs)
         addedLatencyFrames = try c.decodeIfPresent(Double.self, forKey: .addedLatencyFrames)
         lastOnset = try c.decodeIfPresent(Onset.self, forKey: .lastOnset)
+        underruns = try c.decodeIfPresent(UInt64.self, forKey: .underruns)
+        overruns = try c.decodeIfPresent(UInt64.self, forKey: .overruns)
     }
 }

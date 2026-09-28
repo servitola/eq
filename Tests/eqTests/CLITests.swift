@@ -727,6 +727,18 @@ final class CLITests: XCTestCase {
         XCTAssertNil(CLI.latencyText(status))
     }
 
+    func testRingLineOnlyWhenTheRingSlipped() {
+        var status = Status(state: .running, device: nil, sampleRate: 44100, profile: nil, framesProcessed: 0, callbacks: 0, writes: 0,
+                            enabled: true, error: nil, pid: 1, version: "1", updatedAt: Date())
+        XCTAssertNil(CLI.ringText(status))
+        status.underruns = 0
+        status.overruns = 0
+        XCTAssertNil(CLI.ringText(status))
+        status.underruns = 1
+        status.overruns = 3
+        XCTAssertEqual(CLI.ringText(status), "1 underrun, 3 overruns")
+    }
+
     func testStreamExitsOneWhenDaemonCloses() throws {
         let socketURL = dir.appendingPathComponent("meter.sock")
         context.meterSocketURL = socketURL

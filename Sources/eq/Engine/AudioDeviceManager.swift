@@ -88,11 +88,6 @@ enum AudioDeviceManager {
         channelCount(id, scope: kAudioDevicePropertyScopeOutput) ?? 0
     }
 
-    static func inputChannelCount(_ id: AudioObjectID) -> UInt32? {
-        guard let count = channelCount(id, scope: kAudioDevicePropertyScopeInput) else { return nil }
-        return UInt32(exactly: count)
-    }
-
     private static func channelCount(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> Int? {
         var addr = address(kAudioDevicePropertyStreamConfiguration, scope: scope)
         var size: UInt32 = 0
@@ -124,33 +119,44 @@ enum AudioDeviceManager {
         return value
     }
 
-    static func inputStreamFormats(_ id: AudioObjectID) -> [AudioStreamBasicDescription]? {
-        guard let streams = inputStreams(id) else { return nil }
-        var formats: [AudioStreamBasicDescription] = []
-        formats.reserveCapacity(streams.count)
-        for stream in streams {
-            var formatAddress = address(kAudioStreamPropertyVirtualFormat)
-            var format = AudioStreamBasicDescription()
-            var formatSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-            guard AudioObjectGetPropertyData(stream, &formatAddress, 0, nil, &formatSize, &format) == noErr else { return nil }
-            formats.append(format)
-        }
-        return formats
-    }
-
-    static func inputStreamStartingChannels(_ id: AudioObjectID) -> [UInt32]? {
-        guard let streams = inputStreams(id) else { return nil }
-        var startingChannels: [UInt32] = []
-        startingChannels.reserveCapacity(streams.count)
-        for stream in streams {
-            guard let startingChannel = uint32Property(stream, kAudioStreamPropertyStartingChannel) else { return nil }
-            startingChannels.append(startingChannel)
-        }
-        return startingChannels
-    }
-
     private static func inputStreams(_ id: AudioObjectID) -> [AudioObjectID]? {
         streams(id, scope: kAudioDevicePropertyScopeInput)
+    }
+
+    static func setNominalSampleRate(_ id: AudioObjectID, _ rate: Double) -> OSStatus {
+        var addr = address(kAudioDevicePropertyNominalSampleRate)
+        var value = rate
+        return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<Double>.size), &value)
+    }
+
+    static func bufferFrameSize(_ id: AudioObjectID) -> Int? {
+        uint32Property(id, kAudioDevicePropertyBufferFrameSize).flatMap { $0 > 0 ? Int($0) : nil }
+    }
+
+    /// Only this process's IO on the device changes: the HAL keeps the buffer size per client process.
+    /// Checked on macOS 26 with a second process, which kept reading 512 frames while the first had 96.
+    /// Some devices refuse or clamp the request; `bufferFrameSize` then reports what was granted.
+    static func requestBufferFrameSize(_ id: AudioObjectID, _ frames: Int) {
+        var addr = address(kAudioDevicePropertyBufferFrameSize)
+        var value = UInt32(clamping: frames)
+        _ = AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+    }
+
+    /// Turns every input stream of `id` off for `ioProc`. Running an IOProc with a headset's microphone
+    /// stream on counts as microphone access: macOS asks for permission and a Bluetooth headset drops
+    /// to its call profile. Returns true when the device has no input or the switch took.
+    static func disableInput(_ id: AudioObjectID, for ioProc: AudioDeviceIOProcID) -> Bool {
+        guard let count = inputStreams(id)?.count, count > 0 else { return true }
+        var addr = address(kAudioDevicePropertyIOProcStreamUsage, scope: kAudioDevicePropertyScopeInput)
+        let offset = MemoryLayout<AudioHardwareIOProcStreamUsage>.offset(of: \.mStreamIsOn) ?? 12
+        let size = offset + count * MemoryLayout<UInt32>.size
+        let storage = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: MemoryLayout<AudioHardwareIOProcStreamUsage>.alignment)
+        defer { storage.deallocate() }
+        storage.initializeMemory(as: UInt8.self, repeating: 0, count: size)
+        let usage = storage.assumingMemoryBound(to: AudioHardwareIOProcStreamUsage.self)
+        usage.pointee.mIOProc = unsafeBitCast(ioProc, to: UnsafeMutableRawPointer.self)
+        usage.pointee.mNumberStreams = UInt32(count)
+        return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(size), storage) == noErr
     }
 
     static func outputStreamCount(_ id: AudioObjectID) -> Int? {

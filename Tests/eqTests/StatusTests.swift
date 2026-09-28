@@ -76,6 +76,7 @@ final class StatusTests: XCTestCase {
         XCTAssertNil(status.tapSilentSeconds)
         XCTAssertNil(status.addedLatencyMs)
         XCTAssertNil(status.lastOnset)
+        XCTAssertNil(status.underruns)
     }
 
     func testLatencyAndSilenceRoundTrip() throws {
@@ -96,6 +97,8 @@ final class StatusTests: XCTestCase {
         status.addedLatencyMs = 23.2
         status.addedLatencyFrames = 1024
         status.lastOnset = Status.Onset(tapHostSeconds: 100.25, outputHostSeconds: 100.5, count: 3)
+        status.underruns = 2
+        status.overruns = 0
         try status.write(to: url)
         XCTAssertEqual(Status.read(from: url), status)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])

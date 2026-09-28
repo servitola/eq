@@ -108,6 +108,10 @@ final class Daemon {
     private var statusWrites: UInt64 = 0
     private var lastCallbacks: UInt64 = 0
     private var unchangedTicks = 0
+    private var lastTapCallbacks: UInt64 = 0
+    private var unchangedTapTicks = 0
+    private var loggedUnderrun = false
+    private var loggedOverrun = false
     private var retryWork: DispatchWorkItem?
     // Our own aggregate create/destroy fires the devices listener; cleared only when a rebuild succeeds, and failures retry on a timer, so a self-fired Devices event can never restart the cycle.
     private var rebuilding = false
@@ -376,8 +380,9 @@ final class Daemon {
         // path is live before declaring success, otherwise retry the whole build.
         retryWork = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            if self.engine.state == .running, self.engine.callbacks > 0 || attempt >= DaemonPolicy.rebuildAttempts {
-                if self.engine.callbacks == 0 {
+            let live = self.engine.callbacks > 0 && self.engine.tapCallbacks > 0
+            if self.engine.state == .running, live || attempt >= DaemonPolicy.rebuildAttempts {
+                if !live {
                     Log.write("declaring running without IO callbacks after \(attempt) attempts")
                 } else if attempt > 1 {
                     Log.write("running after \(attempt) attempts")
@@ -585,18 +590,24 @@ final class Daemon {
                 return
             }
             if self.state == .running || self.state == .bypassed {
-                let r = DaemonPolicy.stalled(previous: self.lastCallbacks, current: self.engine.callbacks, unchangedTicks: self.unchangedTicks)
-                self.unchangedTicks = r.unchangedTicks
-                if r.stalled {
-                    Log.write("IO stalled for \(Int(Double(DaemonPolicy.stallTicks) * DaemonPolicy.statusInterval)) s — rebuilding")
+                let output = DaemonPolicy.stalled(previous: self.lastCallbacks, current: self.engine.callbacks, unchangedTicks: self.unchangedTicks)
+                let tap = DaemonPolicy.stalled(previous: self.lastTapCallbacks, current: self.engine.tapCallbacks, unchangedTicks: self.unchangedTapTicks)
+                self.unchangedTicks = output.unchangedTicks
+                self.unchangedTapTicks = tap.unchangedTicks
+                if output.stalled || tap.stalled {
+                    Log.write("\(output.stalled ? "output" : "tap") IO stalled for \(Int(Double(DaemonPolicy.stallTicks) * DaemonPolicy.statusInterval)) s — rebuilding")
                     self.unchangedTicks = 0
+                    self.unchangedTapTicks = 0
                     self.rebuild(attempt: 1)
                     return
                 }
             } else {
                 self.unchangedTicks = 0
+                self.unchangedTapTicks = 0
             }
             self.lastCallbacks = self.engine.callbacks
+            self.lastTapCallbacks = self.engine.tapCallbacks
+            self.noteRingEvents()
             // Observed every tick, not only on writes, so the silence start is known to within one interval.
             _ = self.observeTap()
             // Nothing changed on this tick: only the 30 s heartbeat justifies a write, to keep disk wear low.
@@ -608,8 +619,24 @@ final class Daemon {
         statusTimer = timer
     }
 
+    /// The first of each kind per engine run; the rest only count in the status.
+    private func noteRingEvents() {
+        if engine.underruns == 0 {
+            loggedUnderrun = false
+        } else if !loggedUnderrun {
+            Log.write("ring underrun: the tap fell behind the output, which played silence for the gap and refilled")
+            loggedUnderrun = true
+        }
+        if engine.overruns == 0 {
+            loggedOverrun = false
+        } else if !loggedOverrun {
+            Log.write("ring overrun: audio piled up behind the output, which dropped the oldest to keep the delay down")
+            loggedOverrun = true
+        }
+    }
+
     private func observeTap() -> Double? {
-        let seconds = tapSilence.observe(callbacks: engine.callbacks, signalCallbacks: engine.signalCallbacks, now: Date())
+        let seconds = tapSilence.observe(callbacks: engine.tapCallbacks, signalCallbacks: engine.signalCallbacks, now: Date())
         return state == .running || state == .bypassed ? seconds : nil
     }
 
@@ -636,7 +663,9 @@ final class Daemon {
             deviceLatencyMs: running ? engine.deviceLatencyMs : nil,
             addedLatencyMs: running ? added?.milliseconds() : nil,
             addedLatencyFrames: running ? added?.frames : nil,
-            lastOnset: running ? engine.lastOnset : nil)
+            lastOnset: running ? engine.lastOnset : nil,
+            underruns: running ? engine.underruns : nil,
+            overruns: running ? engine.overruns : nil)
         do { try status.write(to: statusURL) } catch { Log.write("cannot write status: \(error)") }
         lastStatusWrite = Date()
     }
