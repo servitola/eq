@@ -97,30 +97,6 @@ final class DriverControlTests: XCTestCase {
 }
 
 final class DriverCLITests: XCTestCase {
-    private final class FakeDriver: DriverPort {
-        var state: [String: Any] = ["target": "BUILTIN", "targetName": "MacBook Pro Speakers", "eqActive": false,
-                                    "settingsSerial": 0, "writerRequirement": "identifier \"com.servitola.eq\""]
-        var written: [Data] = []
-        var refuses = false
-        var applies = true
-
-        func health() throws -> [String: Any] { state }
-
-        func write(settings record: Data) throws {
-            if refuses { throw DriverError.refused }
-            written.append(record)
-            guard applies else { return }
-            var settings = eqc_settings()
-            var uid = [CChar](repeating: 0, count: Int(EQC_BLOB_UID_CAPACITY))
-            var serial: UInt64 = 0
-            _ = record.withUnsafeBytes { eqc_blob_decode($0.baseAddress!, $0.count, &settings, &uid, &serial) }
-            state["settingsSerial"] = serial
-            state["eqActive"] = true
-        }
-
-        func meter() throws -> DriverMeter { throw DriverError.badReply("meter") }
-    }
-
     private var dir: URL!
     private var context: CLIContext!
     private var fake: FakeDriver!
@@ -158,6 +134,7 @@ final class DriverCLITests: XCTestCase {
         XCTAssertEqual(result.output, """
         eqActive: no
         settingsSerial: 0
+        settingsVersion: 1
         target: BUILTIN
         targetName: MacBook Pro Speakers
         writerRequirement: identifier "com.servitola.eq"
@@ -200,5 +177,27 @@ final class DriverCLITests: XCTestCase {
         context.driver = { nil }
         XCTAssertEqual(run("driver", "status").output, "error: driver: not installed: no audio device com.servitola.eq.device")
         XCTAssertEqual(run("driver").exitCode, 2)
+    }
+}
+
+final class DriverHealthTests: XCTestCase {
+    func testReadsThePluginsKeys() {
+        let health = DriverHealth(["target": "BT-RCA", "targetName": "BE-RCA", "ioRunning": true, "underruns": 3, "overruns": 1,
+                                   "clockCorrectionPpm": -12.5, "sampleRate": 48000.0, "latencyFrames": 7200, "eqActive": true,
+                                   "settingsVersion": 1, "settingsSerial": 42, "hidden": false, "killed": false])
+        XCTAssertEqual(health.target, "BT-RCA")
+        XCTAssertTrue(health.ioRunning)
+        XCTAssertEqual(health.underruns, 3)
+        XCTAssertEqual(health.clockPpm, -12.5)
+        XCTAssertEqual(health.latencyMs, 150)
+        XCTAssertEqual(health.settingsVersion, 1)
+        XCTAssertNil(DriverHealth([:]).settingsVersion)
+        XCTAssertNil(DriverHealth([:]).latencyMs)
+    }
+
+    func testSelectorsMatchThePlugin() {
+        XCTAssertEqual(DriverControl.targetSelector, 0x6571_5467)
+        XCTAssertEqual(DriverControl.hiddenSelector, 0x6571_4864)
+        XCTAssertEqual(DriverControl.requiredVersion, 1)
     }
 }

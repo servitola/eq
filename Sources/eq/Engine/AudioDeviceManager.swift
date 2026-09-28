@@ -58,6 +58,18 @@ enum AudioDeviceManager {
         return id
     }
 
+    /// Finds a device the device list may not show yet, such as the EQ device a moment after it was shown.
+    static func deviceID(uid: String) -> AudioObjectID? {
+        var addr = address(kAudioHardwarePropertyTranslateUIDToDevice)
+        var uid = uid as CFString
+        var id = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = withUnsafePointer(to: &uid) {
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, UInt32(MemoryLayout<CFString>.size), $0, &size, &id)
+        }
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
+    }
+
     static func setDefaultOutputDevice(_ id: AudioObjectID) -> OSStatus {
         var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
         var id = id

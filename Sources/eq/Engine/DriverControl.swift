@@ -2,11 +2,68 @@ import CoreAudio
 import EQCore
 import Foundation
 
-/// What `eq driver` needs from the HAL plug-in in Driver/; a fake in tests.
+/// What eq needs from the HAL plug-in in Driver/; a fake in tests.
 protocol DriverPort {
     func health() throws -> [String: Any]
     func write(settings record: Data) throws
     func meter() throws -> DriverMeter
+    /// `eqTg`: the real device the plug-in plays on.
+    func setTarget(_ uid: String) throws
+    /// `eqHd`: kept by the plug-in across coreaudiod restarts.
+    func setHidden(_ hidden: Bool) throws
+}
+
+/// The plug-in's `eqHl`, typed. A key the plug-in does not send reads as zero, empty or false.
+struct DriverHealth: Equatable {
+    var target = ""
+    var targetName = ""
+    var targetAvailable = false
+    var ioRunning = false
+    var underruns: UInt64 = 0
+    var overruns: UInt64 = 0
+    var clockPpm = 0.0
+    var sampleRate = 0.0
+    var latencyFrames = 0.0
+    var eqActive = false
+    /// nil: a plug-in from before the settings record, which plays no EQ.
+    var settingsVersion: Int?
+    var settingsSerial: UInt64 = 0
+    var settingsError = ""
+    var settingsRejected: UInt64 = 0
+    var lastWriterPID = 0
+    var hidden = false
+    var killed = false
+    var writerRequirement = ""
+
+    init() {}
+
+    init(_ values: [String: Any]) {
+        func text(_ key: String) -> String { values[key] as? String ?? "" }
+        func number(_ key: String) -> Double { (values[key] as? NSNumber)?.doubleValue ?? 0 }
+        func count(_ key: String) -> UInt64 { UInt64(max(number(key), 0)) }
+        func flag(_ key: String) -> Bool { (values[key] as? NSNumber)?.boolValue ?? false }
+        target = text("target")
+        targetName = text("targetName")
+        targetAvailable = flag("targetAvailable")
+        ioRunning = flag("ioRunning")
+        underruns = count("underruns")
+        overruns = count("overruns")
+        clockPpm = number("clockCorrectionPpm")
+        sampleRate = number("sampleRate")
+        latencyFrames = number("latencyFrames")
+        eqActive = flag("eqActive")
+        settingsVersion = (values["settingsVersion"] as? NSNumber)?.intValue
+        settingsSerial = count("settingsSerial")
+        settingsError = text("settingsError")
+        settingsRejected = count("settingsRejected")
+        lastWriterPID = Int(number("lastWriterPID"))
+        hidden = flag("hidden")
+        killed = flag("killed")
+        writerRequirement = text("writerRequirement")
+    }
+
+    /// What the device reports to players: the target's latency and safety offset plus the plug-in's own buffering.
+    var latencyMs: Double? { sampleRate > 0 ? latencyFrames / sampleRate * 1000 : nil }
 }
 
 struct DriverMeter: Equatable {
@@ -42,18 +99,13 @@ struct DriverControl: DriverPort {
     static let settingsSelector = selector("eqSt")
     static let meterSelector = selector("eqMt")
     static let healthSelector = selector("eqHl")
+    static let targetSelector = selector("eqTg")
+    static let hiddenSelector = selector("eqHd")
+    /// The settings record this eq writes; an older plug-in would refuse every record.
+    static let requiredVersion = Int(EQC_BLOB_VERSION)
 
     static func find() -> DriverControl? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var uid = deviceUID as CFString
-        var id = AudioObjectID(kAudioObjectUnknown)
-        var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        let status = withUnsafePointer(to: &uid) {
-            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, UInt32(MemoryLayout<CFString>.size), $0, &size, &id)
-        }
-        guard status == noErr, id != kAudioObjectUnknown else { return nil }
-        return DriverControl(device: id)
+        AudioDeviceManager.deviceID(uid: deviceUID).map(DriverControl.init)
     }
 
     /// The record the plug-in takes on `eqSt`; nil when the UID is empty or too long for it.
@@ -102,6 +154,23 @@ struct DriverControl: DriverPort {
         }
         if status == kAudioDevicePermissionsError { throw DriverError.refused }
         guard status == noErr else { throw DriverError.failed("writing the settings", status) }
+    }
+
+    func setTarget(_ uid: String) throws {
+        try set(Self.targetSelector, uid as CFString, "target")
+    }
+
+    func setHidden(_ hidden: Bool) throws {
+        try set(Self.hiddenSelector, (hidden ? kCFBooleanTrue : kCFBooleanFalse) as CFBoolean, "hidden flag")
+    }
+
+    private func set<T: AnyObject>(_ selector: AudioObjectPropertySelector, _ value: T, _ what: String) throws {
+        var address = address(selector)
+        var value = value
+        let status = withUnsafePointer(to: &value) {
+            AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<T>.size), $0)
+        }
+        guard status == noErr else { throw DriverError.failed("writing the \(what)", status) }
     }
 
     func meter() throws -> DriverMeter {
