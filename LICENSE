@@ -22,3 +22,7 @@ SOFTWARE.
 
 The files under Sources/eq/Engine marked "Vendored from zollans/OnlyEQ" are from
 https://github.com/zollans/OnlyEQ and remain under the Unlicense.
+
+The code under Driver/ is derived from Proxy Audio Device v1.1.0b1,
+https://github.com/briankendall/proxy-audio-device, which is under the Unlicense.
+NOTICE and LICENSES.md list both projects.
