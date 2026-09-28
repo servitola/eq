@@ -175,6 +175,29 @@ final class FormatSniffTests: XCTestCase {
         XCTAssertEqual(EQFormats.all.filter { $0.sniff(camillaGain, filename: nil) }.map { "\($0)" }, ["\(CamillaDSPFormat.self)"])
     }
 
+    /// APO text however it is typed (case, spacing, CRLF, UTF-16, other formats' words in comments)
+    /// is APO's alone; text another sniffer also claims still imports as APO when that parse fails.
+    func testUnusualAPOTextIsNotStolen() throws {
+        let only = [
+            "  preamp: -3 dB\r\n\tfilter 1 : on pk fc 100 hz gain 3 db q 1\r\n",
+            "Filter1: ON PK Fc 1000 Hz Gain -3 dB Q 1",
+            "# filters:\n# pipeline:\n# type: Biquad\n# [Gains]\nChannel: L\nFilter: ON PK Fc 100 Hz Gain 1 dB Q 1",
+            "[not a section]\nPreamp: -2 dB\nFilter: ON LSC Fc 105 Hz Gain 3 dB Q 0.7",
+            "GraphicEQ: 20 -1; 1000 0; 20000 -2",
+            "Device: [Speakers]\nPreamp:-6dB\nFilter  1: ON  PK       Fc   1000 Hz  Gain  -3.0 dB  Q  1.00",
+            "{ not JSON }\nFilter: ON PK Fc 100 Hz Gain 1 dB Q 1",
+        ]
+        for text in only {
+            for data in [Data(text.utf8), try XCTUnwrap(text.data(using: .utf16))] {
+                XCTAssertEqual(EQFormats.all.filter { $0.sniff(data, filename: nil) }.map { "\($0)" }, ["\(APOFormat.self)"], text)
+                XCTAssertNoThrow(try EQFormats.parse(data), text)
+            }
+        }
+        let shared = Data("filters:\nFilter: ON PK Fc 100 Hz Gain 1 dB Q 1\npipeline: none\n".utf8)
+        XCTAssertEqual(EQFormats.all.filter { $0.sniff(shared, filename: nil) }.map { "\($0)" }, ["\(CamillaDSPFormat.self)", "\(APOFormat.self)"])
+        XCTAssertEqual(try EQFormats.parse(shared).filters, [Filter(type: .peak, frequency: 100, gain: 1, q: 1)])
+    }
+
     func testSoundSourceSampleIsAPOText() throws {
         let r = try EQFormats.parse(try formatFixture("SoundSource Sample-Profile.txt"))
         XCTAssertEqual(r.preamp, -7.9)
