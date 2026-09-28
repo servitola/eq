@@ -1,7 +1,7 @@
 import Foundation
 
 /// eqMac's preset export: a JSON array of presets. The Advanced equaliser's ten gains sit on
-/// `AdvancedEqualizer.frequencies`, which are our ten centres (eqMac 1.3.2, MIT/Apache-2.0,
+/// `AdvancedEqualizer.frequencies`, which are our ten centres (eqMac 1.3.2, Apache-2.0,
 /// `/presets/export`). The Expert equaliser keeps a band list with a bandwidth in octaves and an
 /// `AUNBandEQ` filter type; that shape is only known from eqmac-backup's reader of eqMac's
 /// preferences, so it is read as documented there.
