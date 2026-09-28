@@ -37,6 +37,9 @@ mkdir -p "$resources/completions" "$resources/man"
 "$app/Contents/MacOS/eq" completions bash > "$resources/completions/eq.bash"
 "$app/Contents/MacOS/eq" completions fish > "$resources/completions/eq.fish"
 "$app/Contents/MacOS/eq" man > "$resources/man/eq.1"
+# Where SMAppService.agent(plistName:) looks; eq registers it on first use.
+mkdir -p "$app/Contents/Library/LaunchAgents"
+cp Resources/com.servitola.eq.plist "$app/Contents/Library/LaunchAgents/"
 
 if [[ $identity == - ]]; then
   codesign --force --sign - --identifier com.servitola.eq \

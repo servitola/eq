@@ -31,6 +31,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case exportFailed(String)
     case notConnected(String)
     case switchFailed(String)
+    case agent(String)
+    case legacyAgent(String)
 
     var description: String {
         switch self {
@@ -41,7 +43,7 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .noSuchDevice(let q): return "no device or profile matches \"\(q)\" — see `eq device list`"
         case .ambiguousDevice(let q, let names): return "\"\(q)\" matches several devices: \(names.joined(separator: ", "))"
         case .noCurrentDevice: return "cannot determine the current output device"
-        case .daemonNotRunning: return "eq daemon is not running — launchctl kickstart gui/$UID/com.servitola.eq"
+        case .daemonNotRunning: return "eq daemon is not running — see eq doctor"
         case .noMeter: return "eq daemon is not serving a meter — is it running and at least v4? launchctl kickstart -k gui/$UID/com.servitola.eq"
         case .daemonClosedMeter: return "daemon closed the meter"
         case .noEvents: return "eq daemon is not serving events — is it running and at least \(Build.version)? launchctl kickstart -k gui/$UID/com.servitola.eq"
@@ -72,6 +74,9 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .exportFailed(let why): return "export failed: \(why)"
         case .notConnected(let name): return "\(name) is not connected — see `eq device list`"
         case .switchFailed(let why): return "could not switch the output: \(why)"
+        case .agent(let why): return "launch agent: \(why)"
+        case .legacyAgent(let path):
+            return "\(LaunchAgent.abbreviate(path)) already starts eq at login; to switch to the bundled login item: eq agent install --replace-legacy"
         }
     }
 }

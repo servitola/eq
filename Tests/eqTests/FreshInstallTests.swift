@@ -25,7 +25,7 @@ final class FreshInstallTests: XCTestCase {
                 configFileExists: self.context.store.exists,
                 readStatus: { nil },
                 defaultOutput: { DefaultOutput(name: "Speakers", streams: 1, channels: 2) },
-                launchAgentLoaded: { true },
+                launcher: { .bundled(loaded: true) },
                 executablePath: { _ in nil },
                 signalStatus: { _ in true },
                 sleep: { _ in },

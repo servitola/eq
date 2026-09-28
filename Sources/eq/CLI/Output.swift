@@ -109,6 +109,8 @@ extension CLIError {
         case .exportFailed: return "exportFailed"
         case .notConnected: return "notConnected"
         case .switchFailed: return "switchFailed"
+        case .agent: return "agent"
+        case .legacyAgent: return "legacyAgent"
         }
     }
 }

@@ -11,4 +11,4 @@ smoke: build
 
 lint:
 	zsh -n scripts/build-app.sh scripts/smoke.sh
-	plutil -lint Resources/Info.plist Resources/eq.entitlements
+	plutil -lint Resources/Info.plist Resources/eq.entitlements Resources/com.servitola.eq.plist

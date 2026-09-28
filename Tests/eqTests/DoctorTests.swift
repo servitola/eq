@@ -20,7 +20,7 @@ final class DoctorTests: XCTestCase {
                 return s
             },
             defaultOutput: { output },
-            launchAgentLoaded: { agent },
+            launcher: { agent ? .bundled(loaded: true) : .notRegistered },
             executablePath: { _ in exe },
             signalStatus: { _ in true },
             sleep: { _ in },
@@ -64,7 +64,7 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(report.checks.first { $0.name == "permission" }!.detail.contains("Screen & System Audio Recording"))
         XCTAssertFalse(report.checks.first { $0.name == "config" }!.ok)
         XCTAssertFalse(report.checks.first { $0.name == "launch agent" }!.ok)
-        XCTAssertTrue(report.checks.first { $0.name == "launch agent" }!.detail.contains("bootstrap"))
+        XCTAssertTrue(report.checks.first { $0.name == "launch agent" }!.detail.contains("eq agent install"))
         report = Doctor.run(probes(status: running(), callbacksLater: 20))
         XCTAssertTrue(report.ok)
     }
@@ -217,7 +217,7 @@ final class DoctorTests: XCTestCase {
                 return s
             },
             defaultOutput: { DefaultOutput(name: "Speakers", streams: 1, channels: 2) },
-            launchAgentLoaded: { true },
+            launcher: { .bundled(loaded: true) },
             executablePath: { _ in "/Applications/EQ.app/Contents/MacOS/eq" },
             signalStatus: { _ in true },
             sleep: { _ in },

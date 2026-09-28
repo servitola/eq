@@ -15,7 +15,7 @@ struct DoctorProbes {
     var configFileExists: () -> Bool = { true }
     var readStatus: () -> Status?
     var defaultOutput: () -> DefaultOutput?
-    var launchAgentLoaded: () -> Bool
+    var launcher: () -> Launcher
     var executablePath: (pid_t) -> String?
     var signalStatus: (pid_t) -> Bool
     var sleep: (TimeInterval) -> Void
@@ -33,20 +33,7 @@ struct DoctorProbes {
                                      streams: AudioDeviceManager.outputStreamCount(id),
                                      channels: AudioDeviceManager.outputChannelCount(id))
             },
-            launchAgentLoaded: {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-                process.arguments = ["print", "gui/\(getuid())/com.servitola.eq"]
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    return process.terminationStatus == 0
-                } catch {
-                    return false
-                }
-            },
+            launcher: { LaunchAgent.launcher(LiveLaunchAgent()) },
             executablePath: { pid in
                 var buffer = [Int8](repeating: 0, count: 4096)
                 let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
@@ -223,11 +210,8 @@ enum Doctor {
         if probes.smoke {
             return DoctorCheck(name: "launch agent", ok: true, detail: "skipped (EQ_SMOKE)", warning: false)
         }
-        guard probes.launchAgentLoaded() else {
-            return DoctorCheck(name: "launch agent", ok: false,
-                                detail: "not loaded — launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.servitola.eq.plist", warning: false)
-        }
-        return DoctorCheck(name: "launch agent", ok: true, detail: "loaded", warning: false)
+        let summary = LaunchAgent.summary(probes.launcher())
+        return DoctorCheck(name: "launch agent", ok: summary.ok, detail: summary.detail, warning: false)
     }
 
     private static func binaryCheck(_ probes: DoctorProbes, _ live: Status?) -> DoctorCheck {

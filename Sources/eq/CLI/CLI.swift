@@ -17,6 +17,10 @@ struct CLIContext {
     var emit: (String) -> Void = { line in print(line); fflush(stdout) }
     var terminal: () -> (isTTY: Bool, cols: Int, rows: Int) = LiveTerminal.probe
     var width: (Int32) -> Int = LiveTerminal.width
+    var agent: LaunchAgentControl?
+    /// Off in tests and sandboxed runs: whether a command may start the daemon and warn about it.
+    var checksDaemon = false
+    var warn: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
 
     static func live() -> CLIContext {
         CLIContext(
@@ -38,7 +42,9 @@ struct CLIContext {
                 formatter.dateFormat = "yyyy-MM-dd"
                 formatter.calendar = Calendar.current
                 return formatter.string(from: Date())
-            })
+            },
+            agent: LiveLaunchAgent(),
+            checksDaemon: LiveLaunchAgent.autoStarts())
     }
 
 }
@@ -55,6 +61,7 @@ enum CLI {
         let command = args.first ?? "show"
         do {
             if wantsJSON && args.first == "watch" { throw CLIError.usage("eq watch has no JSON form; use eq stream") }
+            checkDaemon(args, context)
             let output = try dispatch(args, context, dryRun: dryRun)
             // A streamed command already printed its own lines; the empty final Output carries
             // no text in either form, JSON included, so nothing prints twice.
@@ -137,7 +144,26 @@ enum CLI {
         case "undo": return try undo(rest, ctx)
         case "redo": return try redo(rest, ctx)
         case "history": return try history(rest, ctx)
+        case "agent": return try agent(rest, ctx)
         default: throw CLIError.usage("unknown command \"\(command)\"")
+        }
+    }
+
+    /// Commands that never start the daemon: completion runs on every Tab, and help, the man page
+    /// and `eq agent` itself must not have side effects.
+    private static let leavesDaemonAlone: Set<String> = ["agent", "__complete", "completions", "man", "help", "-h", "--help"]
+
+    /// Starts the bundled daemon when nothing runs one, and says so once on stderr; points at the
+    /// System Audio Recording grant while the daemon waits for it.
+    private static func checkDaemon(_ args: [String], _ ctx: CLIContext) {
+        let command = args.first ?? "show"
+        guard ctx.checksDaemon, let agent = ctx.agent, !leavesDaemonAlone.contains(command),
+              !args.contains("--help"), !args.contains("-h") else { return }
+        let live = Status.read(from: ctx.statusURL).flatMap { $0.isAlive() ? $0 : nil }
+        let paint = Paint.enabled(fd: 2)
+        if let note = LaunchAgent.ensureRunning(agent, daemonAlive: live != nil) { ctx.warn(LaunchAgent.text(note, paint: paint)) }
+        if live?.state == .noPermission, !["status", "doctor"].contains(command) {
+            ctx.warn(Paint.ink(.yellow, "eq is not equalising: no System Audio Recording permission — \(permissionHint)", on: paint))
         }
     }
 

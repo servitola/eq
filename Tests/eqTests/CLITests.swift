@@ -171,7 +171,7 @@ final class CLITests: XCTestCase {
                 loadConfig: { Config.initial(builtInUID: nil, builtInName: nil) },
                 readStatus: { nil },
                 defaultOutput: { DefaultOutput(name: "Speakers", streams: 1, channels: 2) },
-                launchAgentLoaded: { true },
+                launcher: { .bundled(loaded: true) },
                 executablePath: { _ in nil },
                 signalStatus: { _ in true },
                 sleep: { _ in },
