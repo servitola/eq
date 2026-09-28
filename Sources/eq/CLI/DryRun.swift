@@ -29,6 +29,7 @@ enum DryRun {
         var copy = ctx
         copy.store = ConfigStore(url: sandbox.appendingPathComponent(ctx.store.url.lastPathComponent))
         try mirror(ctx.store, into: sandbox)
+        if args.first == "import" { copy.cacheDirectory = try mirror(cache: ctx, into: sandbox) }
         _ = try dispatch(args, copy)
         let before = ctx.store.exists() ? try ctx.store.load() : nil
         let after = copy.store.exists() ? try copy.store.load() : nil
@@ -47,6 +48,18 @@ enum DryRun {
             guard files.fileExists(atPath: source.path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
             try files.copyItem(at: source, to: sandbox.appendingPathComponent(sibling))
         }
+    }
+
+    /// A fresh index is read from the copy and a stale or `--refresh`ed one is fetched into it,
+    /// so the real cache is never written. OPRA lives next to the AutoEq directory, so it comes too.
+    private static func mirror(cache ctx: CLIContext, into sandbox: URL) throws -> URL {
+        let files = FileManager.default
+        let root = sandbox.appendingPathComponent("cache")
+        try files.createDirectory(at: root, withIntermediateDirectories: true)
+        for source in [ctx.cacheDirectory, HeadphoneLookup.opraDirectory(ctx)] where files.fileExists(atPath: source.path) {
+            try files.copyItem(at: source, to: root.appendingPathComponent(source.lastPathComponent))
+        }
+        return root.appendingPathComponent(ctx.cacheDirectory.lastPathComponent)
     }
 
     private static var heading: String { Paint.ink(.yellow, "dry run") + ": nothing written" }

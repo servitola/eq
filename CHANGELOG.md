@@ -30,8 +30,9 @@ its entries under a dated version.
   `eq devices` and `eq copy` still work, as aliases of the new forms.
 - `--dry-run` on every command that changes the config (and on `eq device use`): the curve
   before and after, in `eq`'s own form, or `{"before": …, "after": …}` with `--json`, and
-  nothing written — no save, no backup, no history entry. It runs the real command against a
-  copy, so it fails where the real run would. A command that writes nothing refuses it.
+  nothing written — no save, no backup, no history entry, not even the import cache. It runs
+  the real command against a copy, so it fails where the real run would. A command that
+  writes nothing refuses it.
 - `eq completions zsh|bash|fish` and `eq man`, generated from the same table as `--help`. The
   scripts complete commands, subcommands, flags, bands and filter types, and ask `eq` for
   device names, presets, instruments and export formats. The cask installs all of them.

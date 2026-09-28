@@ -216,6 +216,47 @@ final class CLIShapeTests: XCTestCase {
         XCTAssertTrue(result.output.contains("MacBook Pro Speakers → JBL Big"), result.output)
     }
 
+    private func fixture(_ name: String, _ ext: String) throws -> String {
+        try String(contentsOf: try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures")))
+    }
+
+    private func tree(_ root: URL) throws -> [String: Data] {
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [:] }
+        var files: [String: Data] = [:]
+        for case let url as URL in walker {
+            let date = (try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            files[url.path] = ((try? Data(contentsOf: url)) ?? Data()) + Data("@\(date)".utf8)
+        }
+        return files
+    }
+
+    func testDryRunImportWritesNothingIntoTheCache() throws {
+        run("init")
+        let cacheRoot = dir.appendingPathComponent("scratch-cache")
+        try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+        context.cacheDirectory = cacheRoot.appendingPathComponent("autoeq")
+        let index = try fixture("INDEX", "md")
+        let parametric = try fixture("Sony WH-1000XM4 ParametricEQ", "txt")
+        var fetched: [URL] = []
+        context.fetch = { url in
+            fetched.append(url)
+            return Data((url == AutoEqIndex.indexURL ? index : parametric).utf8)
+        }
+        let result = run("import", "wh-1000xm4", "--source", "crinacle", "--dry-run")
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cacheRoot.path), [])
+
+        try FileManager.default.createDirectory(at: context.cacheDirectory, withIntermediateDirectories: true)
+        try index.write(to: context.cacheDirectory.appendingPathComponent("INDEX.md"), atomically: true, encoding: .utf8)
+        let seeded = try tree(cacheRoot)
+        fetched = []
+        XCTAssertEqual(run("import", "wh-1000xm4", "--source", "crinacle", "--dry-run").exitCode, 0)
+        XCTAssertFalse(fetched.contains(AutoEqIndex.indexURL), "the dry run should read the real cache")
+        XCTAssertEqual(run("import", "wh-1000xm4", "--source", "crinacle", "--refresh", "--dry-run").exitCode, 0)
+        XCTAssertTrue(fetched.contains(AutoEqIndex.indexURL))
+        XCTAssertEqual(try tree(cacheRoot), seeded)
+    }
+
     func testDryRunIsRefusedWhereNothingIsWritten() {
         run("init")
         for args in [["devices"], ["device", "list"], ["export"], ["watch"], ["status"], ["import", "--search", "hd600"], ["preset", "show", "flat"], ["history"]] {
