@@ -286,19 +286,28 @@ final class ProcessTapEngine {
                 tapFrames: AudioDeviceManager.bufferFrameSize(aggregateID) ?? requestedIOBufferFrames,
                 outputFrames: AudioDeviceManager.bufferFrameSize(deviceID) ?? requestedIOBufferFrames)
 
-        // 3. Two IOProcs. unowned(unsafe): cleanup() destroys both before the engine can go, and
-        //    the render threads must not touch reference counts.
-        status = AudioDeviceCreateIOProcIDWithBlock(&tapProcID, aggregateID, nil) { [unowned(unsafe) self] _, input, inputTime, _, _ in
-            self.renderTap(input: input, inputTime: inputTime.pointee)
-        }
+        // 3. Two IOProcs: plain C functions handed the engine as an unretained pointer. A block
+        //    IOProc retains and releases its closure context on every callback, and one capturing
+        //    self retained the engine too; these do neither. cleanup() destroys both before the
+        //    engine can go.
+        let engine = Unmanaged.passUnretained(self).toOpaque()
+        status = AudioDeviceCreateIOProcID(aggregateID, { _, _, input, inputTime, _, _, engine in
+            Unmanaged<ProcessTapEngine>.fromOpaque(engine!)._withUnsafeGuaranteedRef {
+                $0.renderTap(input: input, inputTime: inputTime.pointee)
+            }
+            return noErr
+        }, engine, &tapProcID)
         guard status == noErr, tapProcID != nil else {
             cleanup()
             transition(to: .failed("Couldn’t create audio IO proc (error \(status))."))
             return
         }
-        status = AudioDeviceCreateIOProcIDWithBlock(&outputProcID, deviceID, nil) { [unowned(unsafe) self] _, _, _, output, outputTime in
-            self.renderOutput(output: output, outputTime: outputTime.pointee)
-        }
+        status = AudioDeviceCreateIOProcID(deviceID, { _, _, _, _, output, outputTime, engine in
+            Unmanaged<ProcessTapEngine>.fromOpaque(engine!)._withUnsafeGuaranteedRef {
+                $0.renderOutput(output: output, outputTime: outputTime.pointee)
+            }
+            return noErr
+        }, engine, &outputProcID)
         guard status == noErr, let outputProcID else {
             cleanup()
             transition(to: .failed("Couldn’t create audio IO proc (error \(status))."))
@@ -458,10 +467,11 @@ final class ProcessTapEngine {
 
     func renderTap(input: UnsafePointer<AudioBufferList>, inputTime: AudioTimeStamp) {
         tapCallbacks &+= 1
-        let inputList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
+        let inputBuffers = audioBuffers(input)
         var channel = 0
         var frameCount = -1
-        for buffer in inputList {
+        for index in 0..<inputBuffers.count {
+            let buffer = inputBuffers[index]
             let channels = Int(buffer.mNumberChannels)
             guard channels > 0 else { continue }
             guard let data = buffer.mData else {
@@ -514,10 +524,10 @@ final class ProcessTapEngine {
 
     func renderOutput(output: UnsafeMutablePointer<AudioBufferList>, outputTime: AudioTimeStamp) {
         callbacks &+= 1
-        let outputList = UnsafeMutableAudioBufferListPointer(output)
+        let outputList = audioBuffers(output)
         var frameCount = 0
-        for buffer in outputList where buffer.mData != nil {
-            frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / max(Int(buffer.mNumberChannels), 1)
+        for index in 0..<outputList.count where outputList[index].mData != nil {
+            frameCount = Int(outputList[index].mDataByteSize) / MemoryLayout<Float>.size / max(Int(outputList[index].mNumberChannels), 1)
             break
         }
         guard frameCount > 0, frameCount <= scratchCapacity else {
@@ -536,8 +546,8 @@ final class ProcessTapEngine {
         let channels = UnsafeBufferPointer(start: channelPointers, count: tapChannels)
         ring.copy(from: plan.start, frames: plan.count, into: channels)
         if plan.count < frameCount {
-            for channel in channels {
-                vDSP_vclr(channel + plan.count, 1, vDSP_Length(frameCount - plan.count))
+            for channel in 0..<tapChannels {
+                vDSP_vclr(channelPointers[channel] + plan.count, 1, vDSP_Length(frameCount - plan.count))
             }
         }
         if plan.count > 0 {
@@ -548,9 +558,9 @@ final class ProcessTapEngine {
         }
 
         var peak: Float = 0
-        for channel in channels {
+        for channel in 0..<tapChannels {
             var channelPeak: Float = 0
-            vDSP_maxmgv(channel, 1, &channelPeak, vDSP_Length(frameCount))
+            vDSP_maxmgv(channelPointers[channel], 1, &channelPeak, vDSP_Length(frameCount))
             peak = max(peak, channelPeak)
         }
         if peak > 0 {
@@ -575,15 +585,16 @@ final class ProcessTapEngine {
         // the format of the device's first stream. Channels beyond the tap's get silence.
         var zero: Float = 0
         var deviceChannel = 0
-        for buffer in outputList {
+        for index in 0..<outputList.count {
+            let buffer = outputList[index]
             guard let data = buffer.mData else { continue }
             let channelCount = max(Int(buffer.mNumberChannels), 1)
             let frames = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / channelCount
             let samples = data.assumingMemoryBound(to: Float.self)
             let n = min(frames, frameCount)
             for offset in 0..<channelCount {
-                if deviceChannel < channels.count {
-                    vDSP_vsadd(channels[deviceChannel], 1, &zero, samples + offset,
+                if deviceChannel < tapChannels {
+                    vDSP_vsadd(channelPointers[deviceChannel], 1, &zero, samples + offset,
                                vDSP_Stride(channelCount), vDSP_Length(n))
                 } else {
                     vDSP_vclr(samples + offset, vDSP_Stride(channelCount), vDSP_Length(n))
@@ -618,11 +629,24 @@ final class ProcessTapEngine {
         onsets &+= 1
     }
 
-    private func zero(_ outputList: UnsafeMutableAudioBufferListPointer) {
-        for buffer in outputList {
+    private func zero(_ outputList: UnsafeMutableBufferPointer<AudioBuffer>) {
+        for index in 0..<outputList.count {
+            let buffer = outputList[index]
             guard let data = buffer.mData else { continue }
             vDSP_vclr(data.assumingMemoryBound(to: Float.self), 1,
                       vDSP_Length(Int(buffer.mDataByteSize) / MemoryLayout<Float>.size))
         }
     }
+}
+
+/// The buffers of a Core Audio buffer list, without CoreAudio's list wrapper: that type is
+/// resilient, so a render thread would walk it through generic witnesses. `mBuffers` is the
+/// list's last field, a variable-length array.
+private func audioBuffers(_ list: UnsafePointer<AudioBufferList>) -> UnsafeMutableBufferPointer<AudioBuffer> {
+    let first = UnsafeMutableRawPointer(mutating: list) + (MemoryLayout<AudioBufferList>.size - MemoryLayout<AudioBuffer>.size)
+    return UnsafeMutableBufferPointer(start: first.assumingMemoryBound(to: AudioBuffer.self), count: Int(list.pointee.mNumberBuffers))
+}
+
+private func audioBuffers(_ list: UnsafeMutablePointer<AudioBufferList>) -> UnsafeMutableBufferPointer<AudioBuffer> {
+    audioBuffers(UnsafePointer(list))
 }
