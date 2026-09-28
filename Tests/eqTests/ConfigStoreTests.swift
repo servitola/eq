@@ -73,4 +73,33 @@ final class ConfigStoreTests: XCTestCase {
         try store.save(config)
         wait(for: [fired], timeout: 2)
     }
+
+    func testWatcherCreatesNoDirectoryAndSeesAConfigWrittenLater() throws {
+        let store = ConfigStore(url: dir.appendingPathComponent("config/eq/eq.json"))
+        let fired = expectation(description: "onChange")
+        fired.assertForOverFulfill = false
+        let watcher = ConfigWatcher(url: store.url, queue: DispatchQueue(label: "test"), debounce: 0.05) { fired.fulfill() }
+        watcher.start()
+        defer { watcher.stop() }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("config").path))
+        try store.save(Config.initial(builtInUID: nil, builtInName: nil))
+        wait(for: [fired], timeout: 2)
+    }
+
+    func testWatcherFollowsAConfigWrittenAfterItsDirectoryAppeared() throws {
+        let store = ConfigStore(url: dir.appendingPathComponent("config/eq/eq.json"))
+        let lock = NSLock()
+        var pending: XCTestExpectation?
+        let watcher = ConfigWatcher(url: store.url, queue: DispatchQueue(label: "test"), debounce: 0.05) {
+            lock.lock(); pending?.fulfill(); pending = nil; lock.unlock()
+        }
+        watcher.start()
+        defer { watcher.stop() }
+        try FileManager.default.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        Thread.sleep(forTimeInterval: 0.3)
+        let saved = expectation(description: "save seen")
+        lock.lock(); pending = saved; lock.unlock()
+        try store.save(Config.initial(builtInUID: nil, builtInName: nil))
+        wait(for: [saved], timeout: 2)
+    }
 }
