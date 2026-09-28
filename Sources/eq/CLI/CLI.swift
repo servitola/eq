@@ -466,7 +466,7 @@ enum CLI {
                                  zones: !args.isEmpty,
                                  hintDismissed: FileManager.default.fileExists(atPath: marker.path),
                                  emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
-                                 edit: session.apply, preset: session.presetMark, preference: session.preference,
+                                 edit: session.apply, preset: session.presetMark, preference: session.preference, knobs: session.knobs,
                                  dismissHint: {
                                      try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
                                      FileManager.default.createFile(atPath: marker.path, contents: nil)
@@ -503,6 +503,11 @@ enum CLI {
         func preference() -> Preference? {
             guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
             return config.profile(forDeviceUID: target.uid).profile.preference
+        }
+
+        func knobs() -> [String: Double]? {
+            guard let config = try? ctx.store.load(), let target = try? currentDevice(ctx) else { return nil }
+            return config.profile(forDeviceUID: target.uid).profile.instruments
         }
 
         func presetMark() -> Table.PresetMark? {
@@ -548,6 +553,8 @@ enum CLI {
                 profile.setPreference { $0.bass = stepped($0.bass, delta, Config.gainRange) }
             case .treble(let delta):
                 profile.setPreference { $0.treble = stepped($0.treble, delta, Config.gainRange) }
+            case .boost(let instrument, let delta):
+                profile.setKnob(instrument) { stepped($0, delta, Config.gainRange) }
             case .cyclePreset, .previousPreset:
                 _ = config.seedPresetsIfNeeded()
                 let names = (config.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
@@ -559,7 +566,7 @@ enum CLI {
                 profile.name = before.name
                 profile.preset = next
             case .undo, .savePreset, .startSave, .zones, .help, .dismissHelp, .quit,
-                 .focusNext, .focusPrevious, .unfocus, .listen:
+                 .focusNext, .focusPrevious, .unfocus, .listen, .knob:
                 return nil
             }
             return profile == before ? nil : profile

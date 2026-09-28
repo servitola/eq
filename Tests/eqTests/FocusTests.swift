@@ -13,7 +13,7 @@ final class FocusTests: XCTestCase {
         }
     }
 
-    private static let voiceSolo = #"{"solo":{"low":85,"high":9000}}"#
+    private static let voiceSolo = #"{"solo":{"low":2000,"high":5000}}"#
     private static let cymbalsSolo = #"{"solo":{"low":6000,"high":16000}}"#
     private static let soloOff = #"{"solo":null}"#
 
@@ -73,7 +73,8 @@ final class FocusTests: XCTestCase {
         XCTAssertEqual(WatchKeys.actions(for: "\u{1B}OA"), [.previousPreset])
         XCTAssertEqual(WatchKeys.actions(for: "\u{1B}OB"), [.cyclePreset])
         XCTAssertEqual(WatchKeys.actions(for: "\u{1B}[B\u{1B}[B"), [.cyclePreset, .cyclePreset])
-        for reserved in ["\u{1B}[C", "\u{1B}[D", "\u{1B}OC", "\u{1B}[15~", "\u{1B}[1;2P", "\u{1B}x"] {
+        XCTAssertEqual(WatchKeys.actions(for: "\u{1B}[C\u{1B}OC\u{1B}[D\u{1B}OD"), [.knob(0.5), .knob(0.5), .knob(-0.5), .knob(-0.5)])
+        for reserved in ["\u{1B}[15~", "\u{1B}[1;2P", "\u{1B}x"] {
             XCTAssertEqual(WatchKeys.actions(for: reserved), [], reserved.debugDescription)
         }
         XCTAssertEqual(WatchKeys.actions(for: "1\u{1B}[Aq"), [.bandStep(0, 0.5), .previousPreset, .quit])
@@ -110,7 +111,7 @@ final class FocusTests: XCTestCase {
     func testQuitClearsTheSolo() throws {
         let r = try run(["]", "l", "q"])
         XCTAssertEqual(r.code, 0)
-        XCTAssertEqual(r.sent, [#"{"solo":{"low":50,"high":5000}}"#, Self.soloOff])
+        XCTAssertEqual(r.sent, [#"{"solo":{"low":50,"high":100}}"#, Self.soloOff], "kick's thump, its character range")
         let quiet = try run(["]", "q"])
         XCTAssertEqual(quiet.sent, [], "nothing to clear when listen never started")
     }
@@ -129,10 +130,10 @@ final class FocusTests: XCTestCase {
     }
 
     func testSoloRequestIsTheDaemonsJSON() throws {
-        XCTAssertEqual(Watch.soloRequest(instrument("voice").outerSpan), Self.voiceSolo)
+        XCTAssertEqual(Watch.soloRequest(instrument("voice").characterRange), Self.voiceSolo)
         XCTAssertEqual(Watch.soloRequest(HzRange(name: "x", low: 85.5, high: 900)), #"{"solo":{"low":85.5,"high":900}}"#)
         let decoded = try JSONDecoder().decode([String: SoloRange?].self, from: Data(Self.voiceSolo.utf8))
-        XCTAssertEqual(decoded["solo"], SoloRange(low: 85, high: 9000))
+        XCTAssertEqual(decoded["solo"], SoloRange(low: 2000, high: 5000))
     }
 
     func testSoloFlagFollowsTheFrameInBrightYellow() {
@@ -262,7 +263,7 @@ final class FocusTests: XCTestCase {
         try client.send(Self.soloOff + "\n")
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline, (lock.withLock { solos.count }) < 2 { usleep(5_000) }
-        XCTAssertEqual(lock.withLock { solos }, [SoloRange(low: 85, high: 9000), nil])
+        XCTAssertEqual(lock.withLock { solos }, [SoloRange(low: 2000, high: 5000), nil])
         client.close()
         XCTAssertThrowsError(try client.send(Self.soloOff), "a closed client refuses instead of writing to a stale fd")
     }

@@ -213,6 +213,7 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 | `s` | save the curve as a preset: type a name, Enter saves, Esc cancels |
 | `z` | the instrument strip, on and off |
 | `]`, `Tab` / `[` | focus the next / previous instrument |
+| `→` / `←` | the focused instrument's knob ±0.5 dB (`.` / `,` work too, no Shift needed; `ю` / `б` on a Russian layout) |
 | `Esc` | leave the focus (and stop listening) |
 | `l` | listen to the focused instrument alone, and back |
 | `h`, `?` | show the hint again |
@@ -226,10 +227,11 @@ bold. When the edit cannot be saved (no config yet, say), the reason shows in a 
 the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
 band 7 (2 kHz) can only be lowered from a US layout; the letter keys work from the same
 physical keys on either layout (`и` for `b`, `е` for `t`, `з` for `p`, `г` for `u`, `ы` for `s`, `х`/`ъ` for `[`/`]`,
-`д` for `l`, and so on). `←` and `→` are reserved and do nothing yet.
+`д` for `l`, and so on).
 
 The header names the device's preset after the preamp, with the yellow `*` once the curve has
-moved away from it. Bass, treble and tilt follow it when set: `bass +3 treble -2`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
+moved away from it. Bass, treble and tilt follow it when set: `bass +3 treble -2`, then the
+instrument knobs that are set, and the focused one even at 0: `voice +3.0`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
 through this session's steps, preset changes included, one per press, until the curve is as it
 was when the session started; it does not reach past the session — that is `eq undo`. `s`
 turns the bottom line into `save as: ▏`; while it is open every key types into it, digits
@@ -264,16 +266,16 @@ from the meter, which keeps at least four; on a short terminal the lowest instru
 
 `]` or `Tab` focuses the next instrument, `[` the previous one, `Esc` lets go. While focused,
 the header says `focus: voice (85 Hz–9 kHz)`, a bracket row above the bars marks each of its
-ranges, the bars, labels and gains of bands it does not touch turn dim, and its level numbers
+ranges — the character range bright, the rest dim — the bars, labels and gains of bands it does not touch turn dim, and its level numbers
 turn bright. The strip, when open, shows only that instrument. Digit keys still name all ten
 bands, but a band outside the focus is refused with `outside voice — Esc to unfocus` in the
 footer, so tuning stays on the instrument. A band belongs to the focus when any of the
 instrument's ranges overlaps the octave around the band's centre, which is why voice reaches
 down to the 64 Hz band.
 
-`l` listens to the focus alone: the daemon adds a steep high-pass at the instrument's lowest
-edge and a low-pass at its highest (a multi-range instrument is heard across its whole outer
-span, gaps included), and the header shows a yellow `SOLO` for as long as the daemon reports
+`l` listens to the focus alone: the daemon adds a steep high-pass and low-pass at the edges
+of the instrument's character range (voice is heard at 2–5 kHz, not across its whole
+85 Hz–9 kHz, which isolates little), and the header shows a yellow `SOLO` for as long as the daemon reports
 it. Switching focus moves the solo to the new instrument. `l` again, `Esc` and `q` switch it
 off; so does the watch going away in any other way, since the daemon drops a solo the moment
 the client that asked for it disconnects. At a rate too low for the focus (air on a headset
@@ -282,8 +284,8 @@ the focus moves to an instrument the rate can carry. A solo asked for while the 
 still settling at 0 Hz is asked for again once the rate arrives. A solo is never saved and never reaches `eq.json`.
 It is the curve you hear through, not a second curve: the EQ stays one curve per device.
 
-Each instrument has a knob for what the watch's focus only shows: `eq boost voice +3` adds
-one peak filter at the geometric centre of the instrument's
+Each instrument has a knob for what the watch's focus only shows: `eq boost voice +3` (or `→`
+while voice is focused) adds one peak filter at the geometric centre of the instrument's
 character range, the range a mixing engineer reaches for to bring it forward, with a Q as wide
 as that range; `−12`…`+12` dB, `0` removes it, and an unset knob costs nothing.
 

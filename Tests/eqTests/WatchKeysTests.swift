@@ -156,7 +156,8 @@ final class WatchKeysTests: XCTestCase {
         let lines = Watch.frame(f, layout: layout, hint: true)
         XCTAssertEqual(lines.count, Watch.frame(f, layout: layout).count)
         XCTAssertTrue(lines[1].hasSuffix("┌ tune ─────────────────────┐"), lines[1])
-        XCTAssertTrue(lines[12].hasSuffix("└───────────────────────────┘"), lines[12])
+        XCTAssertTrue(lines[10].contains("│ ← →   focused one ±0.5    │"), lines[10])
+        XCTAssertTrue(lines[13].hasSuffix("└───────────────────────────┘"), lines[13])
         XCTAssertTrue(lines[5].contains("│ b t   bass/treble, ⇧ down │"), lines[5])
         XCTAssertTrue(lines[6].contains("│ p ↑↓  preset  u undo      │"), lines[6])
         XCTAssertTrue(lines[9].contains("│ [ ]   focus   l listen    │"), lines[9])
@@ -349,7 +350,7 @@ final class WatchKeysTests: XCTestCase {
 
     func testCompactHintDropsWholeSegments() {
         let full = HintBox.compact(width: 200)
-        XCTAssertEqual(full, "1…0 up · ⇧ down · +/− preamp · b bass · t treble · p ↑↓ preset · u undo · s save · z zones · [ ] focus · l listen · h help · q quit")
+        XCTAssertEqual(full, "1…0 up · ⇧ down · +/− preamp · b bass · t treble · p ↑↓ preset · u undo · s save · z zones · [ ] focus · ← → boost · l listen · h help · q quit")
         for width in 6..<full.count {
             let line = HintBox.compact(width: width)
             XCTAssertLessThanOrEqual(line.count, width, "\(width)")

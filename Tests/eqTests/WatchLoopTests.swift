@@ -26,7 +26,7 @@ final class WatchLoopTests: XCTestCase {
         let settling = try frameLine(rate: 0), settled = try frameLine()
         _ = Watch.run(source: Source(lines: [settling, settling, settling, settled, settled, settled, settled]), hintDismissed: true,
                       emit: { _ in }, readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
-        let kick = #"{"solo":{"low":50,"high":5000}}"#, bass = #"{"solo":{"low":40,"high":1200}}"#
+        let kick = #"{"solo":{"low":50,"high":100}}"#, bass = #"{"solo":{"low":700,"high":1200}}"#
         XCTAssertEqual(sent, [kick, kick, bass], "sent at 0 Hz, again once the rate settles, then follows the focus")
     }
 
@@ -52,7 +52,7 @@ final class WatchLoopTests: XCTestCase {
         XCTAssertEqual(actions(""), [.unfocus])
         XCTAssertEqual(actions("\u{1B}[1;"), [])
         XCTAssertEqual(actions(""), [], "a sequence with parameters waits for its final byte")
-        XCTAssertEqual(actions("A"), [.previousPreset])
+        XCTAssertEqual(actions("C"), [.knob(0.5)])
     }
 
     func testTheClientWakesForInputWhileNoFramesArrive() throws {

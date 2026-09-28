@@ -205,4 +205,90 @@ final class KnobTests: XCTestCase {
         XCTAssertEqual(result.instruments, ["snare": 1])
         XCTAssertEqual(result.warnings, ["instrument kick: skipped, boost out of range", "instrument vocals: skipped, eq has no such instrument"])
     }
+
+    // MARK: - Watch
+
+    func testArrowsAndTheirUnshiftedKeysStepTheKnob() {
+        for key in [".", ">", "ю", "Ю"] { XCTAssertEqual(WatchKeys.action(for: key), .knob(0.5), key) }
+        for key in [",", "<", "б", "Б"] { XCTAssertEqual(WatchKeys.action(for: key), .knob(-0.5), key) }
+        XCTAssertEqual(WatchKeys.actions(for: "\u{1B}[C"), [.knob(0.5)])
+        XCTAssertEqual(WatchKeys.actions(for: "\u{1B}OD"), [.knob(-0.5)])
+    }
+
+    func testSessionStepsClampsAndUndoesTheKnob() throws {
+        let session = CLI.WatchSession(context)
+        try session.apply(.boost("voice", 0.5))
+        try session.apply(.boost("voice", 0.5))
+        XCTAssertEqual(try knobs(), ["voice": 1])
+        XCTAssertEqual(session.knobs(), ["voice": 1])
+        try session.apply(.boost("voice", -0.5))
+        try session.apply(.boost("voice", -0.5))
+        XCTAssertNil(try knobs(), "stepping back to 0 removes the knob")
+        run("boost", "voice", "12")
+        try session.apply(.boost("voice", 0.5))
+        XCTAssertEqual(try knobs(), ["voice": 12])
+    }
+
+    private struct Source: MeterSource {
+        let lines: [String]
+        func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
+            for line in lines { guard handle(line) else { return false } }
+            return true
+        }
+    }
+
+    private func frameLine(rate: Double = 44100) throws -> String {
+        let f = MeterFrame(t: 0, device: "BE-RCA", rate: rate, in: Array(repeating: -60, count: 10),
+                           out: Array(repeating: -30, count: 10), peak: -6, limiting: false,
+                           gains: Array(repeating: 0, count: 10), preamp: 0, enabled: true)
+        return String(decoding: try MeterFrame.encodeLine(f).dropLast(), as: UTF8.self)
+    }
+
+    func testArrowsTurnTheFocusedKnobAndNeedAFocus() throws {
+        var keys: [String?] = ["\u{1B}[C", "]", "\u{1B}[C", "\u{1B}[D", ","]
+        var edits: [WatchAction] = []
+        var drawn: [String] = []
+        var knob = 0.0
+        let line = try frameLine()
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), size: { (120, 30) }, hintDismissed: true,
+                      emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
+                      readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                      edit: { action in
+                          edits.append(action)
+                          if case .boost(_, let delta) = action { knob += delta }
+                      },
+                      knobs: { knob == 0 ? nil : ["kick": knob] })
+        XCTAssertEqual(edits, [.boost("kick", 0.5), .boost("kick", -0.5), .boost("kick", -0.5)])
+        XCTAssertTrue(drawn[1].contains(Watch.listenNeedsFocus), drawn[1])
+        XCTAssertTrue(drawn[2].contains("kick +0.0"), "the focused knob shows at 0: \(drawn[2])")
+        XCTAssertTrue(drawn[3].contains("kick +0.5 · peak"), drawn[3])
+        XCTAssertTrue(drawn[5].contains("kick -0.5"), drawn[5])
+    }
+
+    func testHeaderListsSetKnobsWithoutAFocus() {
+        let f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
+                           gains: [], preamp: 0, enabled: true)
+        let header = Watch.frame(f, layout: .fit(cols: 140, rows: 30), preference: Preference(bass: 1),
+                                 knobs: ["voice": 3, "kick": -2])[0]
+        XCTAssertTrue(header.contains("bass +1 · kick -2.0 voice +3.0 · peak"), header)
+    }
+
+    func testBracketBrightensTheCharacterRange() {
+        Paint.forced = true
+        let layout = WatchLayout.fit(cols: 120, rows: 30, bracket: true)
+        let bracket = Strip.bracket(instrument("voice"), layout: layout)
+        XCTAssertEqual(bracket.components(separatedBy: "\u{1B}[2m┌").count - 1, 4, "four of five ranges dim: \(bracket)")
+        XCTAssertTrue(bracket.contains("\u{1B}[2mF1"), bracket)
+        let wide = Strip.bracket(instrument("cymbals"), layout: layout)
+        XCTAssertTrue(wide.contains("\u{1B}[1mshimmer") && !wide.contains("\u{1B}[2m┌"), wide)
+    }
+
+    func testListenSolosTheCharacterRange() throws {
+        var keys: [String?] = ["[", "[", "[", "l", "q"]
+        var sent: [String] = []
+        let line = try frameLine()
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), hintDismissed: true, emit: { _ in },
+                      readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
+        XCTAssertEqual(sent, [#"{"solo":{"low":2000,"high":5000}}"#, #"{"solo":null}"#])
+    }
 }

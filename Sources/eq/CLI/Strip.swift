@@ -94,11 +94,14 @@ enum Strip {
         return line + Paint.ink(ink, run, on: Paint.enabled)
     }
 
-    /// `┌─ F1 ─┐` over each range of the focused instrument, in table columns.
+    /// `┌─ F1 ─┐` over each range of the focused instrument, in table columns; the character range,
+    /// the one the arrows turn and `l` solos, is the bright one.
     static func bracket(_ instrument: Instrument, layout: WatchLayout) -> String {
         var cells = [Cell](repeating: (" ", nil), count: layout.tableWidth)
         for segment in segments(instrument, layout: layout) {
-            let drawn = labelled(segment, stroke: "─", ends: ("┌", "┐"), strokeInk: .dim, nameInk: nil)
+            let character = segment.name == instrument.character
+            let drawn = labelled(segment, stroke: "─", ends: ("┌", "┐"), strokeInk: character ? nil : .dim,
+                                 nameInk: character ? .bold : .dim)
             for (i, cell) in drawn.enumerated() { cells[segment.lo + i] = cell }
         }
         return paint(cells)

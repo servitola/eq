@@ -8,6 +8,8 @@ enum WatchAction: Equatable {
     case savePreset(String)
     case startSave, zones, help, dismissHelp, quit
     case focusNext, focusPrevious, unfocus, listen
+    /// A key's step for the focused instrument's knob; `boost` is that step once the focus names it.
+    case knob(Double), boost(String, Double)
 }
 
 enum WatchKeys {
@@ -39,6 +41,8 @@ enum WatchKeys {
         case "]", "\t", "ъ", "Ъ": return .focusNext
         case "[", "х", "Х": return .focusPrevious
         case "l", "L", "д", "Д": return .listen
+        case ".", ">", "ю", "Ю": return .knob(step)
+        case ",", "<", "б", "Б": return .knob(-step)
         case "\u{1B}": return .unfocus
         default: break
         }
@@ -47,7 +51,7 @@ enum WatchKeys {
         return nil
     }
 
-    /// Complete keys as `KeyBuffer` hands them over. ↑/↓ arrive as `ESC [ A`/`B`, or `ESC O A`/`B`
+    /// Complete keys as `KeyBuffer` hands them over. Arrows arrive as `ESC [ A`…`D`, or `ESC O A`…`D`
     /// when the terminal is in application-cursor mode; any other escape sequence is skipped whole,
     /// so its tail never reads as letter commands. A trailing bare `ESC`, or `ESC [`/`ESC O` with
     /// no final byte, is the Esc key and whatever was typed after it: the buffer only lets such a
@@ -78,6 +82,8 @@ enum WatchKeys {
             switch chars[i] {
             case "A": result.append(.previousPreset)
             case "B": result.append(.cyclePreset)
+            case "C": result.append(.knob(step))
+            case "D": result.append(.knob(-step))
             default: break
             }
             i += 1
@@ -137,7 +143,7 @@ struct KeyBuffer {
 enum HintBox {
     static let width = 29
     private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "b bass", "t treble", "p ↑↓ preset", "u undo", "s save",
-                                          "z zones", "[ ] focus", "l listen", "h help", "q quit"]
+                                          "z zones", "[ ] focus", "← → boost", "l listen", "h help", "q quit"]
 
     /// Whole segments drop from the right to fit `width`, except `q quit`: the way out always shows.
     static func compact(width: Int) -> String {
@@ -156,6 +162,7 @@ enum HintBox {
         [("s", "save as preset")],
         [("z", "zones   "), ("h", "this hint")],
         [("[ ]", "focus   "), ("l", "listen")],
+        [("← →", "focused one ±0.5")],
         [("x", "hide this for good")],
         [("q", "quit")],
     ]

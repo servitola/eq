@@ -25,4 +25,3 @@
 ## Follow-ups from the v7 review
 - A stray UTF-8 lead byte delays the next ASCII key until enough bytes arrive.
 - A same-user connect flood keeps the accept loop busy (accept-and-close until EAGAIN).
-- Listening to wide instruments (kick, voice) isolates little: consider soloing each range, not the outer span.

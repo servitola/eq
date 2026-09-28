@@ -13,6 +13,13 @@ its entries under a dated version.
   They are stored as `"instruments"` on the profile, carried by presets, dropped by `eq flat`,
   exported as peak filters and read back by `eq import` of eq's own JSON. `eq` prints a
   `boost:` line when any is set.
+- `eq watch`: `→`/`←` (or `.`/`,`, `ю`/`б`) turn the focused instrument's knob by 0.5 dB; the
+  header shows it, and the focus bracket draws the character range bright.
+
+### Changed
+
+- `l` in `eq watch` listens to the focused instrument's character range instead of its whole
+  outer span, so voice is heard at 2–5 kHz rather than 85 Hz–9 kHz.
 
 ### Fixed
 

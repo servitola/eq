@@ -8,7 +8,7 @@ struct HzRange: Encodable, Equatable {
 }
 
 /// An instrument as one or more real Hz ranges: what the watch draws, focuses on and solos,
-/// and what `eq zones` lists. `character` names the range its knob turns.
+/// and what `eq zones` lists. `character` names the range its knob turns and `l` solos.
 struct Instrument: Equatable {
     var name: String
     var short: String

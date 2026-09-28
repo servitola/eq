@@ -70,7 +70,8 @@ enum Watch {
     /// `WatchLayout.fit` budgeted. With a `focus` the strip shows only that instrument.
     static func frame(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
                       hint: Bool = false, flash: Int? = nil, note: String? = nil,
-                      preset: Table.PresetMark? = nil, preference: Preference? = nil, prompt: String? = nil) -> [String] {
+                      preset: Table.PresetMark? = nil, preference: Preference? = nil, knobs: [String: Double]? = nil,
+                      prompt: String? = nil) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -92,7 +93,7 @@ enum Watch {
 
         let tableWidth = layout.tableWidth
         let indent = stripped.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Strip.placement(layout).start
-        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, preference: preference, focus: focus)
+        let title = header(f, layout: layout, tableWidth: tableWidth, preset: preset, preference: preference, knobs: knobs, focus: focus)
         let margin = String(repeating: " ", count: indent)
 
         var top: [String] = []
@@ -200,7 +201,8 @@ enum Watch {
     /// Segments drop from the right until the line fits, then the flags, then the focus: the
     /// flags explain a surprising sound, and the focus explains why most bars went dim.
     private static func header(_ f: MeterFrame, layout: WatchLayout, tableWidth: Int,
-                               preset: Table.PresetMark?, preference: Preference?, focus: Instrument?) -> (plain: Int, painted: String) {
+                               preset: Table.PresetMark?, preference: Preference?, knobs: [String: Double]?,
+                               focus: Instrument?) -> (plain: Int, painted: String) {
         let cols = max(layout.width, 1)
         let device = f.device ?? "no device"
         let rate = f.rate.isFinite ? String(format: "%.1f", f.rate / 1000) : "?"
@@ -218,6 +220,15 @@ enum Watch {
                 segments.append((parts.map { "\($0.0) \(String(format: "%+g", $0.1))" }.joined(separator: " "),
                                  parts.map { "\($0.0) " + Paint.ink(Paint.gain($0.1), String(format: "%+g", $0.1)) }.joined(separator: " ")))
             }
+        }
+        // The focused knob shows at 0 too, so the first arrow press has a number to move.
+        let turned = Instruments.all.compactMap { instrument -> (String, Double)? in
+            let gain = knobs?[instrument.name] ?? 0
+            return gain != 0 || instrument == focus ? (instrument.name, gain) : nil
+        }
+        if !turned.isEmpty {
+            segments.append((turned.map { "\($0.0) \(String(format: "%+.1f", $0.1))" }.joined(separator: " "),
+                             turned.map { "\($0.0) " + Paint.ink(Paint.gain($0.1), String(format: "%+.1f", $0.1)) }.joined(separator: " ")))
         }
         segments.append(("peak \(peak) dB", "peak \(peak) dB"))
         var focusSegment = focus.map { instrument -> (plain: String, painted: String) in
@@ -290,7 +301,7 @@ enum Watch {
 
     /// Redraws on every frame the source delivers, and after keys that arrive between frames; a
     /// line that is no frame (the client's wake-up for input) only reads keys. The terminal size
-    /// is checked on every draw. `edit` applies a band, preamp, preset or undo step; what it
+    /// is checked on every draw. `edit` applies a band, preamp, preset, knob or undo step; what it
     /// throws is shown in the footer for two seconds. `preset` names the current device's preset
     /// for the header; it and the layers are asked again after every edit and once a second, so a
     /// change from another terminal shows too. `send` writes one request line to the daemon (solo
@@ -300,6 +311,7 @@ enum Watch {
                     zones: Bool = false, hintDismissed: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
                     preset: () -> Table.PresetMark? = { nil }, preference: () -> Preference? = { nil },
+                    knobs: () -> [String: Double]? = { nil },
                     dismissHint: () -> Void = {}, send: (String) throws -> Void = { _ in }) -> Int32 {
         emit(enter)
         var current = size()
@@ -313,6 +325,7 @@ enum Watch {
         var prompt: String?
         var mark = preset()
         var layer = preference()
+        var turned = knobs()
         var framesSinceMark = 0
         var last: MeterFrame?
         var requestedAt: Double?
@@ -326,6 +339,7 @@ enum Watch {
         func refresh() {
             mark = preset()
             layer = preference()
+            turned = knobs()
             framesSinceMark = 0
         }
         func apply(_ action: WatchAction) {
@@ -360,7 +374,7 @@ enum Watch {
             focus = index
             if listening {
                 // A failed send most likely means the socket is gone, and the daemon clears then.
-                listening = request(focused?.outerSpan) && focus != nil
+                listening = request(focused?.characterRange) && focus != nil
             }
             layout = fit()
         }
@@ -375,7 +389,7 @@ enum Watch {
                 clear = "\u{1B}[2J"
             }
             let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0, flash: flash?.band,
-                              note: note?.text, preset: mark, preference: layer, prompt: prompt)
+                              note: note?.text, preset: mark, preference: layer, knobs: turned, prompt: prompt)
             emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
         }
         /// False to quit.
@@ -416,9 +430,12 @@ enum Watch {
                     if listening {
                         if request(nil) { listening = false }
                     } else {
-                        listening = request(instrument.outerSpan)
+                        listening = request(instrument.characterRange)
                     }
-                case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset:
+                case .knob(let delta):
+                    guard let instrument = focused else { show(listenNeedsFocus); break }
+                    apply(.boost(instrument.name, delta))
+                case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost:
                     apply(action)
                 }
             }
@@ -430,7 +447,7 @@ enum Watch {
                 last = f
                 // A device settling at 0 Hz refuses the solo; ask again once the rate moves.
                 if listening, let instrument = focused, requestedAt != f.rate {
-                    listening = request(instrument.outerSpan)
+                    listening = request(instrument.characterRange)
                 }
                 framesSinceMark += 1
                 if framesSinceMark >= markFrames { refresh() }
