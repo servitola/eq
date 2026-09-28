@@ -3,11 +3,12 @@
 // WriteMix from a timed IO thread. The plug-in's target side is a normal HAL client, so it really
 // opens IO; the harness points it at the built-in output and writes silence.
 //   host-harness <bundle>                     the full run above
-//   host-harness <bundle> --idle sync|wait|async [self]
+//   host-harness <bundle> --idle sync|wait|async|drop [self]
 //                                             never calls StartIO, so the target IOProc is created
 //                                             but never started; checks the configuration change
 //                                             with Perform run inside Request, on another thread
-//                                             while Request waits, or after Request returned.
+//                                             while Request waits, after Request returned, or
+//                                             never for the first request, which must be re-sent.
 //                                             self: the stored target is this device's own UID
 //   host-harness <bundle> --killed            kill file present
 
@@ -46,7 +47,7 @@ static std::atomic<int> configChanges{0};
 static std::atomic<int> configRequests{0};
 static std::atomic<int> performFailures{0};
 static std::atomic<int> requestTimeouts{0};
-enum class ChangeMode { Sync, Wait, Async };
+enum class ChangeMode { Sync, Wait, Async, DropFirst };
 static ChangeMode changeMode = ChangeMode::Sync;
 static std::atomic<int> notifications{0};
 static std::atomic<bool> ioPaused{false};
@@ -101,6 +102,9 @@ static OSStatus requestChange(AudioServerPlugInHostRef, AudioObjectID device, UI
         break;
     }
     case ChangeMode::Async: dispatch_async(other, ^{ performChange(device, action, info); }); break;
+    case ChangeMode::DropFirst:
+        if (configRequests > 1) performChange(device, action, info);
+        break;
     }
     return noErr;
 }
@@ -249,7 +253,7 @@ static int idle() {
                 "(target %.0f), io %.0f, error \"%s\"\n",
                 configRequests.load(), configChanges.load(), performFailures.load(), requestTimeouts.load(), latency,
                 rate, speakersRate, number(h, "ioRunning"), text(h, "lastError").c_str());
-    CHECK(configRequests >= 1 && configChanges >= 1);
+    CHECK(configRequests >= (changeMode == ChangeMode::DropFirst ? 2 : 1) && configChanges >= 1);
     CHECK(performFailures == 0 && requestTimeouts == 0);
     CHECK(latency > 0);
     CHECK(speakersRate <= 0 || rate == speakersRate);
@@ -268,6 +272,7 @@ int main(int argc, char **argv) {
         std::string how = argc > 3 ? argv[3] : "sync";
         if (how == "wait") changeMode = ChangeMode::Wait;
         else if (how == "async") changeMode = ChangeMode::Async;
+        else if (how == "drop") changeMode = ChangeMode::DropFirst;
         else if (how != "sync") {
             std::printf("unknown change mode %s\n", how.c_str());
             return 2;

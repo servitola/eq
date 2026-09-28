@@ -40,6 +40,7 @@ class TargetMachine {
     static constexpr double kBackoff[] = {0.1, 0.5, 2.0, 5.0};
     static constexpr double kStallAfter = 1.0;
     static constexpr double kWatchdogEvery = 0.5;
+    static constexpr double kRateRecheckEvery = 1.0;
     static constexpr double kIdleStopAfter = 2.0;
     static constexpr double kHideAfter = 3.0;
     static constexpr double kLoadGrace = 10.0;
@@ -98,8 +99,10 @@ class TargetMachine {
             startFailures_ = 0;
         }
 
+        // Driver re-sends a lost rate change; this keeps looking in case the target's rate moves.
         if (!f.rateMatches) {
             if (running_) stop(x);
+            recheck(out, kRateRecheckEvery);
             return out;
         }
 

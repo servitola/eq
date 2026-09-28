@@ -3,6 +3,7 @@
 // rule that HAL client calls run on a separate serial queue, the target lookup and the choice of a
 // default target. The clock servo and timeline checks live in Core/.
 
+#include "Core/ChangeRequest.h"
 #include "Core/ChannelMap.h"
 #include "Core/Clock.h"
 #include "Core/DeviceMatch.h"
@@ -274,7 +275,7 @@ class Driver : TargetExecutor {
             std::lock_guard<std::mutex> lock(configMutex_);
             sampleRate_ = pendingRate_;
             latency_ = pendingLatency_;
-            configRequested_ = false;
+            change_.performed();
         }
         ticksPerFrame_ = ticksPerSecond_ / sampleRate_.load();
         clockGeneration_.fetch_add(1);
@@ -285,7 +286,7 @@ class Driver : TargetExecutor {
     OSStatus abortConfigurationChange() {
         {
             std::lock_guard<std::mutex> lock(configMutex_);
-            configRequested_ = false;
+            change_.failed(now());
         }
         if (queue_)
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), queue_,
@@ -831,10 +832,14 @@ class Driver : TargetExecutor {
             if (targetRate > 0 && !f.rateMatches) rate = targetRate;
         }
 
-        wantedLatency_.reset();
         TargetOutcome out = machine_->step(f, *this);
         // One configuration change for both: each one stops every client's IO for a moment.
         if (rate || (wantedLatency_ && *wantedLatency_ != latency_)) requestConfiguration(rate, wantedLatency_);
+        {
+            std::lock_guard<std::mutex> lock(configMutex_);
+            double changeIn = change_.recheckIn(t);
+            if (changeIn >= 0 && (out.recheckIn < 0 || changeIn < out.recheckIn)) out.recheckIn = changeIn;
+        }
         targetAvailable_ = f.found;
         ioRunning_ = machine_->running();
         builds_ = machine_->builds();
@@ -858,10 +863,13 @@ class Driver : TargetExecutor {
     void requestConfiguration(std::optional<double> rate, std::optional<UInt32> latency) {
         double wantRate;
         UInt32 wantLatency;
-        bool send;
+        bool send, changed;
         {
             std::lock_guard<std::mutex> lock(configMutex_);
-            if (!configRequested_) {
+            double t = now();
+            double oldRate = pendingRate_;
+            UInt32 oldLatency = pendingLatency_;
+            if (!change_.pending(t)) {
                 pendingRate_ = sampleRate_;
                 pendingLatency_ = latency_;
             }
@@ -870,17 +878,19 @@ class Driver : TargetExecutor {
             if (pendingRate_ == sampleRate_.load() && pendingLatency_ == latency_.load()) return;
             wantRate = pendingRate_;
             wantLatency = pendingLatency_;
-            send = !configRequested_;
-            configRequested_ = true;
+            changed = wantRate != oldRate || wantLatency != oldLatency;
+            send = change_.send(t);
         }
-        storeDouble("sampleRate", wantRate);
-        storeDouble("latency", wantLatency);
+        if (changed || send) {
+            storeDouble("sampleRate", wantRate);
+            storeDouble("latency", wantLatency);
+        }
         if (!send) return;
         OSStatus err = host_->RequestDeviceConfigurationChange(host_, kObjectDevice, kChangeApplyPending, nullptr);
         if (err != noErr) {
             {
                 std::lock_guard<std::mutex> lock(configMutex_);
-                configRequested_ = false;
+                change_.failed(now());
             }
             setError("configuration change refused", err);
         }
@@ -1142,7 +1152,7 @@ class Driver : TargetExecutor {
     std::mutex configMutex_;
     double pendingRate_ = 48000;
     UInt32 pendingLatency_ = 0;
-    bool configRequested_ = false;
+    ChangeRequest change_;
 
     std::mutex stringsMutex_;
     std::string targetUID_, targetName_, lastError_;

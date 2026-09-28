@@ -1,3 +1,4 @@
+#include "../Source/Core/ChangeRequest.h"
 #include "../Source/Core/ChannelMap.h"
 #include "../Source/Core/Clock.h"
 #include "../Source/Core/DeviceMatch.h"
@@ -452,12 +453,43 @@ TEST(machine_waits_for_the_rate_to_match_before_starting) {
     FakeTarget x;
     TargetFacts f = facts(0, true);
     f.rateMatches = false;
-    m.step(f, x);
+    TargetOutcome o = m.step(f, x);
     CHECK(x.take() == "build 42");
+    CHECK_NEAR(o.recheckIn, TargetMachine::kRateRecheckEvery, 1e-9);
     f.now = 0.3;
     f.rateMatches = true;
     m.step(f, x);
     CHECK(x.take() == "start");
+}
+
+TEST(change_request_is_sent_once_until_answered) {
+    ChangeRequest c;
+    CHECK(c.recheckIn(0) == -1);
+    CHECK(c.send(0));
+    CHECK(c.pending(1) && !c.send(1));
+    CHECK_NEAR(c.recheckIn(1), 2.0, 1e-9);
+    c.performed();
+    CHECK(!c.pending(1.5) && c.recheckIn(1.5) == -1);
+    CHECK(c.send(1.5));
+}
+
+TEST(change_request_lost_or_refused_is_resent_with_backoff) {
+    ChangeRequest c;
+    CHECK(c.send(0));
+    CHECK(!c.pending(ChangeRequest::kTimeout));
+    CHECK_NEAR(c.recheckIn(3), 1.0, 1e-9);
+    CHECK(!c.send(3.5));
+    CHECK(c.send(4));
+    c.failed(4.5);
+    CHECK(!c.send(6) && c.send(6.5));
+    c.failed(7);
+    CHECK(!c.send(11.9) && c.send(12));
+    c.failed(12);
+    c.failed(12);
+    CHECK(!c.send(21.9) && c.send(22));
+    c.performed();
+    c.failed(30);
+    CHECK_NEAR(c.recheckIn(30), 1.0, 1e-9);
 }
 
 // MARK: Whole pipeline, simulated
