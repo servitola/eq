@@ -113,6 +113,7 @@ enum CLI {
         case "status": return try status(ctx)
         case "doctor": return doctor(ctx)
         case "stream": return try stream(rest, ctx)
+        case "events": return try events(rest, ctx)
         case "watch": return try watch(rest, ctx)
         case "zones": return try zones(rest, ctx)
         case "preset": return try preset(rest, ctx)
@@ -444,6 +445,39 @@ enum CLI {
         let eof = client.lines(maxLines: ctx.streamLimit) { line in ctx.emit(line); return true }
         client.close()
         if eof { throw CLIError.daemonClosedMeter }
+        var output = Output("", ["ok": true])
+        output.streamed = true
+        return output
+    }
+
+    private static func events(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq events") }
+        let client = MeterClient(socketURL: ctx.meterSocketURL)
+        do {
+            try client.connect()
+            try client.send(#"{"subscribe":"events"}"#)
+        } catch {
+            client.close()
+            throw CLIError.noEvents
+        }
+        signal(SIGINT) { _ in _exit(0) }
+        // A daemon that predates events ignores the request and sends meter frames; a new one
+        // answers with a `daemon` event first.
+        var answered = false
+        var speaksEvents = true
+        let eof = client.lines(maxLines: ctx.streamLimit) { line in
+            if !answered {
+                answered = true
+                let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+                speaksEvents = object?["event"] != nil
+                guard speaksEvents else { return false }
+            }
+            ctx.emit(line)
+            return true
+        }
+        client.close()
+        if !speaksEvents || (eof && !answered) { throw CLIError.noEvents }
+        if eof { throw CLIError.daemonClosedEvents }
         var output = Output("", ["ok": true])
         output.streamed = true
         return output

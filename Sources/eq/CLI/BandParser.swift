@@ -11,6 +11,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
     case daemonNotRunning
     case noMeter
     case daemonClosedMeter
+    case noEvents
+    case daemonClosedEvents
     case importUnrecognized(String)
     case importNotFound(String)
     case importAmbiguous([String])
@@ -40,6 +42,8 @@ enum CLIError: Error, Equatable, CustomStringConvertible {
         case .daemonNotRunning: return "eq daemon is not running — launchctl kickstart gui/$UID/com.servitola.eq"
         case .noMeter: return "eq daemon is not serving a meter — is it running and at least v4? launchctl kickstart -k gui/$UID/com.servitola.eq"
         case .daemonClosedMeter: return "daemon closed the meter"
+        case .noEvents: return "eq daemon is not serving events — is it running and at least \(Build.version)? launchctl kickstart -k gui/$UID/com.servitola.eq"
+        case .daemonClosedEvents: return "daemon closed the event stream"
         case .importUnrecognized(let what): return "could not read an EQ profile from \(what)"
         case .importNotFound(let what): return "AutoEq has no ParametricEQ.txt for \(what)"
         case .importAmbiguous(let names): return "several models match — narrow the name:\n  \(names.joined(separator: "\n  "))"
