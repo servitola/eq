@@ -32,3 +32,9 @@
   ~70 s and rebuilt every ~15 s ("IO stalled for 10 s") until a sound woke the device. Check whether
   a silent Bluetooth output that never starts IO should be waited on instead of rebuilt.
 - fish completions are unvalidated (fish is not installed here).
+- This Mac still runs the legacy dotfiles plist. Migration to the bundled login item failed here
+  only because of my own probe apps: one registered the label `com.servitola.eq.daemon`, and
+  background task management kept that record after the probe was deleted. xpcproxy then
+  resolved EQ's job to the deleted probe (EX_CONFIG 78), and SMAppService now reports
+  `notFound` for EQ.app. Retry `eq agent install --replace-legacy` after a reboot; if it still
+  fails, `sfltool resetbtm` (admin, reboot, resets every login item's approval).
