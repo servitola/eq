@@ -240,7 +240,7 @@ extension CommandHelp {
             if skip { skip = false } else if arg.hasPrefix("--") { skip = takesValue.contains(arg) } else { positional.append(arg) }
         }
         let candidates = forms.filter { form in
-            guard positional.starts(with: form.path), !form.path.isEmpty || positional.isEmpty, used.isSubset(of: Set(form.flags.map(\.name))) else { return false }
+            guard positional.map({ $0.lowercased() }).starts(with: form.path), !form.path.isEmpty || positional.isEmpty, used.isSubset(of: Set(form.flags.map(\.name))) else { return false }
             let required = Set(form.flags.filter(\.required).map(\.group))
             return required.allSatisfy { group in form.flags.contains { $0.group == group && used.contains($0.name) } }
         }

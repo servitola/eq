@@ -59,6 +59,9 @@ final class DynamicsCLITests: XCTestCase {
             XCTAssertEqual(run("comp", word).exitCode, 0, word)
             XCTAssertNil(try layer(), word)
         }
+        run("comp", "gentle")
+        XCTAssertEqual(run("comp", "NONE", "--dry-run").exitCode, 0)
+        XCTAssertEqual(try layer()?.comp, .gentle)
     }
 
     func testBadInputIsAUsageError() throws {
