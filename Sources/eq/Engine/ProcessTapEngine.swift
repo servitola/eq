@@ -25,6 +25,23 @@ enum TapFormat {
     }
 }
 
+/// Which of a device's streams eq's output IOProc runs. Running one with a headset's microphone
+/// stream on counts as microphone access: macOS asks for permission and a Bluetooth headset drops
+/// to its call profile.
+enum StreamUsage {
+    /// `usage` as read back after switching `streams` input streams off.
+    static func allOff(_ usage: [Bool]?, streams: Int) -> Bool {
+        guard streams > 0 else { return true }
+        guard let usage, usage.count == streams else { return false }
+        return !usage.contains(true)
+    }
+
+    /// The tap takes the device's first output stream, so the output IOProc plays only that one.
+    static func firstOnly(streams: Int) -> [Bool] {
+        (0..<streams).map { $0 == 0 }
+    }
+}
+
 /// IOProcs Core Audio refused to destroy. One may still be running, so the ring and scratch it
 /// renders into must stay where they are until it is gone.
 struct StrandedIOProcs {
@@ -346,8 +363,26 @@ final class ProcessTapEngine {
             transition(to: .failed("Couldn’t create audio IO proc (error \(status))."))
             return
         }
-        if !AudioDeviceManager.disableInput(deviceID, for: outputProcID) {
-            Log.write("cannot switch the device's input streams off for eq's IO proc; macOS may count it as microphone use")
+        let inputStreams = AudioDeviceManager.streamCount(deviceID, scope: kAudioDevicePropertyScopeInput) ?? 0
+        if inputStreams > 0 {
+            let status = AudioDeviceManager.setStreamUsage(deviceID, scope: kAudioDevicePropertyScopeInput, for: outputProcID,
+                                                           Array(repeating: false, count: inputStreams))
+            let usage = AudioDeviceManager.streamUsage(deviceID, scope: kAudioDevicePropertyScopeInput, for: outputProcID)
+            guard StreamUsage.allOff(usage, streams: inputStreams) else {
+                Log.write("input streams still on for the output IO proc after switching them off (status \(status), read back \(usage.map { "\($0)" } ?? "nothing"))")
+                cleanup()
+                transition(to: .failed("Couldn’t keep the output device’s microphone closed; not starting."))
+                return
+            }
+        }
+        let outputStreams = AudioDeviceManager.streamCount(deviceID, scope: kAudioDevicePropertyScopeOutput) ?? 0
+        if outputStreams > 1 {
+            let wanted = StreamUsage.firstOnly(streams: outputStreams)
+            let status = AudioDeviceManager.setStreamUsage(deviceID, scope: kAudioDevicePropertyScopeOutput, for: outputProcID, wanted)
+            let usage = AudioDeviceManager.streamUsage(deviceID, scope: kAudioDevicePropertyScopeOutput, for: outputProcID)
+            if usage != wanted {
+                Log.write("output IO proc still runs more than the first stream (status \(status), read back \(usage.map { "\($0)" } ?? "nothing"))")
+            }
         }
 
         // Output first: it plays silence until the tap has filled the ring to its target.

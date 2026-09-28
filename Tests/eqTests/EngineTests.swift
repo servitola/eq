@@ -238,3 +238,19 @@ final class StrandedIOProcsTests: XCTestCase {
         XCTAssertEqual(stranded.devices, [7])
     }
 }
+
+final class StreamUsageTests: XCTestCase {
+    func testInputCountsAsOffOnlyWhenEveryStreamReadsBackOff() {
+        XCTAssertTrue(StreamUsage.allOff(nil, streams: 0), "no input streams, nothing to open")
+        XCTAssertTrue(StreamUsage.allOff([false, false], streams: 2))
+        XCTAssertFalse(StreamUsage.allOff([false, true], streams: 2))
+        XCTAssertFalse(StreamUsage.allOff(nil, streams: 1), "unreadable is not off")
+        XCTAssertFalse(StreamUsage.allOff([false], streams: 2), "a stream the readback left out")
+    }
+
+    func testOutputRunsOnlyTheTappedStream() {
+        XCTAssertEqual(StreamUsage.firstOnly(streams: 3), [true, false, false])
+        XCTAssertEqual(StreamUsage.firstOnly(streams: 1), [true])
+        XCTAssertEqual(StreamUsage.firstOnly(streams: 0), [])
+    }
+}

@@ -119,10 +119,6 @@ enum AudioDeviceManager {
         return value
     }
 
-    private static func inputStreams(_ id: AudioObjectID) -> [AudioObjectID]? {
-        streams(id, scope: kAudioDevicePropertyScopeInput)
-    }
-
     static func setNominalSampleRate(_ id: AudioObjectID, _ rate: Double) -> OSStatus {
         var addr = address(kAudioDevicePropertyNominalSampleRate)
         var value = rate
@@ -142,21 +138,43 @@ enum AudioDeviceManager {
         _ = AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
     }
 
-    /// Turns every input stream of `id` off for `ioProc`. Running an IOProc with a headset's microphone
-    /// stream on counts as microphone access: macOS asks for permission and a Bluetooth headset drops
-    /// to its call profile. Returns true when the device has no input or the switch took.
-    static func disableInput(_ id: AudioObjectID, for ioProc: AudioDeviceIOProcID) -> Bool {
-        guard let count = inputStreams(id)?.count, count > 0 else { return true }
-        var addr = address(kAudioDevicePropertyIOProcStreamUsage, scope: kAudioDevicePropertyScopeInput)
+    /// Which streams of `id` in `scope` run for `ioProc`, one flag per stream; nil when unreadable.
+    static func streamUsage(_ id: AudioObjectID, scope: AudioObjectPropertyScope, for ioProc: AudioDeviceIOProcID) -> [Bool]? {
+        guard let count = streams(id, scope: scope)?.count else { return nil }
+        return withStreamUsage(count: count, ioProc: ioProc) { usage, size, flags in
+            var addr = address(kAudioDevicePropertyIOProcStreamUsage, scope: scope)
+            var size = UInt32(size)
+            guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, usage) == noErr else { return nil }
+            return (0..<min(Int(usage.pointee.mNumberStreams), count)).map { flags[$0] != 0 }
+        }
+    }
+
+    /// Returns the status of the write; read `streamUsage` back to know what took.
+    @discardableResult
+    static func setStreamUsage(_ id: AudioObjectID, scope: AudioObjectPropertyScope, for ioProc: AudioDeviceIOProcID, _ on: [Bool]) -> OSStatus {
+        withStreamUsage(count: on.count, ioProc: ioProc) { usage, size, flags in
+            for (index, isOn) in on.enumerated() { flags[index] = isOn ? 1 : 0 }
+            var addr = address(kAudioDevicePropertyIOProcStreamUsage, scope: scope)
+            return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(size), usage)
+        }
+    }
+
+    /// An AudioHardwareIOProcStreamUsage for `count` streams: its flags are a variable-length array.
+    private static func withStreamUsage<T>(count: Int, ioProc: AudioDeviceIOProcID,
+                                           _ body: (UnsafeMutablePointer<AudioHardwareIOProcStreamUsage>, Int, UnsafeMutablePointer<UInt32>) -> T) -> T {
         let offset = MemoryLayout<AudioHardwareIOProcStreamUsage>.offset(of: \.mStreamIsOn) ?? 12
-        let size = offset + count * MemoryLayout<UInt32>.size
+        let size = max(offset + count * MemoryLayout<UInt32>.size, MemoryLayout<AudioHardwareIOProcStreamUsage>.size)
         let storage = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: MemoryLayout<AudioHardwareIOProcStreamUsage>.alignment)
         defer { storage.deallocate() }
         storage.initializeMemory(as: UInt8.self, repeating: 0, count: size)
         let usage = storage.assumingMemoryBound(to: AudioHardwareIOProcStreamUsage.self)
         usage.pointee.mIOProc = unsafeBitCast(ioProc, to: UnsafeMutableRawPointer.self)
         usage.pointee.mNumberStreams = UInt32(count)
-        return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(size), storage) == noErr
+        return body(usage, size, (storage + offset).assumingMemoryBound(to: UInt32.self))
+    }
+
+    static func streamCount(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> Int? {
+        streams(id, scope: scope)?.count
     }
 
     static func outputStreamCount(_ id: AudioObjectID) -> Int? {

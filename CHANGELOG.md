@@ -13,6 +13,9 @@ its entries under a dated version.
 - The daemon rebuilds the engine when the ring keeps slipping: underruns, overruns or dropped
   buffers rising on three status ticks in a row, about 15 s. Before, only a stalled callback
   triggered a rebuild, and a path that played gaps went on playing them.
+- On an output device that also has a microphone, eq checks that the microphone is really off
+  for its IO callback and does not start if it is not, instead of starting anyway with a log
+  line. The callback also runs only the output stream eq taps.
 
 ### Added
 
