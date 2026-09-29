@@ -1,3 +1,4 @@
+import EQTerm
 import Foundation
 
 struct CLIContext {

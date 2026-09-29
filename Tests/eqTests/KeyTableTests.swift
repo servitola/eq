@@ -1,3 +1,4 @@
+import EQTerm
 import XCTest
 @testable import eq
 

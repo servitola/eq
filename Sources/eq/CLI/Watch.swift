@@ -1,4 +1,5 @@
 import Darwin
+import EQTerm
 import Foundation
 
 protocol MeterSource {

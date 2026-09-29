@@ -1,3 +1,4 @@
+import EQTerm
 import Foundation
 
 /// A key once its escape sequence is decoded. Tab, Ctrl-C and Ctrl-P are characters.
