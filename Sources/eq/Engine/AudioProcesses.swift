@@ -82,7 +82,7 @@ final class CoreAudioProcesses: AudioProcessSource {
         guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &pid) == noErr, pid > 0 else { return nil }
         let playing = (uint32(id, kAudioProcessPropertyIsRunningOutput) ?? 0) != 0
         return AudioProcess(pid: pid, bundleID: AudioDeviceManager.stringProperty(id, kAudioProcessPropertyBundleID),
-                            path: playing ? executablePath(pid) : nil, playing: playing)
+                            path: playing ? executablePath(pid) : nil, playing: playing, object: id)
     }
 
     static func executablePath(_ pid: pid_t) -> String? {

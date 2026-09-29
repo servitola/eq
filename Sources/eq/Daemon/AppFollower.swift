@@ -4,9 +4,11 @@ import Foundation
 struct AudioProcess: Equatable {
     var pid: pid_t
     var bundleID: String?
-    /// The executable; read only for a process that plays, since only those are ever identified.
+    /// The executable; read only for a process that plays. Routing names the others by bundle ID alone.
     var path: String?
     var playing: Bool
+    /// The HAL's object for the process, which is what a tap names.
+    var object: UInt32 = 0
 }
 
 struct PlayingApp: Equatable {
