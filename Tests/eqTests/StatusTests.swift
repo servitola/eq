@@ -86,7 +86,7 @@ final class StatusTests: XCTestCase {
         XCTAssertNil(status.routes)
         status.routes = [
             Status.Route(app: "com.spotify.client", name: "Spotify", target: .init(uid: "BE", name: "BE-RCA", transport: "bluetooth"),
-                         reason: .first, playing: true, latencyMs: 9.4, deviceLatencyMs: 180, underruns: 0, overruns: 0, dropouts: 0,
+                         reason: .first, playing: true, idle: false, latencyMs: 9.4, deviceLatencyMs: 180, underruns: 0, overruns: 0, dropouts: 0,
                          correctionPpm: -41.5, lastOnset: Status.Onset(tapHostSeconds: 1, outputHostSeconds: 1.01, count: 2)),
             Status.Route(app: "com.google.Chrome", name: "Google Chrome", target: nil, reason: .suspended, playing: false,
                          note: "rebuilt 3 times in a minute"),

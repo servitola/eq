@@ -1043,7 +1043,7 @@ final class Daemon {
             return Status.Route(
                 app: app.app, name: app.name,
                 target: target.map { uid in Status.Device(uid: uid, name: devices[uid]?.name ?? uid, transport: devices[uid]?.transportName ?? "other") },
-                reason: app.reason, playing: app.playing, note: note,
+                reason: app.reason, playing: app.playing, idle: running ? engine?.idle : nil, note: note,
                 latencyMs: running ? engine?.addedLatencyMs.map(MeterFrame.round1) : nil,
                 deviceLatencyMs: running ? engine?.deviceLatencyMs.map(MeterFrame.round1) : nil,
                 underruns: running ? engine?.underruns : nil,

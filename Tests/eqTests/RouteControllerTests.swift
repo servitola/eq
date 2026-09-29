@@ -33,6 +33,10 @@ private final class FakeSink: RouteSink {
 
     func health(_ target: String) -> RouteHealth? { healths[target] }
 
+    func idle(_ target: String, _ idle: Bool) {
+        calls.append("\(idle ? "idle" : "wake") \(target)")
+    }
+
     func take() -> [String] {
         defer { calls = [] }
         return calls
@@ -174,12 +178,45 @@ final class RouteControllerTests: XCTestCase {
 
     func testZerosWhileTheAppIsPausedAreNotAFailure() {
         _ = go(plan([beRCA: [10]], playing: false))
-        for tick in 1...10 {
+        for tick in 1...5 {
             sink.healths[beRCA] = healthy(UInt64(tick) * 100, signal: 0)
             sink.calls = []
             controller.tick(now: t0 + Double(tick) * 5)
-            XCTAssertEqual(sink.calls, [])
+            XCTAssertEqual(sink.calls, [], "within the idle tail")
         }
+    }
+
+    func testAQuietRouteStopsReadingAfterTheTailAndWakesWhenItsAppPlays() {
+        let quiet = plan([beRCA: [10]], playing: false)
+        _ = go(quiet)
+        sink.calls = []
+        controller.tick(now: t0 + 25)
+        XCTAssertEqual(sink.take(), [], "a gap between tracks")
+        for tick in 6...12 {
+            sink.healths[beRCA] = healthy(500)
+            controller.tick(now: t0 + Double(tick) * 5)
+        }
+        XCTAssertEqual(sink.take(), ["idle \(beRCA)"], "and no stall rebuild while it is idle")
+        XCTAssertEqual(controller.idle, [beRCA])
+        _ = controller.apply([], plan: plan([beRCA: [10]]), now: t0 + 70)
+        XCTAssertEqual(sink.take(), ["wake \(beRCA)"])
+        sink.healths[beRCA] = healthy(600)
+        controller.tick(now: t0 + 75)
+        sink.healths[beRCA] = healthy(700)
+        controller.tick(now: t0 + 80)
+        XCTAssertEqual(sink.take(), [], "the watchdog starts over after waking")
+    }
+
+    func testPlayingAgainWithinTheTailKeepsReading() {
+        _ = go(plan([beRCA: [10]], playing: false))
+        controller.tick(now: t0 + 20)
+        _ = controller.apply([], plan: plan([beRCA: [10]]), now: t0 + 25)
+        _ = controller.apply([], plan: plan([beRCA: [10]], playing: false), now: t0 + 40)
+        sink.calls = []
+        controller.tick(now: t0 + 65)
+        XCTAssertEqual(sink.take(), [], "the tail counts from when it last went quiet")
+        controller.tick(now: t0 + 70)
+        XCTAssertEqual(sink.take(), ["idle \(beRCA)"])
     }
 
     func testAnEngineThatReportsAFailureIsRebuilt() {

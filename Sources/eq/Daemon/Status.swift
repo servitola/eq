@@ -65,6 +65,8 @@ struct Status: Codable, Equatable {
         var target: Device?
         var reason: RouteReason
         var playing: Bool
+        /// Its engine stopped reading after its apps were quiet a while; the tap still mutes them.
+        var idle: Bool? = nil
         /// Why a route failed or was suspended.
         var note: String? = nil
         /// From the tap's capture to the target's output, eq's share; the target adds `deviceLatencyMs`.

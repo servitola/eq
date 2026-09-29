@@ -279,6 +279,32 @@ final class RouteEngine {
         transition(to: .running)
     }
 
+    /// Both IOProcs stopped while the tap stays, so its apps stay muted and the target's stream may
+    /// sleep; the first moment of sound after `setIdle(false)` is lost (the spec's answer 3).
+    private(set) var idle = false
+
+    /// False when an IOProc would not start again; the engine is then failed.
+    @discardableResult
+    func setIdle(_ idle: Bool) -> Bool {
+        guard state == .running, idle != self.idle, let outputProcID, let tapProcID else { return state == .running }
+        if idle {
+            AudioDeviceStop(targetDeviceID, outputProcID)
+            AudioDeviceStop(aggregateID, tapProcID)
+            // Both callbacks have ended: the output primes again from whatever the tap writes next.
+            primed = false
+            self.idle = true
+            return true
+        }
+        var status = AudioDeviceStart(targetDeviceID, outputProcID)
+        if status == noErr { status = AudioDeviceStart(aggregateID, tapProcID) }
+        self.idle = false
+        guard status == noErr else {
+            transition(to: .failed("Couldn’t start the route again (error \(status))."))
+            return false
+        }
+        return true
+    }
+
     /// The tap's processes, changed on the live tap: M0 found the edit takes within some 30 ms.
     /// False when Core Audio refused it; the engine then needs building again.
     func setProcesses(_ processes: [AudioObjectID]) -> Bool {
@@ -316,6 +342,7 @@ final class RouteEngine {
         deviceLatencyMs = nil
         estimatedAddedMs = nil
         servo = DriftServo()
+        idle = false
         if state != .stopped { transition(to: .stopped) }
     }
 

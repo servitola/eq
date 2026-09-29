@@ -45,6 +45,8 @@ protocol RouteSink: AnyObject {
     func exclude(_ processes: [UInt32]) -> Bool
     func stopEngine(_ target: String)
     func health(_ target: String) -> RouteHealth?
+    /// The engine stops reading while its apps are quiet, and starts again when they play.
+    func idle(_ target: String, _ idle: Bool)
 }
 
 /// Runs the planner's actions on the engines, in order, and watches the engines it started: a
@@ -57,6 +59,8 @@ final class RouteController {
     /// Status ticks of zeros from a tap whose apps are playing before the engine is built again, once:
     /// forum thread 825780's tap that delivers only zeros is cured only by a new tap and aggregate.
     static let silentTicks = 2
+    /// A gap between two tracks must not cost the start of the next one.
+    static let idleAfter: TimeInterval = 30
 
     struct Suspension: Equatable {
         var until: Date
@@ -85,6 +89,9 @@ final class RouteController {
     /// Rebuilt once for zeros; not again until sound comes through, or a browser that keeps its
     /// stream open through silence would get its route suspended.
     private var rebuiltForSilence: Set<String> = []
+    private var quietSince: [String: Date] = [:]
+    /// Live targets whose engine is not reading: their apps have been quiet for `idleAfter`.
+    private(set) var idle: Set<String> = []
     private var excluded: [UInt32] = []
     /// Keyed by lowercased app ID.
     private(set) var suspensions: [String: Suspension] = [:]
@@ -124,6 +131,7 @@ final class RouteController {
             }
         }
         syncExclusions()
+        updateIdle(now: now)
         return suspended
     }
 
@@ -141,10 +149,11 @@ final class RouteController {
                 changed = rebuild(target, because: "retrying after: \(why)", now: now) || changed
                 continue
             }
-            guard live.contains(target), let health = sink.health(target) else { continue }
+            guard live.contains(target), !idle.contains(target), let health = sink.health(target) else { continue }
             if let why = check(target, health) { changed = rebuild(target, because: why, now: now) || changed }
         }
         syncExclusions()
+        updateIdle(now: now)
         return changed
     }
 
@@ -161,6 +170,7 @@ final class RouteController {
         rebuilds[target] = recent + [now]
         Log.write("route \(target): \(why) — rebuilding")
         live.remove(target)
+        idle.remove(target)
         syncExclusions()
         sink.stopEngine(target)
         failures[target] = nil
@@ -182,14 +192,35 @@ final class RouteController {
         failures = [:]
         watches = [:]
         rebuiltForSilence = []
+        quietSince = [:]
+        idle = []
     }
 
     private func stop(_ target: String) {
         live.remove(target)
+        idle.remove(target)
+        quietSince[target] = nil
         failures[target] = nil
         watches[target] = nil
         rebuiltForSilence.remove(target)
         sink.stopEngine(target)
+    }
+
+    private func updateIdle(now: Date) {
+        for target in plan.engines.keys.sorted() where live.contains(target) {
+            if plan.engines[target]!.playing {
+                quietSince[target] = nil
+                guard idle.remove(target) != nil else { continue }
+                watches[target] = Watch()
+                sink.idle(target, false)
+            } else {
+                let since = quietSince[target] ?? now
+                quietSince[target] = since
+                guard !idle.contains(target), now.timeIntervalSince(since) >= Self.idleAfter else { continue }
+                idle.insert(target)
+                sink.idle(target, true)
+            }
+        }
     }
 
     private func check(_ target: String, _ health: RouteHealth) -> String? {
@@ -297,6 +328,10 @@ final class LiveRouteSink: RouteSink {
     func stopEngine(_ target: String) {
         engines.removeValue(forKey: target)?.stop()
         playing[target] = nil
+    }
+
+    func idle(_ target: String, _ idle: Bool) {
+        engines[target]?.setIdle(idle)
     }
 
     func health(_ target: String) -> RouteHealth? {
