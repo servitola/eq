@@ -1,0 +1,258 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>eq TUI looks</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#16171a; --panel:#1e2024; --line:#2c2f35; --text:#e6e3dc; --muted:#8d8f96; --accent:#8aa8ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding:18px 24px 8px; }
+  h1 { font-size:18px; margin:0 0 4px; font-weight:600; letter-spacing:.2px; }
+  header p { margin:0; color:var(--muted); max-width:70em; }
+  .bar { display:flex; flex-wrap:wrap; gap:14px 22px; padding:12px 24px; border-bottom:1px solid var(--line); align-items:center; position:sticky; top:0; background:var(--bg); z-index:2; }
+  .group { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .group > span { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; margin-right:4px; }
+  button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:7px; padding:5px 11px; font:inherit; font-size:13px; cursor:pointer; }
+  button:hover { border-color:#4a4e57; }
+  button[aria-pressed="true"] { background:var(--accent); color:#0e1016; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.35; cursor:default; }
+  main { padding:18px 24px 40px; }
+  .term { display:inline-block; border-radius:12px; padding:14px; background:#282828; box-shadow:0 20px 60px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.06) inset; max-width:100%; overflow-x:auto; }
+  .chrome { display:flex; gap:7px; margin:0 0 10px 2px; }
+  .chrome i { width:11px; height:11px; border-radius:50%; background:#ff5f57; display:block; }
+  .chrome i:nth-child(2) { background:#febc2e; } .chrome i:nth-child(3) { background:#28c840; }
+  .chrome b { font-weight:500; color:#9a9486; font-size:12px; margin-left:10px; font-family:ui-monospace, Menlo, monospace; }
+  canvas { display:block; }
+  .caption { color:var(--muted); margin-top:12px; max-width:62em; }
+  .caption code { color:var(--text); }
+</style>
+
+<header>
+  <h1>eq TUI — looks, palettes and colour depths</h1>
+  <p>Mock screens from <code>docs/design/tui/mocks.py</code>, drawn cell by cell the way a terminal would. Pick a
+  look, a screen and a colour depth; 256 colours are what tmux or eq itself makes of the 24-bit screen, 16 and
+  mono are eq's own fallbacks. The frame's ground is your terminal's (#282828); the 16 colours are your terminal's sixteen.</p>
+</header>
+
+<div class="bar">
+  <div class="group" id="looks"><span>Look</span></div>
+  <div class="group" id="screens"><span>Screen</span></div>
+  <div class="group" id="depths"><span>Colours</span></div>
+  <div class="group" id="grounds"><span>Ground</span></div>
+</div>
+
+<main>
+  <div class="term" id="term">
+    <div class="chrome"><i></i><i></i><i></i><b id="name"></b></div>
+    <canvas id="screen"></canvas>
+  </div>
+  <p class="caption" id="caption"></p>
+</main>
+
+<script>
+const MOCKS = /*MOCKS*/[];
+
+const TERMINAL16 = ["#282828","#cc241d","#98971a","#d79921","#458588","#b16286","#689d6a","#a89984",
+                   "#928374","#fb4934","#b8bb26","#fabd2f","#83a598","#d3869b","#8ec07c","#ebdbb2"];
+const TERM_FG = "#ebdbb2";
+const GROUNDS = { "your terminal": "#282828", "black": "#000000", "deep": "#101216" };
+
+const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const rgbToCss = ([r, g, b]) => `rgb(${r},${g},${b})`;
+
+const CUBE = [0, 95, 135, 175, 215, 255];
+const PAL256 = (() => {
+  const p = TERMINAL16.map(hexToRgb);
+  for (let r = 0; r < 6; r++) for (let g = 0; g < 6; g++) for (let b = 0; b < 6; b++) p.push([CUBE[r], CUBE[g], CUBE[b]]);
+  for (let i = 0; i < 24; i++) { const v = 8 + 10 * i; p.push([v, v, v]); }
+  return p;
+})();
+
+// tmux's colour_find_rgb: the real cube levels, and the grey ramp when it is closer.
+function nearest256([r, g, b]) {
+  const six = v => v < 48 ? 0 : v < 114 ? 1 : Math.floor((v - 35) / 40);
+  const qr = six(r), qg = six(g), qb = six(b);
+  const cr = CUBE[qr], cg = CUBE[qg], cb = CUBE[qb];
+  if (cr === r && cg === g && cb === b) return 16 + 36 * qr + 6 * qg + qb;
+  const avg = Math.floor((r + g + b) / 3);
+  const gi = avg > 238 ? 23 : Math.floor(Math.max(avg - 3, 0) / 10);
+  const gv = 8 + 10 * gi;
+  const d = (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2;
+  return (gv - r) ** 2 + (gv - g) ** 2 + (gv - b) ** 2 < d ? 232 + gi : 16 + 36 * qr + 6 * qg + qb;
+}
+
+// The subset of ECMA-48 the mocks use: SGR only, lines separated by \n.
+function parseAnsi(text, quantize) {
+  const rows = [];
+  for (const line of text.replace(/\n$/, "").split("\n")) {
+    const row = [];
+    let pen = { fg: null, bg: null, bold: false, dim: false, ul: false, rev: false };
+    const re = /\x1b\[([0-9;]*)m|([^\x1b])/gu;
+    let m;
+    while ((m = re.exec(line))) {
+      if (m[2] !== undefined) { row.push({ ch: m[2], ...pen }); continue; }
+      const ps = m[1] === "" ? [0] : m[1].split(";").map(Number);
+      for (let i = 0; i < ps.length; i++) {
+        const c = ps[i];
+        if (c === 0) pen = { fg: null, bg: null, bold: false, dim: false, ul: false, rev: false };
+        else if (c === 1) pen.bold = true;
+        else if (c === 2) pen.dim = true;
+        else if (c === 4) pen.ul = true;
+        else if (c === 7) pen.rev = true;
+        else if (c === 22) pen.bold = pen.dim = false;
+        else if (c === 24) pen.ul = false;
+        else if (c === 27) pen.rev = false;
+        else if (c >= 30 && c <= 37) pen.fg = PAL256[c - 30];
+        else if (c >= 90 && c <= 97) pen.fg = PAL256[c - 82];
+        else if (c >= 40 && c <= 47) pen.bg = PAL256[c - 40];
+        else if (c >= 100 && c <= 107) pen.bg = PAL256[c - 92];
+        else if (c === 39) pen.fg = null;
+        else if (c === 49) pen.bg = null;
+        else if ((c === 38 || c === 48) && ps[i + 1] === 5) { const v = PAL256[ps[i + 2]]; c === 38 ? pen.fg = v : pen.bg = v; i += 2; }
+        else if ((c === 38 || c === 48) && ps[i + 1] === 2) {
+          let v = [ps[i + 2], ps[i + 3], ps[i + 4]];
+          if (quantize) v = PAL256[nearest256(v)];
+          c === 38 ? pen.fg = v : pen.bg = v; i += 4;
+        }
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+const CW = 9, CH = 19, FONT = 15;
+const FONT_STACK = `"JetBrainsMono Nerd Font Mono", "JetBrains Mono", "SF Mono", Menlo, monospace`;
+
+// Block, line and braille glyphs are drawn as shapes so they join cell to cell as they do in a terminal.
+function drawGlyph(ctx, ch, x, y, color) {
+  const cp = ch.codePointAt(0);
+  ctx.fillStyle = color; ctx.strokeStyle = color;
+  const lower = "▁▂▃▄▅▆▇█".indexOf(ch);
+  if (lower >= 0) { const h = Math.round(CH * (lower + 1) / 8); ctx.fillRect(x, y + CH - h, CW, h); return true; }
+  const left = "▏▎▍▌▋▊▉".indexOf(ch);
+  if (left >= 0) { ctx.fillRect(x, y, Math.round(CW * (left + 1) / 8), CH); return true; }
+  if (ch === "▔") { ctx.fillRect(x, y, CW, Math.max(2, Math.round(CH / 8))); return true; }
+  if (ch === "▐") { ctx.fillRect(x + CW / 2, y, CW / 2, CH); return true; }
+  if (ch === "▕") { ctx.fillRect(x + CW - 2, y, 2, CH); return true; }
+  if (ch === "░") { ctx.globalAlpha = .35; ctx.fillRect(x, y, CW, CH); ctx.globalAlpha = 1; return true; }
+  if (cp >= 0x2800 && cp <= 0x28ff) {
+    const bits = cp - 0x2800, map = [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [0, 3], [1, 3]];
+    const r = Math.max(1.1, CW * 0.13);
+    for (let b = 0; b < 8; b++) if (bits & (1 << b)) {
+      const [cx, cy] = map[b];
+      ctx.beginPath(); ctx.arc(x + CW * (cx ? 0.72 : 0.28), y + CH * (0.14 + cy * 0.24), r, 0, Math.PI * 2); ctx.fill();
+    }
+    return true;
+  }
+  const L = { "─": "h", "━": "H", "│": "v", "┃": "V", "┼": "hv", "┤": "lv", "├": "rv", "┴": "hu", "┬": "hd",
+              "╭": "rd", "╮": "ld", "╰": "ru", "╯": "lu", "┌": "rd", "┐": "ld", "╶": "r", "╴": "l", "╷": "d",
+              "┈": "dash4", "┄": "dash3", "┊": "vdash", "╌": "dash2" }[ch];
+  if (!L) return false;
+  const mx = x + Math.floor(CW / 2) + .5, my = y + Math.floor(CH / 2) + .5;
+  ctx.lineWidth = /[HV]/.test(L) ? 2.4 : 1;
+  const line = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+  if (L.startsWith("dash")) {
+    const n = +L.slice(4); const seg = CW / n;
+    for (let i = 0; i < n; i++) ctx.fillRect(x + i * seg + seg * .2, my - .5, Math.max(1, seg * .45), 1);
+    return true;
+  }
+  if (L === "vdash") { for (let i = 0; i < 4; i++) ctx.fillRect(mx - .5, y + i * CH / 4 + 1, 1, CH / 8); return true; }
+  const round = "╭╮╰╯".includes(ch);
+  if (round) {
+    const rr = Math.min(CW, CH) / 2;
+    ctx.beginPath();
+    if (ch === "╭") { ctx.moveTo(mx, y + CH); ctx.arcTo(mx, my, x + CW, my, rr); ctx.lineTo(x + CW, my); }
+    if (ch === "╮") { ctx.moveTo(mx, y + CH); ctx.arcTo(mx, my, x, my, rr); ctx.lineTo(x, my); }
+    if (ch === "╰") { ctx.moveTo(mx, y); ctx.arcTo(mx, my, x + CW, my, rr); ctx.lineTo(x + CW, my); }
+    if (ch === "╯") { ctx.moveTo(mx, y); ctx.arcTo(mx, my, x, my, rr); ctx.lineTo(x, my); }
+    ctx.stroke(); return true;
+  }
+  if (/[hH]/.test(L)) line(x, my, x + CW, my);
+  if (/[vV]/.test(L)) line(mx, y, mx, y + CH);
+  if (L.includes("l")) line(x, my, mx, my);
+  if (L.includes("r")) line(mx, my, x + CW, my);
+  if (L.includes("u")) line(mx, y, mx, my);
+  if (L.includes("d")) line(mx, my, mx, y + CH);
+  return true;
+}
+
+function paint(canvas, rows, w, h, ground) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * CW * dpr; canvas.height = h * CH * dpr;
+  canvas.style.width = w * CW + "px"; canvas.style.height = h * CH + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const bgRgb = hexToRgb(ground), fgRgb = hexToRgb(TERM_FG);
+  ctx.fillStyle = ground; ctx.fillRect(0, 0, w * CW, h * CH);
+  ctx.textBaseline = "middle";
+  rows.forEach((row, y) => row.forEach((c, x) => {
+    let fg = c.fg || fgRgb, bg = c.bg;
+    if (c.rev) { const t = fg; fg = bg || bgRgb; bg = t; }
+    if (c.dim) fg = fg.map((v, i) => Math.round(v * .55 + bgRgb[i] * .45));
+    const px = x * CW, py = y * CH;
+    if (bg) { ctx.fillStyle = rgbToCss(bg); ctx.fillRect(px, py, CW, CH); }
+    if (c.ch === " ") return;
+    const css = rgbToCss(fg);
+    if (!drawGlyph(ctx, c.ch, px, py, css)) {
+      ctx.fillStyle = css;
+      ctx.font = `${c.bold ? 700 : 400} ${FONT}px ${FONT_STACK}`;
+      ctx.fillText(c.ch, px, py + CH / 2 + 1, CW + 1);
+    }
+    if (c.ul) { ctx.fillStyle = css; ctx.fillRect(px, py + CH - 3, CW, 1); }
+  }));
+}
+
+const state = { look: "studio", stem: "studio-meter-120x36", depth: "tc", ground: "your terminal" };
+const LOOK_NOTES = {
+  studio: "studio — dense and graphic: level-coloured bars with a gradient by height, peak-hold ticks, the EQ response drawn over the bars in braille with the boost/cut area tinted, a dBFS scale on the left and a gain scale on the right, rounded panels and a side column of gauges.",
+  console: "console — a mixing desk: one channel strip per band with a paper label, an LED ladder whose unlit segments stay faintly visible, an amber readout, a fader whose cap sits at the band's gain, and a master section with a backlit gain-reduction needle, lamps and knobs.",
+  classic: "classic — today's screen in the terminal's own sixteen colours, for plain terminals, NO_COLOR and TERM=dumb: bars take the band's gain colour, ▬ marks the slider, ░ is the input ghost.",
+};
+const SCREEN_NAMES = { "meter-120x36": "meter 120×36", "meter-80x24": "meter 80×24", "zones-120x36": "zones 120×36",
+  "focus-120x36": "focus + listen 120×36", "focus-80x24": "focus 80×24", "instruments-120x36": "instruments 120×36",
+  "help-120x36": "keys overlay 120×36", "tune-120x36": "tune 120×36", "paper-meter-120x36": "light palette 120×36" };
+
+function button(label, pressed, onclick, disabled) {
+  const b = document.createElement("button");
+  b.textContent = label; b.setAttribute("aria-pressed", pressed ? "true" : "false");
+  b.disabled = !!disabled; b.onclick = onclick; return b;
+}
+
+function render() {
+  const mock = MOCKS.find(m => m.stem === state.stem);
+  const depths = Object.keys(mock.variants).concat(mock.variants.tc ? ["256"] : []);
+  if (!depths.includes(state.depth)) state.depth = depths[0];
+  const looks = document.getElementById("looks"); looks.replaceChildren(looks.firstElementChild);
+  for (const look of ["studio", "console", "classic"]) looks.append(button(look, look === state.look, () => {
+    state.look = look; state.stem = MOCKS.find(m => m.look === look).stem; render(); }));
+  const screens = document.getElementById("screens"); screens.replaceChildren(screens.firstElementChild);
+  for (const m of MOCKS.filter(m => m.look === state.look)) {
+    const key = m.stem.slice(m.look.length + 1);
+    screens.append(button(SCREEN_NAMES[key] || key, m.stem === state.stem, () => { state.stem = m.stem; render(); }));
+  }
+  const depthBox = document.getElementById("depths"); depthBox.replaceChildren(depthBox.firstElementChild);
+  const DN = { tc: "24-bit", "256": "256", "16": "16", mono: "NO_COLOR" };
+  for (const d of ["tc", "256", "16", "mono"]) depthBox.append(button(DN[d], d === state.depth, () => { state.depth = d; render(); }, !depths.includes(d)));
+  const groundBox = document.getElementById("grounds"); groundBox.replaceChildren(groundBox.firstElementChild);
+  for (const g of Object.keys(GROUNDS)) groundBox.append(button(g, g === state.ground, () => { state.ground = g; render(); }));
+  const text = state.depth === "256" ? mock.variants.tc : mock.variants[state.depth];
+  const ground = mock.bg || GROUNDS[state.ground];
+  document.getElementById("term").style.background = ground;
+  document.getElementById("name").textContent = `${mock.stem}.ans — ${mock.w}×${mock.h} — ${mock.look} / ${mock.palette}`;
+  paint(document.getElementById("screen"), parseAnsi(text, state.depth === "256"), mock.w, mock.h, ground);
+  const bytes = new TextEncoder().encode(text).length;
+  document.getElementById("caption").innerHTML = `${LOOK_NOTES[mock.look]}<br><br>This screen written in full: <code>${bytes.toLocaleString()}</code> bytes at this depth (the diff renderer writes only changed cells after the first frame). In a terminal: <code>cat docs/design/tui/${mock.stem}.ans</code>.`;
+}
+
+function fromHash() {
+  const [stem, depth] = decodeURIComponent(location.hash.slice(1)).split("/");
+  const mock = MOCKS.find(m => m.stem === stem);
+  if (mock) { state.stem = stem; state.look = mock.look; }
+  if (depth) state.depth = depth;
+}
+window.addEventListener("hashchange", () => { fromHash(); render(); });
+fromHash();
+document.fonts && document.fonts.ready.then(render);
+render();
+</script>
