@@ -41,6 +41,31 @@ enum StreamUsage {
     static func firstOnly(streams: Int) -> [Bool] {
         (0..<streams).map { $0 == 0 }
     }
+
+    /// Every input stream of `device` off for `proc`, and only its first output stream on. False
+    /// when an input stream stays on: the IOProc must not start then.
+    static func restrict(_ proc: AudioDeviceIOProcID, on device: AudioObjectID) -> Bool {
+        let inputStreams = AudioDeviceManager.streamCount(device, scope: kAudioDevicePropertyScopeInput) ?? 0
+        if inputStreams > 0 {
+            let status = AudioDeviceManager.setStreamUsage(device, scope: kAudioDevicePropertyScopeInput, for: proc,
+                                                           Array(repeating: false, count: inputStreams))
+            let usage = AudioDeviceManager.streamUsage(device, scope: kAudioDevicePropertyScopeInput, for: proc)
+            guard allOff(usage, streams: inputStreams) else {
+                Log.write("input streams still on for the output IO proc after switching them off (status \(status), read back \(usage.map { "\($0)" } ?? "nothing"))")
+                return false
+            }
+        }
+        let outputStreams = AudioDeviceManager.streamCount(device, scope: kAudioDevicePropertyScopeOutput) ?? 0
+        if outputStreams > 1 {
+            let wanted = firstOnly(streams: outputStreams)
+            let status = AudioDeviceManager.setStreamUsage(device, scope: kAudioDevicePropertyScopeOutput, for: proc, wanted)
+            let usage = AudioDeviceManager.streamUsage(device, scope: kAudioDevicePropertyScopeOutput, for: proc)
+            if usage != wanted {
+                Log.write("output IO proc still runs more than the first stream (status \(status), read back \(usage.map { "\($0)" } ?? "nothing"))")
+            }
+        }
+        return true
+    }
 }
 
 /// IOProcs Core Audio refused to destroy. One may still be running, so the ring and scratch it
@@ -205,6 +230,10 @@ final class ProcessTapEngine {
     }
 
     private var tapID: AudioObjectID = 0
+    private var tapDescription: CATapDescription?
+    private var ownProcess: [AudioObjectID] = []
+    /// Processes a route engine plays elsewhere: the main tap must not carry them too.
+    private(set) var exclusions: [AudioObjectID] = []
     private var aggregateID: AudioObjectID = 0
     private var tapProcID: AudioDeviceIOProcID?
     private var outputProcID: AudioDeviceIOProcID?
@@ -268,10 +297,10 @@ final class ProcessTapEngine {
         // The owner sees the 0 Hz rate and retries once the device settles; no tap until then.
         guard sampleRate > 0 else { return }
 
-        // 1. Muted tap on the device's first output stream, excluding ourselves: re-rendered
-        //    audio must not be re-captured.
-        let excluded = AudioDeviceManager.processObject(forPID: getpid()).map { [$0] } ?? []
-        let description = CATapDescription(excludingProcesses: excluded, deviceUID: deviceUID, stream: 0)
+        // 1. Muted tap on the device's first output stream, excluding ourselves (re-rendered
+        //    audio must not be re-captured) and the processes a route engine plays elsewhere.
+        ownProcess = AudioDeviceManager.processObject(forPID: getpid()).map { [$0] } ?? []
+        let description = CATapDescription(excludingProcesses: ownProcess + exclusions, deviceUID: deviceUID, stream: 0)
         description.name = "eq tap"
         description.muteBehavior = .mutedWhenTapped
         description.isPrivate = true
@@ -283,6 +312,7 @@ final class ProcessTapEngine {
             return
         }
         tapID = newTapID
+        tapDescription = description
 
         // 2. A private aggregate holding the tap and nothing else. An Apple engineer (developer
         //    forums thread 770218): a Bluetooth device in the same aggregate as the tap is
@@ -369,26 +399,10 @@ final class ProcessTapEngine {
             transition(to: .failed("Couldn’t create audio IO proc (error \(status))."))
             return
         }
-        let inputStreams = AudioDeviceManager.streamCount(deviceID, scope: kAudioDevicePropertyScopeInput) ?? 0
-        if inputStreams > 0 {
-            let status = AudioDeviceManager.setStreamUsage(deviceID, scope: kAudioDevicePropertyScopeInput, for: outputProcID,
-                                                           Array(repeating: false, count: inputStreams))
-            let usage = AudioDeviceManager.streamUsage(deviceID, scope: kAudioDevicePropertyScopeInput, for: outputProcID)
-            guard StreamUsage.allOff(usage, streams: inputStreams) else {
-                Log.write("input streams still on for the output IO proc after switching them off (status \(status), read back \(usage.map { "\($0)" } ?? "nothing"))")
-                cleanup()
-                transition(to: .failed("Couldn’t keep the output device’s microphone closed; not starting."))
-                return
-            }
-        }
-        let outputStreams = AudioDeviceManager.streamCount(deviceID, scope: kAudioDevicePropertyScopeOutput) ?? 0
-        if outputStreams > 1 {
-            let wanted = StreamUsage.firstOnly(streams: outputStreams)
-            let status = AudioDeviceManager.setStreamUsage(deviceID, scope: kAudioDevicePropertyScopeOutput, for: outputProcID, wanted)
-            let usage = AudioDeviceManager.streamUsage(deviceID, scope: kAudioDevicePropertyScopeOutput, for: outputProcID)
-            if usage != wanted {
-                Log.write("output IO proc still runs more than the first stream (status \(status), read back \(usage.map { "\($0)" } ?? "nothing"))")
-            }
+        guard StreamUsage.restrict(outputProcID, on: deviceID) else {
+            cleanup()
+            transition(to: .failed("Couldn’t keep the output device’s microphone closed; not starting."))
+            return
         }
 
         // Output first: it plays silence until the tap has filled the ring to its target.
@@ -521,6 +535,23 @@ final class ProcessTapEngine {
             if status != noErr { Log.write("AudioHardwareDestroyProcessTap(\(tapID)) failed: \(status)") }
             tapID = 0
         }
+        tapDescription = nil
+    }
+
+    /// The processes the tap leaves out besides eq itself, changed on the live tap (M0: gone from it
+    /// in 23–33 ms, back in 14–15 ms, nothing else dips) and kept for every later start. False when
+    /// the live tap refused the change; the next start still applies it.
+    @discardableResult
+    func setExclusions(_ processes: [AudioObjectID]) -> Bool {
+        exclusions = processes
+        guard tapID != 0, let tapDescription else { return true }
+        tapDescription.processes = ownProcess + processes
+        let status = AudioDeviceManager.setTapDescription(tapID, tapDescription)
+        guard status == noErr else {
+            Log.write("could not change the tap's excluded processes (error \(status))")
+            return false
+        }
+        return true
     }
 
     private func transition(to newState: State) {
@@ -736,11 +767,11 @@ final class ProcessTapEngine {
 /// The buffers of a Core Audio buffer list, without CoreAudio's list wrapper: that type is
 /// resilient, so a render thread would walk it through generic witnesses. `mBuffers` is the
 /// list's last field, a variable-length array.
-private func audioBuffers(_ list: UnsafePointer<AudioBufferList>) -> UnsafeMutableBufferPointer<AudioBuffer> {
+func audioBuffers(_ list: UnsafePointer<AudioBufferList>) -> UnsafeMutableBufferPointer<AudioBuffer> {
     let first = UnsafeMutableRawPointer(mutating: list) + (MemoryLayout<AudioBufferList>.size - MemoryLayout<AudioBuffer>.size)
     return UnsafeMutableBufferPointer(start: first.assumingMemoryBound(to: AudioBuffer.self), count: Int(list.pointee.mNumberBuffers))
 }
 
-private func audioBuffers(_ list: UnsafeMutablePointer<AudioBufferList>) -> UnsafeMutableBufferPointer<AudioBuffer> {
+func audioBuffers(_ list: UnsafeMutablePointer<AudioBufferList>) -> UnsafeMutableBufferPointer<AudioBuffer> {
     audioBuffers(UnsafePointer(list))
 }
