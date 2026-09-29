@@ -343,3 +343,77 @@ about 1 %; and the Events view closes the meter connection, so the TUI there cos
 measurable and the daemon's meter work stops while it is on screen (one frame is taken back after
 a `profile` event or a command, for the status bar's preamp and gains).
 
+
+## 7. M4 as built: Tune [measured]
+
+The Tune view in both looks. Screens from the real renderer are in `docs/design/tui/actual/`
+(`*-tune-120x36`, `*-tune-80x24`), pinned by golden files; every other screen gained the Tune tab.
+
+Where the built screen differs from the mock `studio-tune-120x36`, and why:
+- **The chain is a column the height of both panels**, and the response panel is as wide as the
+  bands panel, not the whole screen. The response is drawn on the sliders' own frequency axis,
+  so each band's node sits straight above its slider; a full-width panel would have put the
+  nodes elsewhere, or drawn past 20 kHz. The taller column holds what the mock had no room for.
+- **The response is the whole chain's**: bands, filters, bass, treble, tilt and instrument knobs
+  (`Profile.engineBands`, at the device's rate), not the ten bands alone as on the meter, since
+  Tune edits all of them. Nodes are coloured by their band's sign as in the mock; the selected
+  one is `◉` in the accent.
+- **Headroom, not in the mock**: the chain's loudest point from 20 Hz to 20 kHz (a twelfth-octave
+  sweep) plus the preamp. Over 0 dBFS the response title says `! clips +1.9 dB — lower the
+  preamp` and the output box shows it; under, how much is spare. With the output peak and the
+  limiter lamp under it, that is the clipping and limiter indication.
+- **Dynamics are three controls**: the compressor's mode, the colour's kind and its amount, each
+  selectable, under a `dynamics` rule; the mock's `‹ tape › 0.3` is two of them on two rows.
+- **Below 110 columns** the chain is two rows under the bands, items at fixed places so a click
+  lands on the same one whatever the value; the output keeps the headroom and the limiter and
+  drops the peak first. Below 18 rows of panel the response takes 5 rows, so the sliders keep 6.
+  Under 61 columns or 12 rows the controls are a list.
+- **A cap never sits on the 0 dB row for a band that is not flat**: at 80×24 a row is 4.8 dB and
+  -3.1 would round onto it.
+- **Console**: the sliders are faders on channel strips with grooves, a tape label under each
+  (the scribble strip), an amber LCD readout and a row of LEDs; the response a backlit window
+  (`window_bg`), no tints; the chain a master section with a preamp fader, knobs for bass,
+  treble and tilt, lamps for the compressor and the colour, an LED bar for the amount. Not
+  mocked.
+
+Keys follow the table (README "Keys"). Two things decided while building:
+- `0` resets the selected control here, as the task asked, so the tenth band goes up with `↑`
+  rather than `0`; `1`…`9` and the shifted digits keep their meter meaning. `Backspace` and
+  `Del` reset too.
+- `⇧↑`/`⇧↓` and `Alt↑`/`Alt↓` are keys of their own where a context binds them (only Tune), and
+  plain arrows elsewhere, as every modifier on an arrow was before.
+
+### Bytes and CPU
+
+In process (`MeterBenchmarkTests`, release build, 300 frames at 120×40; "music" and "stress" as
+in §5). The Tune view changes little a frame: ten mini-meters, the output peak and the status
+bar's peak.
+
+| Look, colours | Tune, music | Tune, stress | Full frame | ms a frame | Meter, music (same run) |
+| --- | --- | --- | --- | --- | --- |
+| studio, 24-bit | 490 | 510 | 13 129 | 0.25 | 1 181 |
+| studio, 256 | 274 | 365 | 10 205 | 0.25 | 895 |
+| studio, 16 | 153 | 262 | 7 428 | 0.24 | 692 |
+| studio, none | 100 | 209 | 6 478 | 0.24 | 597 |
+| console, 24-bit | 125 | 350 | 25 674 | 0.29 | 386 |
+| console, 256 | 99 | 264 | 20 537 | 0.30 | 324 |
+| console, 16 | 63 | 184 | 9 763 | 0.29 | 253 |
+| console, none | 51 | 134 | 8 694 | 0.29 | 225 |
+
+On a pty, the harness of §6 (release build, 120×40, fake meter socket in a scratch directory at
+30 frames a second of "music", `EQ_CONFIG`/`EQ_STATUS`/`EQ_CACHE` in the scratch directory, never
+the live daemon), 30 s a run, M3 and M4 interleaved, on a busy Mac (load 2–5):
+
+| Build | View, look | Runs, CPU | Median | Frames/s written | Bytes a frame |
+| --- | --- | --- | --- | --- | --- |
+| M3 | meter, studio | 7.13, 7.43, 7.36 % | 7.4 % | 30.0 | 1 184 |
+| M4 | meter, studio | 7.29, 7.39, 7.26 % | 7.3 % | 30.0 | 1 184 |
+| M4 | Tune, studio | 6.89, 6.29, 6.26 % | 6.3 % | 30.0 | 486 |
+| M4 | Tune, console | 7.36 % | — | 29.8 | 127 |
+| M4 | Tune, silent | 1.27 % | — | 0 | 0 |
+
+The meter view costs the same in both builds, so M4 added nothing to it; Tune costs a little
+less than the meter. As in §6, the Mac's state put every build above the 5.7 % budget in this
+session, M3 included; bytes stay far inside 4.5 KB. The same pty run with keys (`↓`, `→`×5,
+`оооо`, `⇧↑`, `Enter -2,5 Enter`, `Tab`, `u`×3) changed the scratch eq.json at each step, wrote
+one backup for the whole session, and walked back with `u`.

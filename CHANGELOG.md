@@ -3,6 +3,21 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- The Tune view (`g t`, or `eq tui tune`): the curve to edit. The whole chain's response on top
+  with a node per band, the ten bands as sliders with their gains and a live mini-meter each,
+  and the chain beside them: preamp, bass, treble, tilt, compressor, colour and its amount, and
+  the output (peak, limiter, and how far the curve with the preamp would clip, which the
+  response's title says too). `←`/`→` select, `↑`/`↓` step 0.5 dB, `⇧↑`/`⇧↓` or `PgUp`/`PgDn`
+  3 dB, `Alt↑`/`Alt↓` 0.1 dB, `0`, `Backspace` or `Del` reset, `Enter` types a value, `Tab`
+  jumps between bands, chain and dynamics. Arrows work on any layout, so every band goes up and
+  down from a Russian one without Shift. Edits save at once as one undo step for the session;
+  `u` walks back. With the mouse on, a click selects a band or a control and the wheel steps it.
+  In the console look the sliders are faders on channel strips.
+
 ## 2026.09.29.4 — 2026-09-29
 
 ### Added
