@@ -16,8 +16,8 @@ struct CLIContext {
     var meterSocketURL: URL = Status.defaultURL.deletingLastPathComponent().appendingPathComponent("meter.sock")
     var streamLimit: Int? = nil
     var emit: (String) -> Void = { line in print(line); fflush(stdout) }
-    var terminal: () -> (isTTY: Bool, cols: Int, rows: Int) = LiveTerminal.probe
-    var width: (Int32) -> Int = LiveTerminal.width
+    var terminal: () -> (isTTY: Bool, cols: Int, rows: Int) = Terminal.probe
+    var width: (Int32) -> Int = Terminal.width
     var agent: LaunchAgentControl?
     /// Off in tests and sandboxed runs: whether a command may start the daemon and warn about it.
     var checksDaemon = false
@@ -687,19 +687,24 @@ enum CLI {
         try Watch.requireTerminal(isTTY: terminal.isTTY, command: command)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
-        client.input = 0
-        TerminalText.useUTF8Widths()
-        TerminalSession.enter()
         let session = WatchSession(ctx)
-        var keys = KeyBuffer()
-        let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
-                                 zones: zones,
-                                 emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
-                                 edit: session.apply, header: session.header,
-                                 send: client.send,
-                                 invalidated: TerminalSession.takeRedraw, mouse: TerminalSession.setMouse)
-        TerminalSession.leave()
+        let effects = MeterEffects(edit: session.apply, header: session.header, send: client.send, mouse: Terminal.setMouse,
+                                   connect: {
+                                       client.close()
+                                       try? client.connect()
+                                       return client.descriptor
+                                   })
+        Terminal.enter()
+        let size = Terminal.size() ?? Size(cols: terminal.cols, rows: terminal.rows)
+        let model = MeterModel(size: size, zones: zones, header: session.header(), reconnects: command == "tui")
+        let runtime = Runtime(model, size: size, translate: MeterEffects.translate, perform: effects.perform)
+        if let fd = client.descriptor { runtime.watch(fd: fd, id: MeterEffects.meterSource, latestOnly: true) }
+        runtime.send(.start)
+        let exitCode = runtime.run()
+        Terminal.leave()
         client.close()
+        // Dying of SIGTERM or SIGHUP tells the parent why; Ctrl-C from kill ends like q.
+        if let signal = runtime.endedBy, signal != SIGINT { Terminal.reraise(signal) }
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
         output.exitCode = exitCode
         output.streamed = true

@@ -1,3 +1,4 @@
+import EQTerm
 import XCTest
 @testable import eq
 
@@ -5,22 +6,12 @@ final class WatchKeysTests: XCTestCase {
     override func setUp() { Paint.forced = false }
     override func tearDown() { Paint.forced = nil }
 
-    private struct Source: MeterSource {
-        let lines: [String]
-        func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-            for line in lines { guard handle(line) else { return false } }
-            return true
-        }
-    }
-
     private func frameLine() throws -> String {
         let f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: Array(repeating: -60, count: 10),
                            out: Array(repeating: -40, count: 10), peak: -6, limiting: false,
                            gains: Array(repeating: 0, count: 10), preamp: -1.5, enabled: true)
         return String(decoding: try MeterFrame.encodeLine(f).dropLast(), as: UTF8.self)
     }
-
-    private func frames(_ emitted: [String]) -> [String] { emitted.filter { $0.contains("\u{1B}[H") } }
 
     private func context() throws -> CLIContext {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-keys-\(UUID().uuidString)")
@@ -117,17 +108,15 @@ final class WatchKeysTests: XCTestCase {
     func testEditFlashesLabelAndErrorsShowInFooter() throws {
         Paint.forced = true
         let line = try frameLine()
-        var emitted: [String] = []
         var keys: [String?] = ["6", "7"]
         var edits: [WatchAction] = []
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                      edit: { action in
-                          edits.append(action)
-                          if action == .bandStep(6, 0.5) { throw CLIError.usage("no config") }
-                      })
+        let drawn = MeterHarness.run(lines: Array(repeating: line, count: 3), size: { (100, 30) },
+                                     readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                                     edit: { action in
+                                         edits.append(action)
+                                         if action == .bandStep(6, 0.5) { throw CLIError.usage("no config") }
+                                     }).drawn
         XCTAssertEqual(edits, [.bandStep(5, 0.5), .bandStep(6, 0.5)])
-        let drawn = frames(emitted)
         XCTAssertTrue(drawn[1].contains("\u{1B}[1m    1kHz"), drawn[1])
         XCTAssertTrue(drawn[2].contains("no config"), drawn[2])
     }
@@ -236,14 +225,12 @@ final class WatchKeysTests: XCTestCase {
 
     private func runKeys(_ keys: [String?], edits: inout [WatchAction], count: Int? = nil) throws -> [String] {
         let line = try frameLine()
-        var emitted: [String] = []
         var queue = keys
         var seen: [WatchAction] = []
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: count ?? keys.count + 1)), size: { (100, 30) },
-                      emit: { emitted.append($0) },
-                      readKey: { queue.isEmpty ? nil : queue.removeFirst() }, edit: { seen.append($0) })
+        let drawn = MeterHarness.run(lines: Array(repeating: line, count: count ?? keys.count + 1), size: { (100, 30) },
+                                     readKey: { queue.isEmpty ? nil : queue.removeFirst() }, edit: { seen.append($0) }).drawn
         edits = seen
-        return frames(emitted)
+        return drawn
     }
 
     func testSaveAsPromptTypesAndSavesOnEnter() throws {
@@ -271,24 +258,22 @@ final class WatchKeysTests: XCTestCase {
 
     func testSaveErrorShowsInTheFooter() throws {
         let line = try frameLine()
-        var emitted: [String] = []
         var keys: [String?] = ["s", "?\n"]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 4)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                      edit: { if case .savePreset(let name) = $0 { throw CLIError.badPresetName(name) } })
-        XCTAssertTrue(frames(emitted)[2].contains("bad preset name \"?\""), frames(emitted)[2])
+        let drawn = MeterHarness.run(lines: Array(repeating: line, count: 4), size: { (100, 30) },
+                                     readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                                     edit: { if case .savePreset(let name) = $0 { throw CLIError.badPresetName(name) } }).drawn
+        XCTAssertTrue(drawn[2].contains("bad preset name \"?\""), drawn[2])
     }
 
     func testHeaderShowsThePresetAfterPreamp() throws {
         let line = try frameLine()
-        var emitted: [String] = []
         var modified = false
         var keys: [String?] = [nil, "1"]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                      edit: { _ in modified = true }, header: { Watch.Header(preset: ("favourite", modified)) })
-        XCTAssertTrue(frames(emitted)[0].contains("preamp -1.5 dB · favourite · peak"), frames(emitted)[0])
-        XCTAssertTrue(frames(emitted)[2].contains("preamp -1.5 dB · favourite* · peak"), frames(emitted)[2])
+        let drawn = MeterHarness.run(lines: Array(repeating: line, count: 3), size: { (100, 30) },
+                                     readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                                     edit: { _ in modified = true }, header: { Watch.Header(preset: ("favourite", modified)) }).drawn
+        XCTAssertTrue(drawn[0].contains("preamp -1.5 dB · favourite · peak"), drawn[0])
+        XCTAssertTrue(drawn[2].contains("preamp -1.5 dB · favourite* · peak"), drawn[2])
     }
 
     private func feed(_ reads: [String]) -> [WatchAction] {

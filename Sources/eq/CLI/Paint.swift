@@ -1,4 +1,5 @@
 import Darwin
+import EQTerm
 import Foundation
 
 /// Sixteen terminal colours, each with exactly one meaning across every command —
@@ -28,6 +29,16 @@ enum Paint {
     static func ink(_ ink: Ink?, _ text: String, on: Bool) -> String {
         guard on, let ink else { return text }
         return "\u{1B}[\(ink.rawValue)m\(text)\u{1B}[0m"
+    }
+
+    /// The cell style an ink paints, when colour is `on`.
+    static func style(_ ink: Ink?, on: Bool) -> Style {
+        guard on, let ink else { return .plain }
+        switch ink {
+        case .bold: return .bold
+        case .dim: return .dim
+        default: return Style(fg: .ansi(UInt8(ink.rawValue >= 90 ? ink.rawValue - 82 : ink.rawValue - 30)))
+        }
     }
 
     static func gain(_ value: Double) -> Ink {

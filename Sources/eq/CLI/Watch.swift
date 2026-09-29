@@ -1,14 +1,5 @@
-import Darwin
 import EQTerm
 import Foundation
-
-protocol MeterSource {
-    /// Returns whether the source ended because its peer closed the connection (EOF), as
-    /// opposed to `handle` returning false or `maxLines` being reached.
-    func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool
-}
-
-extension MeterClient: MeterSource {}
 
 struct WatchLayout: Equatable {
     var columns: Int
@@ -54,16 +45,10 @@ struct WatchLayout: Equatable {
 }
 
 enum Watch {
-    static let enter = "\u{1B}[?1049h\u{1B}[?25l"
-    /// Mouse reporting goes off too: `m` may have turned it on.
-    static let leave = "\u{1B}[?1000l\u{1B}[?1006l\u{1B}[?25h\u{1B}[?1049l"
-    /// Button presses and the wheel, in SGR form (1006), which never sends raw bytes above 127.
-    static let mouseOn = "\u{1B}[?1000h\u{1B}[?1006h"
-    static let mouseOff = "\u{1B}[?1000l\u{1B}[?1006l"
     private static let bands = Config.bandLabels.count
     static let floorDB = -60.0
     private static let hotDB = -6.0
-    private static let partials = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+    static let partials = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
     static func requireTerminal(isTTY: Bool, command: String = "watch") throws {
         guard isTTY else { throw CLIError.usage("eq \(command) needs a terminal") }
@@ -85,7 +70,16 @@ enum Watch {
     static func frame(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
                       modal: WatchModal? = nil, flash: Int? = nil, note: String? = nil,
                       preset: Table.PresetMark? = nil, preference: Preference? = nil, knobs: [String: Double]? = nil,
-                      dynamics: Dynamics? = nil, prompt: String? = nil, listening: Bool = false, mouse: Bool = false) -> [String] {
+                      dynamics: Dynamics? = nil, prompt: TextField? = nil, listening: Bool = false, mouse: Bool = false) -> [String] {
+        picture(f, layout: layout, strip: strip, focus: focus, modal: modal, flash: flash, note: note, preset: preset,
+                preference: preference, knobs: knobs, dynamics: dynamics, prompt: prompt, listening: listening, mouse: mouse).lines()
+    }
+
+    /// `frame` before it becomes text: what the meter view draws as cells.
+    static func picture(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
+                        modal: WatchModal? = nil, flash: Int? = nil, note: String? = nil,
+                        preset: Table.PresetMark? = nil, preference: Preference? = nil, knobs: [String: Double]? = nil,
+                        dynamics: Dynamics? = nil, prompt: TextField? = nil, listening: Bool = false, mouse: Bool = false) -> MeterPicture {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -95,15 +89,7 @@ enum Watch {
         let gains = padded(f.gains, to: bands, with: 0).prefix(columns).map { min(max($0, -12), 12) }
         let inLevels = padded(f.in, to: bands, with: floorDB).prefix(columns).map(clampLevel)
         let outLevels = padded(f.out, to: bands, with: floorDB).prefix(columns).map(clampLevel)
-        let barWidth = layout.barWidth
-        let pad = String(repeating: " ", count: max(w - barWidth, 0))
-        func bar(_ glyph: String) -> String { String(repeating: glyph, count: barWidth) }
         let barInks = (0..<columns).map { outside.contains($0) ? .dim : barInk(gain: gains[$0], level: outLevels[$0]) }
-        let markers = gains.map { g in
-            min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1)
-        }
-        let outTops = outLevels.map { height($0, rows: rows) }
-        let inTops = inLevels.map { height($0, rows: rows) }
 
         let tableWidth = layout.tableWidth
         let indent = stripped.isEmpty ? max(layout.width - tableWidth, 0) / 2 : Strip.placement(layout).start
@@ -113,25 +99,12 @@ enum Watch {
 
         var top: [String] = []
         if let focus, layout.bracketRows > 0 { top.append(margin + Strip.bracket(focus, layout: layout)) }
-        var body: [String] = []
-        for r in 0..<rows {
-            let b = rows - 1 - r
-            body.append((0..<columns).map { i -> String in
-                // The marker wins over a partial top: where the slider sits matters more than an eighth of a row.
-                if r == markers[i] {
-                    let ink = outside.contains(i) ? .dim : Paint.level(Paint.gain(gains[i]), hot: abs(gains[i]) > 6)
-                    return pad + Paint.ink(ink, bar("▬"))
-                }
-                let full = Int(outTops[i])
-                let fraction = outTops[i] - Double(full)
-                if b < full { return pad + paint(barInks[i], bar("█")) }
-                if b == full, fraction > 0 {
-                    return pad + paint(barInks[i], bar(partials[min(Int(fraction * 8), partials.count - 1)]))
-                }
-                if Double(b) < inTops[i] { return pad + Paint.ink(.dim, bar("░")) }
-                return pad + bar(" ")
-            }.joined())
-        }
+        let bars = MeterBars(
+            margin: indent, pad: max(w - layout.barWidth, 0), barWidth: layout.barWidth, rows: rows,
+            markers: gains.map { g in min(max(Int(((12 - g) / 24 * Double(rows - 1)).rounded()), 0), rows - 1) },
+            outTops: outLevels.map { height($0, rows: rows) }, inTops: inLevels.map { height($0, rows: rows) },
+            barInks: barInks,
+            markerInks: (0..<columns).map { outside.contains($0) ? .dim : Paint.level(Paint.gain(gains[$0]), hot: abs(gains[$0]) > 6) })
         let live = (0..<columns).map { i -> String in
             let text = outLevels[i] <= floorDB + 0.5 ? "·" : String(Int(outLevels[i].rounded()))
             // Inside a focus the numbers are what gets tuned against, so they stand out.
@@ -143,25 +116,23 @@ enum Watch {
                     Table.gainsRow(gains, width: w, dimmed: outside)]
         // The header centres with the bars when it fits beside them, and slides left rather than truncate.
         let headerIndent = String(repeating: " ", count: min(indent, max(layout.width - title.plain, 0)))
-        var lines = [headerIndent + title.painted] + top + body.map { margin + $0 }
-        lines += stripped.map { Strip.row($0, layout: layout, levels: outLevels, gains: gains, highlighted: focus != nil) }
-        lines += tail.map { margin + $0 }
-        if let modal {
-            lines = WatchOverlay.draw(modal, over: lines, width: layout.width, focus: focus, knobs: knobs)
-        }
+        var shown: [MeterPicture.Row] = ([headerIndent + title.painted] + top).map { .text($0) }
+        shown += (0..<bars.rows).map { .bars($0) }
+        shown += stripped.map { .text(Strip.row($0, layout: layout, levels: outLevels, gains: gains, highlighted: focus != nil)) }
+        shown += tail.map { .text(margin + $0) }
+        let box = modal.flatMap { WatchOverlay.box($0, region: shown.count - 1, width: layout.width, focus: focus, knobs: knobs) }
         let room = max(layout.width - indent, 1)
         var message: String?
         if let prompt {
-            // The end of a long name stays in sight: that is where the typing happens.
-            let typed = String(prompt.suffix(max(room - promptLabel.count - 1, 0)))
-            message = margin + Paint.ink(.dim, promptLabel) + typed + "▏"
+            message = margin + Paint.ink(.dim, promptLabel) + prompt.display(width: max(room - promptLabel.count, 1))
         } else if let text = note ?? (columns < bands && !layout.folded ? "… widen for all bands" : nil) {
             message = margin + Paint.ink(.dim, TerminalText.prefix(text, columns: room))
         }
         let context: KeyContext = prompt != nil ? .prompt : modal?.context ?? .meter
         let state = KeyState(strip: strip, focused: focus != nil, listening: listening, mouse: mouse)
         let bar = Keybar.line(context, state: state, width: layout.width, compact: layout.folded)
-        return lines + (layout.folded ? [message ?? bar] : [message ?? "", bar])
+        shown += (layout.folded ? [message ?? bar] : [message ?? "", bar]).map { .text($0) }
+        return MeterPicture(rows: shown, bars: bars, box: box)
     }
 
     /// Splices `text` over `width` visible columns of a painted line: escapes don't take a column,
@@ -297,26 +268,6 @@ enum Watch {
     static let noteFrames = 60
     static let markFrames = 30
 
-    enum PromptStep: Equatable {
-        case typing(String), cancel, submit(String)
-    }
-
-    /// Esc alone cancels; any other escape sequence (an arrow) is ignored. Enter arrives as `\n`
-    /// because ICRNL stays on in the raw mode `LiveTerminal` sets.
-    static func promptStep(_ typed: String, _ keys: String) -> PromptStep {
-        if keys == "\u{1B}" { return .cancel }
-        guard !keys.contains("\u{1B}") else { return .typing(typed) }
-        var text = typed
-        for c in keys {
-            switch c {
-            case "\r", "\n", "\r\n": return .submit(text)
-            case "\u{7F}", "\u{08}": if !text.isEmpty { text.removeLast() }
-            default: if !c.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) { text.append(c) }
-            }
-        }
-        return .typing(text)
-    }
-
     /// The line `l` sends over the meter socket; `nil` asks the daemon to stop soloing.
     static func soloRequest(_ range: HzRange?) -> String {
         guard let range else { return #"{"solo":null}"# }
@@ -328,6 +279,8 @@ enum Watch {
     static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
     static let paletteNote = "the command palette is not here yet — ? lists every key"
     static func cannotListen(_ instrument: Instrument) -> String { "can't listen to \(instrument.name) at this rate" }
+    static let listenFailed = "listen: the daemon did not take the request"
+    static let reconnecting = "daemon gone — reconnecting"
 
     /// What the header shows of the current device's profile beside the meters.
     struct Header {
@@ -336,195 +289,6 @@ enum Watch {
         var knobs: [String: Double]?
         var dynamics: Dynamics?
         var mouse = false
-    }
-
-    /// Redraws on every frame the source delivers, and after keys that arrive between frames; a
-    /// line that is no frame (the client's wake-up for input) only reads keys, and redraws when
-    /// the terminal changed size or `invalidated` says the screen was lost (a resume). The
-    /// terminal size is checked on every draw. `edit` applies a band, preamp, preset, knob, mouse
-    /// or undo step; what it throws is shown in the message row for two seconds. `header` is asked
-    /// again after every edit and once a second, so a change from another terminal shows too, and
-    /// `mouse` is told whenever its setting changes. `send` writes one request line to the daemon
-    /// (solo on/off); a solo this loop turned on is turned off again on the way out, and the
-    /// daemon drops it anyway once the socket closes.
-    static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
-                    zones: Bool = false, emit: (String) -> Void,
-                    readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
-                    header: () -> Header = { Header() },
-                    send: (String) throws -> Void = { _ in },
-                    invalidated: () -> Bool = { false }, mouse: (Bool) -> Void = { _ in }) -> Int32 {
-        emit(enter)
-        var current = size()
-        var strip = zones
-        var focus: Int?
-        var listening = false
-        var modal: WatchModal?
-        var flash: (band: Int, left: Int)?
-        var note: (text: String, left: Int)?
-        var prompt: String?
-        var shown = header()
-        var mouseOn = false
-        var framesSinceMark = 0
-        var last: MeterFrame?
-        var requestedAt: Double?
-        var clearPending = false
-        var focused: Instrument? { focus.map { Instruments.all[$0] } }
-        func fit() -> WatchLayout {
-            .fit(cols: current.cols, rows: current.rows,
-                 zones: strip ? (focus == nil ? Instruments.all.count : 1) : 0, bracket: focus != nil)
-        }
-        var layout = fit()
-        func show(_ text: String) { note = (text, noteFrames) }
-        func syncMouse() {
-            guard shown.mouse != mouseOn else { return }
-            mouseOn = shown.mouse
-            mouse(mouseOn)
-        }
-        syncMouse()
-        func refresh() {
-            shown = header()
-            framesSinceMark = 0
-            syncMouse()
-        }
-        func apply(_ action: WatchAction) {
-            if case .bandStep(let band, _) = action, let instrument = focused, !instrument.bands.contains(band) {
-                show(outsideNote(instrument))
-                return
-            }
-            do {
-                try edit(action)
-                if case .bandStep(let band, _) = action { flash = (band, flashFrames) }
-            } catch {
-                show(String(describing: error).split(separator: "\n").first.map(String.init) ?? "")
-            }
-            refresh()
-        }
-        func request(_ range: HzRange?) -> Bool {
-            // At 0 Hz the daemon refuses any range, so the frame loop asks once a rate arrives; a solo
-            // already sounding is cleared now, or the daemon would carry it across the rebuild.
-            let deferred = range != nil && last?.rate == 0
-            requestedAt = deferred ? nil : last?.rate
-            if deferred, !listening { return true }
-            do {
-                try send(soloRequest(deferred ? nil : range))
-            } catch {
-                show("listen: the daemon did not take the request")
-                return false
-            }
-            // The daemon refuses silently (and drops the previous solo); the same clamp here says why.
-            if !deferred, let range, let rate = last?.rate, let instrument = focused,
-               EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: rate) == nil {
-                show(cannotListen(instrument))
-            }
-            return true
-        }
-        func refocus(_ index: Int?) {
-            focus = index
-            if listening {
-                // A failed send most likely means the socket is gone, and the daemon clears then.
-                listening = request(focused?.characterRange) && focus != nil
-            }
-            layout = fit()
-        }
-        func draw() {
-            guard let f = last else { return }
-            let now = size()
-            var clear = ""
-            if now != current || clearPending {
-                current = now
-                layout = fit()
-                clearPending = false
-                // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
-                clear = "\u{1B}[2J"
-            }
-            let lines = frame(f, layout: layout, strip: strip, focus: focused, modal: modal, flash: flash?.band,
-                              note: note?.text, preset: shown.preset, preference: shown.preference, knobs: shown.knobs,
-                              dynamics: shown.dynamics, prompt: prompt, listening: listening, mouse: mouseOn)
-            emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
-        }
-        /// False to quit.
-        func handle(_ keys: String) -> Bool {
-            if let typed = prompt {
-                switch promptStep(typed, keys) {
-                case .typing(let text): prompt = text
-                case .cancel: prompt = nil
-                case .submit(let name):
-                    prompt = nil
-                    apply(.savePreset(name))
-                }
-                return true
-            }
-            let count = Instruments.all.count
-            for key in WatchKeys.keys(in: keys) {
-                guard let action = KeyTable.action(for: key, in: modal?.context ?? .meter) else { continue }
-                switch action {
-                case .quit:
-                    if listening { _ = request(nil) }
-                    return false
-                case .zones:
-                    strip.toggle()
-                    layout = fit()
-                case .help: modal = .help(scroll: 0)
-                case .instruments: modal = .instruments(scroll: 0)
-                case .closeModal: modal = nil
-                case .scrollUp, .scrollDown:
-                    modal = modal.map { $0.scrolled(by: action == .scrollUp ? -1 : 1, layout: layout) }
-                case .palette: show(paletteNote)
-                case .startSave:
-                    // The rest of this read would otherwise act as commands after the prompt opened.
-                    prompt = ""
-                    return true
-                case .focusNext: refocus(focus.map { ($0 + 1) % count } ?? 0)
-                case .focusPrevious: refocus(focus.map { ($0 + count - 1) % count } ?? count - 1)
-                case .unfocus:
-                    if focus != nil { refocus(nil) }
-                case .listen:
-                    guard let instrument = focused else { show(listenNeedsFocus); break }
-                    if listening {
-                        if request(nil) { listening = false }
-                    } else {
-                        listening = request(instrument.characterRange)
-                    }
-                case .knob(let delta):
-                    guard let instrument = focused else { show(listenNeedsFocus); break }
-                    apply(.boost(instrument.name, delta))
-                case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
-                     .cycleComp, .cycleColour, .colourAmount, .mouse:
-                    apply(action)
-                }
-            }
-            return true
-        }
-        let eof = source.lines(maxLines: nil) { line in
-            if invalidated() { clearPending = true }
-            let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8))
-            if let f {
-                let hadSolo = last?.solo != nil
-                last = f
-                // The daemon keeps a solo across a device switch, so only a frame without one asks again:
-                // once per rate, or once when it vanished at a rate the range can play (refused at a 0 Hz
-                // moment no frame showed).
-                if listening, let instrument = focused, f.solo == nil, f.rate > 0 {
-                    let range = instrument.characterRange
-                    let dropped = hadSolo && EQProcessor.clampSolo(low: range.low, high: range.high, sampleRate: f.rate) != nil
-                    if requestedAt != f.rate || dropped { listening = request(range) }
-                }
-                framesSinceMark += 1
-                if framesSinceMark >= markFrames { refresh() }
-                draw()
-                flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
-                note = note.flatMap { $0.left > 1 ? ($0.text, $0.left - 1) : nil }
-            }
-            guard let keys = readKey() else {
-                if f == nil, clearPending || size() != current { draw() }
-                return true
-            }
-            guard handle(keys) else { return false }
-            if f == nil { draw() }
-            return true
-        }
-        emit(leave)
-        return eof ? 1 : 0
     }
 }
 
@@ -604,18 +368,25 @@ enum WatchOverlay {
         return result
     }
 
-    /// A box centred over `lines[1...]`: the header stays visible above it. Lines wider than the
-    /// box are cut with `…`; when not all fit, the bottom border says which part shows.
-    static func draw(_ modal: WatchModal, over lines: [String], width: Int, focus: Instrument?, knobs: [String: Double]?) -> [String] {
+    struct Box {
+        var rows: [String]
+        var column: Int
+        var top: Int
+        var width: Int
+    }
+
+    /// A box centred over the `region` rows under the header, which stays visible above it.
+    /// Lines wider than the box are cut with `…`; when not all fit, the bottom border says which
+    /// part shows. Nil when the region is too small for one.
+    static func box(_ modal: WatchModal, region: Int, width: Int, focus: Instrument?, knobs: [String: Double]?) -> Box? {
         let content = self.lines(modal, focus: focus, knobs: knobs)
-        let region = lines.count - 1
         let title: String
         switch modal {
         case .help: title = "keys"
         case .instruments: title = "instruments"
         }
         let boxWidth = min(width, (content.map { TerminalText.width($0.plain) }.max() ?? 0) + 4)
-        guard region >= 3, boxWidth >= title.count + 6 else { return lines }
+        guard region >= 3, boxWidth >= title.count + 6 else { return nil }
         let height = min(content.count + 2, region)
         let visible = height - 2
         let start = min(max(modal.scroll, 0), max(content.count - visible, 0))
@@ -631,47 +402,112 @@ enum WatchOverlay {
         let position = content.count > visible ? " \(start + 1)–\(start + visible) of \(content.count) " : ""
         let dashes = max(boxWidth - 2 - position.count, 0)
         rows.append(border("└" + String(repeating: "─", count: dashes / 2) + position + String(repeating: "─", count: dashes - dashes / 2) + "┘"))
-        var result = lines
-        let column = max((width - boxWidth) / 2, 0)
-        let top = 1 + max((region - height) / 2, 0)
-        for (i, row) in rows.enumerated() {
-            result[top + i] = Watch.overlay(result[top + i], row, at: column, width: boxWidth)
-        }
-        return result
+        return Box(rows: rows, column: max((width - boxWidth) / 2, 0), top: 1 + max((region - height) / 2, 0), width: boxWidth)
     }
 }
 
-enum LiveTerminal {
-    static func width(fd: Int32) -> Int {
-        var size = winsize()
-        guard isatty(fd) == 1, ioctl(fd, TIOCGWINSZ, &size) == 0, size.ws_col > 0 else { return 80 }
-        return Int(size.ws_col)
+/// One meter frame before it becomes text or cells: the rows around the bars as painted lines,
+/// the bars as numbers, the overlay box on top. `lines` is what `Watch.frame` returns and the
+/// golden files hold; `draw` puts the same on a screen without going through text for the bars.
+struct MeterPicture {
+    enum Row {
+        case text(String)
+        /// A meter row, 0 at the top.
+        case bars(Int)
     }
 
-    static func probe() -> (isTTY: Bool, cols: Int, rows: Int) {
-        var size = winsize()
-        guard isatty(0) == 1, isatty(1) == 1, ioctl(1, TIOCGWINSZ, &size) == 0 else { return (false, 0, 0) }
-        return (true, Int(size.ws_col), Int(size.ws_row))
-    }
+    var rows: [Row]
+    var bars: MeterBars
+    var box: WatchOverlay.Box?
 
-    static let maxRead = 4096
-
-    /// Everything waiting on stdin, up to `maxRead` bytes; a paste longer than that finishes on
-    /// the next frame.
-    static func drainInput() -> [UInt8] {
-        var bytes: [UInt8] = []
-        var chunk = [UInt8](repeating: 0, count: maxRead)
-        var pfd = pollfd(fd: 0, events: Int16(POLLIN), revents: 0)
-        while bytes.count < maxRead, poll(&pfd, 1, 0) > 0 {
-            let count = read(0, &chunk, maxRead - bytes.count)
-            guard count > 0 else { break }
-            bytes += chunk.prefix(count)
+    func lines() -> [String] {
+        var lines = rows.map { row -> String in
+            switch row {
+            case .text(let text): return text
+            case .bars(let r): return bars.line(r)
+            }
         }
-        return bytes
+        if let box {
+            for (i, row) in box.rows.enumerated() {
+                lines[box.top + i] = Watch.overlay(lines[box.top + i], row, at: box.column, width: box.width)
+            }
+        }
+        return lines
     }
 
-    static func emit(_ text: String) {
-        fputs(text, stdout)
-        fflush(stdout)
+    func draw(into screen: inout Screen) {
+        let styles = bars.styles()
+        for (y, row) in rows.enumerated() {
+            switch row {
+            case .text(let text): AnsiText.draw(text, into: &screen, x: 0, y: y)
+            case .bars(let r): bars.draw(r, y: y, styles: styles, into: &screen)
+            }
+        }
+        if let box {
+            for (i, row) in box.rows.enumerated() { AnsiText.draw(row, into: &screen, x: box.column, y: box.top + i, limit: box.width) }
+        }
+    }
+}
+
+/// The bars of one frame: each band's slider marker row, level and input ghost, in meter rows.
+struct MeterBars {
+    var margin: Int
+    var pad: Int
+    var barWidth: Int
+    var rows: Int
+    var markers: [Int]
+    var outTops: [Double]
+    var inTops: [Double]
+    var barInks: [Paint.Ink?]
+    var markerInks: [Paint.Ink]
+
+    /// What band `i` shows on meter row `r`: the marker wins over a partial top, since where the
+    /// slider sits matters more than an eighth of a row.
+    func glyph(_ r: Int, band i: Int) -> (glyph: String, ink: Paint.Ink?)? {
+        if r == markers[i] { return ("▬", markerInks[i]) }
+        let b = rows - 1 - r
+        let full = Int(outTops[i])
+        let fraction = outTops[i] - Double(full)
+        if b < full { return ("█", barInks[i]) }
+        if b == full, fraction > 0 { return (Watch.partials[min(Int(fraction * 8), Watch.partials.count - 1)], barInks[i]) }
+        if Double(b) < inTops[i] { return ("░", .dim) }
+        return nil
+    }
+
+    func line(_ r: Int) -> String {
+        var line = String(repeating: " ", count: margin)
+        let gap = String(repeating: " ", count: pad)
+        for i in markers.indices {
+            line += gap
+            guard let shown = glyph(r, band: i) else {
+                line += String(repeating: " ", count: barWidth)
+                continue
+            }
+            let text = String(repeating: shown.glyph, count: barWidth)
+            line += shown.ink.map { Paint.ink($0, text) } ?? text
+        }
+        return line
+    }
+
+    struct Styles {
+        var bars: [Style]
+        var markers: [Style]
+        var ghost: Style
+    }
+
+    /// Asked once a frame: whether colour is on is a `getenv` and an `isatty` away.
+    func styles() -> Styles {
+        let on = Paint.enabled
+        return Styles(bars: barInks.map { Paint.style($0, on: on) }, markers: markerInks.map { Paint.style($0, on: on) },
+                      ghost: Paint.style(.dim, on: on))
+    }
+
+    func draw(_ r: Int, y: Int, styles: Styles, into screen: inout Screen) {
+        for i in markers.indices {
+            guard let shown = glyph(r, band: i) else { continue }
+            let style = shown.glyph == "▬" ? styles.markers[i] : (shown.glyph == "░" ? styles.ghost : styles.bars[i])
+            let x = margin + i * (pad + barWidth) + pad
+            for dx in 0..<barWidth { screen.set(x + dx, y, Cell(shown.glyph, style: style)) }
+        }
     }
 }

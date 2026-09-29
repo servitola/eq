@@ -1,4 +1,5 @@
 import Darwin
+import EQTerm
 import XCTest
 @testable import eq
 
@@ -83,7 +84,7 @@ final class TerminalLifecycleTests: XCTestCase {
         }
     }
 
-    private func spawn() throws -> Child {
+    private func spawn(_ command: String = "watch") throws -> Child {
         var master: Int32 = 0, slave: Int32 = 0
         var size = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
         XCTAssertEqual(openpty(&master, &slave, nil, nil, &size), 0)
@@ -97,7 +98,7 @@ final class TerminalLifecycleTests: XCTestCase {
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
-        let arguments = [Self.binary.path, "watch"]
+        let arguments = [Self.binary.path, command]
         let environment = ["EQ_CONFIG=\(dir.path)/eq.json", "EQ_STATUS=\(dir.path)/status.json", "EQ_CACHE=\(dir.path)/cache/autoeq",
                            "TERM=xterm-256color", "PATH=/usr/bin:/bin", "HOME=\(dir.path)"]
         let argv = arguments.map { strdup($0) } + [nil]
@@ -106,7 +107,7 @@ final class TerminalLifecycleTests: XCTestCase {
         var pid: pid_t = 0
         XCTAssertEqual(posix_spawn(&pid, Self.binary.path, &actions, &attributes, argv, envp), 0)
         var child = Child(pid: pid, master: master, slave: slave)
-        XCTAssertTrue(child.read { $0.contains(Watch.enter) && $0.contains(" quit") }, child.text)
+        XCTAssertTrue(child.read { $0.contains(Terminal.enterSequence) && $0.contains("quit") }, child.text)
         XCTAssertFalse(child.cooked, "raw while the watch runs")
         return child
     }
@@ -118,9 +119,9 @@ final class TerminalLifecycleTests: XCTestCase {
 
     private func assertRestored(_ child: Child, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(child.cooked, "cooked mode and echo are back", file: file, line: line)
-        let last = child.text.range(of: Watch.leave, options: .backwards)
+        let last = child.text.range(of: Terminal.leaveSequence, options: .backwards)
         XCTAssertNotNil(last, "cursor shown, main screen back", file: file, line: line)
-        if let last { XCTAssertFalse(child.text[last.upperBound...].contains(Watch.enter), "nothing took the screen again", file: file, line: line) }
+        if let last { XCTAssertFalse(child.text[last.upperBound...].contains(Terminal.enterSequence), "nothing took the screen again", file: file, line: line) }
     }
 
     func testQuitAndInterruptRestore() throws {
@@ -160,9 +161,9 @@ final class TerminalLifecycleTests: XCTestCase {
         var child = try spawn()
         defer { close(child) }
         func resumed(_ text: String) -> Bool {
-            guard let left = text.range(of: Watch.leave),
-                  let entered = text.range(of: Watch.enter, range: left.upperBound..<text.endIndex) else { return false }
-            return text.range(of: "\u{1B}[2J\u{1B}[H", range: entered.upperBound..<text.endIndex) != nil
+            guard let left = text.range(of: Terminal.leaveSequence),
+                  let entered = text.range(of: Terminal.enterSequence, range: left.upperBound..<text.endIndex) else { return false }
+            return text.range(of: Renderer.clear, range: entered.upperBound..<text.endIndex) != nil
         }
         kill(child.pid, SIGTSTP)
         // The child's session is orphaned, so the stop itself is discarded and the resume path runs at once.
@@ -171,5 +172,42 @@ final class TerminalLifecycleTests: XCTestCase {
         _ = write(child.master, "q", 1)
         XCTAssertEqual(try XCTUnwrap(child.wait()) >> 8, 0)
         assertRestored(child)
+    }
+
+    /// Raw mode keeps ISIG off, so these come as bytes and go through the loop.
+    func testCtrlCAndCtrlZArriveAsKeys() throws {
+        var child = try spawn()
+        defer { close(child) }
+        func resumed(_ text: String) -> Bool {
+            guard let left = text.range(of: Terminal.leaveSequence),
+                  let entered = text.range(of: Terminal.enterSequence, range: left.upperBound..<text.endIndex) else { return false }
+            return text.range(of: Renderer.clear, range: entered.upperBound..<text.endIndex) != nil
+        }
+        _ = write(child.master, "\u{1A}", 1)
+        XCTAssertTrue(child.read(until: resumed), "Ctrl-Z suspends and comes back: \(child.text.suffix(300).debugDescription)")
+        _ = write(child.master, "\u{03}", 1)
+        XCTAssertEqual(try XCTUnwrap(child.wait()), 0, "Ctrl-C quits as q does")
+        assertRestored(child)
+    }
+
+    func testTheWatchEndsWhenTheDaemonGoesAndTheTUIWaitsForIt() throws {
+        var watch = try spawn()
+        defer { close(watch) }
+        queue.sync { server.stop() }
+        XCTAssertEqual(try XCTUnwrap(watch.wait()) >> 8, 1, "eq watch keeps its exit 1")
+        assertRestored(watch)
+
+        try server.start()
+        var tui = try spawn("tui")
+        defer { close(tui) }
+        queue.sync { server.stop() }
+        XCTAssertTrue(tui.read { $0.contains(Watch.reconnecting) }, tui.text.suffix(300).debugDescription)
+        server = MeterServer(socketURL: dir.appendingPathComponent("meter.sock"), queue: queue, tick: 0.05,
+                             source: { var f = MeterFrameTests.sample; f.device = "back again"; return f }, onClientsChanged: { _ in })
+        try server.start()
+        XCTAssertTrue(tui.read { $0.contains("back again") }, "reconnected: \(tui.text.suffix(300).debugDescription)")
+        _ = write(tui.master, "q", 1)
+        XCTAssertEqual(try XCTUnwrap(tui.wait()) >> 8, 0)
+        assertRestored(tui)
     }
 }
