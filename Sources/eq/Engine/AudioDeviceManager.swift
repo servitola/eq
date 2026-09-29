@@ -149,6 +149,10 @@ enum AudioDeviceManager {
         }
     }
 
+    static func isAlive(_ id: AudioObjectID) -> Bool {
+        (uint32Property(id, kAudioDevicePropertyDeviceIsAlive) ?? 0) != 0
+    }
+
     static func setNominalSampleRate(_ id: AudioObjectID, _ rate: Double) -> OSStatus {
         var addr = address(kAudioDevicePropertyNominalSampleRate)
         var value = rate
