@@ -3,6 +3,21 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Changed
+
+- `eq watch` and `eq tui` draw only the cells that changed, each frame in one write wrapped in
+  synchronized-update brackets: about 1.2 KB a frame at 120×40 with music instead of 7 KB, and
+  nothing at all while the levels stand still. The screen itself is unchanged.
+- `eq tui` stays open when the daemon goes away: "daemon gone — reconnecting" shows in the message
+  row and it reconnects on its own (after 0.5, 1, 2, then every 4 s). `eq watch` still ends with
+  exit 1, as before.
+
+### Fixed
+
+- A lone Esc is read at once even while no frames arrive, instead of on the next 0.1 s wake-up.
+
 ## 2026.09.29.2 — 2026-09-29
 
 ### Added

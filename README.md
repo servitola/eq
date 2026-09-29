@@ -415,7 +415,14 @@ test keeps the two equal.
 
 Ctrl-Z hands the terminal back to the shell and `fg` brings the screen back as it was. The
 terminal is put back the same way when the watch is closed with `kill`, loses its terminal, or
-crashes, so the shell is left usable.
+crashes, so the shell is left usable. When the daemon goes away `eq watch` ends with exit 1;
+`eq tui` says "daemon gone — reconnecting" in the message row and picks the meter up again once
+the daemon is back.
+
+Each frame writes only the cells that changed since the last one, in a single write wrapped in
+synchronized-update brackets (`ESC [?2026h` … `ESC [?2026l`), so a terminal that knows them never
+shows half a frame; one that answers that it does not know the mode gets no brackets. Levels that
+stand still cost no output at all.
 
 A step edits the current device's profile — the same one `eq set` would: the daemon's device,
 else the default output — clamps to ±12 dB (preamp −30…+12), and saves at once; the daemon

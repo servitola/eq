@@ -342,8 +342,21 @@ and terminal probing, which eq skips.
 
 `$TERM_PROGRAM` is `tmux` (3.7c, `escape-time 10`) inside Zap, a Warp fork (dotfiles
 `cron/scripts/zap-sync.sh`). tmux's 10 ms escape-time already splits a lone Esc from a sequence
-before eq sees it. Synchronized output, SGR mouse and focus events through tmux into Zap are
-unverified; M2 checks them on this stack.
+before eq sees it.
+
+Checked in M2 [measured], on a separate tmux 3.7c server (`-L`, the user's `focus-events on`,
+`mouse on`, `escape-time 10`) with a client attached on a pty that stood in for Zap, and a probe
+in the pane that turned the modes on and asked for each with DECRQM:
+- **Synchronized output**: tmux answers `?2026;2$y` — it knows the mode and honours it for the
+  pane. It does not pass the brackets on to its own terminal: the user's `terminal-features`
+  has no `sync` for `xterm*`, so what reaches Zap is tmux's own redraw. Zap's own support stays
+  unverified; it only ever sees eq through tmux. eq sends the brackets unless a terminal answers
+  0 (unknown) or 4 (permanently off).
+- **Focus events**: `ESC [O` and `ESC [I` written by the outer terminal reach the pane that set
+  `?1004h`.
+- **SGR mouse**: a click at column 80 of the client reached the right-hand pane as
+  `ESC [<0;19;10M` / `m`, the wheel as `ESC [<64;…M`: tmux translates to pane coordinates.
+- Bracketed paste (`?2004`) and SGR mouse (`?1006`) are reported set once asked for.
 
 ## 8. Baseline, measured in M1 [measured]
 
@@ -373,3 +386,24 @@ frames. `sample` put most of it in `Paint.enabled`: every `Paint.ink` call read
 3–6 %; the byte counts before the fix are lower only because frames were dropped. The keybar
 costs about 0.3 % and ~100 bytes a frame. The M2 budget is set against the M1 rows: CPU no higher
 than 5.7 % with moving levels, and at most 60 % of 7.6 KB, ~4.5 KB, a frame.
+
+### M2, the meter on EQTerm [measured]
+
+Same harness, same 120×40 pty; the fake meter socket only (the live daemon was not touched), 60 s
+per run, two runs of each interleaved with the build before M2 (`f2c128c`), on a Mac busy with
+other work, so runs of one build differ by up to 1.4 points. Frames are counted by `ESC [H` before
+M2 and by `ESC [?2026h` after, where a frame with no change writes nothing.
+
+| Build | Source | CPU | Frames/s written | Bytes/frame | KiB/s |
+| --- | --- | --- | --- | --- | --- |
+| before M2 | fake, moving | 4.6 %, 5.3 % | 30.0 | 7 052 | 207 |
+| M2 | fake, moving | 3.8 %, 4.4 % | 30.0 | 1 191 | 35 |
+| before M2 | fake, silent | 2.8 %, 4.2 % | 30.0 | 4 817 | 141 |
+| M2 | fake, silent | 3.6 %, 3.5 % | 0 | 0 | 0 |
+
+Both inside the budget (≤ 5.7 %, ≤ 4.5 KB). In process (`MeterBenchmarkTests`, release build,
+300 frames): 0.13 ms a frame for update, view and diff against 0.10 ms for building the old
+whole-line frame, which then cost a 7 KB write through the pty; the view first went through
+`AnsiText` for every row at 0.4 ms, and drawing the bars as cells from numbers is what brought it
+down. With silent levels the diff finds nothing to write, yet the view is still built 30 times a
+second; skipping an unchanged frame before the view is left for later.
