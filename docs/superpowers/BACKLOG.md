@@ -48,3 +48,8 @@
   volume keys; lip sync will be off (Proxy reports 0 latency).
 - Restore eq: `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.servitola.eq.plist` and
   `SwitchAudioSource -t output -s BE-RCA`.
+- Driver mode: right after a retarget `eq status` can show the previous target's latency for up
+  to 30 s (seen: 46 ms, the speakers', after switching back to BE-RCA; the plug-in itself
+  already reported 212 ms). Write status once the plug-in's latency settles after a retarget.
+- Overnight 2026-09-28→29 on BE-RCA: 0 underruns/overruns/stalls/start failures; 12 rebuilds
+  and 12 resyncs recovered on their own (likely sleep/wake), 17 retargets.
