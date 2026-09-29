@@ -402,3 +402,60 @@ after a route changes mid-stream. Worth a one-hour probe after M3, not a depende
 - eq: `ProcessTapEngine.swift`, `AudioProcesses.swift`, `AppFollower.swift`, `AudioDeviceManager.swift`,
   `Driver/Source/Driver.cpp`, `Driver/Source/Core/Clock.h`, `docs/research/05`, `06a–06c`,
   specs roundF and driver-mode.
+
+## M0 results (2026-09-29, this Mac, BE-RCA ↔ MacBook Pro Speakers, driver mode on)
+
+```
+RESULT check capture=ok peak=-29.6 dBFS
+RESULT l1 src=MacBook Pro Speakers dst=BE-RCA drift=1 added_ms=186.8 clicks=6/6 glitches=0 dropouts=0 gaps=0 overloads=0 heard=c
+RESULT l1 src=MacBook Pro Speakers dst=BE-RCA drift=0 added_ms=186.8 clicks=6/6 glitches=0 dropouts=0 gaps=0 overloads=0 heard=c
+RESULT l1 src=BE-RCA dst=MacBook Pro Speakers drift=1 added_ms=89.0 clicks=6/6 glitches=0 dropouts=0 gaps=0 overloads=0 heard=c
+RESULT l1 src=BE-RCA dst=MacBook Pro Speakers drift=0 added_ms=89.0 clicks=6/6 glitches=0 dropouts=0 gaps=0 overloads=0 heard=c
+RESULT exclude-live mute=0 status=0/0 gone_ms=22.9 back_ms=13.7 excluded_level=-111.8 dBFS b_dip=no glitches=3 gaps=0 heard=-
+RESULT exclude-live mute=1 status=0/0 gone_ms=33.3 back_ms=15.3 excluded_level=-113.1 dBFS b_dip=no glitches=3 gaps=0 heard=n
+RESULT bundle restore=0 pre=0 running_at_creation=- started_later=no helper_by_app=no helper_standalone=no
+RESULT bundle restore=0 pre=1 running_at_creation=yes started_later=no helper_by_app=no helper_standalone=no
+RESULT bundle restore=1 pre=0 running_at_creation=- started_later=yes helper_by_app=no helper_standalone=no
+RESULT bundle restore=1 pre=1 running_at_creation=yes started_later=yes helper_by_app=no helper_standalone=no
+RESULT dual first=main start_ms=35.4/0.1 blocked=no doubled=no main_1k=-113.8 dBFS route_1k=-20.0 dBFS route_2k=-111.9 dBFS heard=y
+RESULT dual first=route start_ms=0.1/26.8 blocked=no doubled=no main_1k=-113.4 dBFS route_1k=-20.0 dBFS route_2k=-112.9 dBFS heard=y
+RESULT start mute=muted order=tone-first window_ms=191.5 observer=uncalibrated heard=y
+RESULT start mute=muted order=tap-first window_ms=164.2 observer=- heard=y
+RESULT start mute=mutedWhenTapped order=tone-first window_ms=231.2 observer=uncalibrated heard=y
+RESULT start mute=mutedWhenTapped order=tap-first window_ms=164.2 observer=- heard=y
+RESULT kill mute=muted public=0 audible_after_kill=? leftovers=1+1 observer=uncalibrated heard_held=y heard_after=y heard_after_destroy=y
+RESULT kill mute=muted public=1 audible_after_kill=? leftovers=2+2 observer=uncalibrated heard_held=y heard_after=n heard_after_destroy=y
+RESULT kill mute=mutedWhenTapped public=1 audible_after_kill=? leftovers=2+2 observer=uncalibrated heard_held=y heard_after=y heard_after_destroy=y
+RESULT format device=BE-RCA@44100 process=48000 mixdown=48000/48000/48000 mixdown_l1=48000/48000/44100 device_stream=44100/44100/44100 (creation/aggregate/delivered Hz)
+RESULT format device=MacBook Pro Speakers@44100 process=48000 mixdown=48000/48000/48000 mixdown_l1=48000/48000/44100 device_stream=44100/44100/44100 (creation/aggregate/delivered Hz)
+RESULT music pid_tap=audio(-12.9 dBFS) bundle_tap=audio(-12.5 dBFS) catalogue=y
+```
+
+Conclusions:
+- **L1 is rejected.** It adds 186.8 ms going to BE-RCA and 89.0 ms going to the speakers, with or
+  without drift compensation. That is far over the ~60 ms limit, so M2 is built as **M2b**: the
+  split path, with its own resampler and drift servo.
+- The live exclusion edit works. Audio is gone from the main tap in 23–33 ms and back in 14–15 ms,
+  with no dip in the other audio.
+- A `bundleIDs` tap with `processRestoreEnabled` catches processes of the same bundle that start
+  later. It does NOT catch helper processes, whether the app starts them or they start on their
+  own. Helpers need PID taps from the resolver's process list.
+- A route tap and the main tap can share a source device: no doubled audio, and no blocked start.
+- When a route starts, audio from the old place leaks for 164–231 ms in every variant. So routed
+  apps must be tapped as soon as they open audio, before they play. The M1 resolver already does
+  this.
+- After a `kill -9`:
+  - a private muted tap gives the audio back;
+  - a public muted tap leaves the app muted until the leftovers are destroyed;
+  - a public mutedWhenTapped tap gives it back.
+
+  eq uses private taps and cleans up at start.
+- A mixdown tap inside an L1 aggregate is labelled 48 kHz but delivered at 44.1 kHz, and its tone
+  measured 1020.57 Hz. Taking the format at face value would therefore be wrong. Only a tap on the
+  device's own stream is honest about its format. M2b takes the tap's own format and resamples.
+- Apple Music catalogue (DRM) tracks come through a tap as normal audio (−12.9 dBFS, no silent
+  blocks).
+- By ear: the tone had no crackle on either device. Some answers about the start-of-route blip
+  are ambiguous, and the measurements take precedence.
+- Spike bug to note: every run numbers its questions from 1, so one answer was reused by later
+  runs until the answer file was cleared after each one.
