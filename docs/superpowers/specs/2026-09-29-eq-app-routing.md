@@ -338,3 +338,13 @@ first, then driver mode.
 3. When a routed app starts playing after a pause, which is less bad? (a) Losing up to ~0.3 s
    (recommended). (b) Hearing that moment on the wrong speaker. (c) Keeping BE-RCA's audio running
    the whole time the app is open, which avoids both but keeps the speaker from sleeping.
+
+## Answers (2026-09-29)
+1. No available output in the list → follow the system default.
+2. Driver mode: the user asked why an indicator would be needed. The spec's answer: routing
+   has to capture the app's audio, which is a tap. The driver avoids that only by routing inside
+   itself, and that option is deferred. Pending a decision.
+3. Start of playback: the user says BE-RCA never sleeps. Here "sleep" means the Mac stops the
+   device's audio stream when idle, not that the speaker powers off. M0 test 5 measures what is
+   lost at start. Losing ≤ 0.3 s is the default, and keeping the stream running (which blocks
+   idle system sleep) is not.
