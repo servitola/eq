@@ -142,10 +142,10 @@ struct KeyBuffer {
     private static func character(_ b: [UInt8], at i: Int) -> Int? {
         let lead = b[i]
         let length = lead < 0x80 ? 1 : lead >> 5 == 0b110 ? 2 : lead >> 4 == 0b1110 ? 3 : lead >> 3 == 0b11110 ? 4 : 1
-        guard i + length <= b.count else { return nil }
-        // A broken sequence goes out one byte at a time and decodes to U+FFFD, which is no key.
-        let continued = b[(i + 1)..<(i + length)].allSatisfy { $0 & 0xC0 == 0x80 }
-        return continued ? length : 1
+        // A broken sequence goes out one byte at a time and decodes to U+FFFD, which is no key; it
+        // is broken as soon as a byte that arrived is no continuation, not once enough arrived.
+        guard b[(i + 1)..<min(i + length, b.count)].allSatisfy({ $0 & 0xC0 == 0x80 }) else { return 1 }
+        return i + length <= b.count ? length : nil
     }
 }
 

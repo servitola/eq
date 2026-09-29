@@ -408,6 +408,13 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertEqual(buffer.feed(Array(sign.suffix(1)) + Array("q".utf8)), "№q")
     }
 
+    func testAStrayLeadByteDoesNotHoldBackTheNextKey() {
+        var buffer = KeyBuffer()
+        XCTAssertEqual(buffer.feed([0xE2, UInt8(ascii: "q")]), "\u{FFFD}q", "q quits at once, not after two more bytes")
+        XCTAssertNil(buffer.feed([0xD0]), "a lead byte alone may still be completed")
+        XCTAssertEqual(buffer.feed([0xB9]), "й")
+    }
+
     func testALoneEscIsEscOnlyWhenNothingFollowsIt() {
         var buffer = KeyBuffer()
         XCTAssertEqual(buffer.feed(Array("]\u{1B}".utf8)), "]")
