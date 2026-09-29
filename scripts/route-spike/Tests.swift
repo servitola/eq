@@ -467,3 +467,19 @@ func testMusic() {
     let kind = ask("Was it an Apple Music catalogue (DRM) track? y=catalogue n=own file", "y/n")
     say("RESULT music pid_tap=\(byPID) bundle_tap=\(byBundle) catalogue=\(kind)")
 }
+
+// MARK: M2 live: what reaches a device
+
+/// An unmuted tap on the device's output stream: it hears what every client sends there and changes
+/// nothing anyone hears. m2-live.sh points it at a route's target.
+func testObserve(device: Device, seconds: Double, freq: Double) {
+    say("== observe \(device.name) for \(Int(seconds)) s (unmuted; changes nothing you hear)")
+    let obs = observer(on: device, freqs: [freq])
+    let began = now()
+    nap(seconds)
+    obs.stop()
+    let m = obs.meter
+    say("  \(m.quality())")
+    say("RESULT observe device=\(device.name) seconds=\(Int(seconds)) level=\(level(m.level(0, from: began + 0.5, to: .infinity))) freq_hz=\(String(format: "%.3f", m.estimatedFrequency)) glitches=\(m.residualCounts[1]) dropouts=\(m.zeroRuns) gaps=\(m.sampleTimeGaps) silent_blocks=\(String(format: "%.3f", m.silentBlockFraction))")
+    obs.destroy()
+}

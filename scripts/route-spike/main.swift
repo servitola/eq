@@ -16,6 +16,7 @@ usage: routespike <command> [options]
   kill       --source D --target D [--mute muted|mwt] [--public]
   format     --source D --target D [--rate Hz]
   music
+  observe    --device D [--seconds S] [--freq Hz]   unmuted tap on D's output: level, pitch, glitches
 common: --ask  ask the listener questions on /dev/tty and record the answers
 D: builtin, an exact device UID, or a unique piece of the name
 """
@@ -124,6 +125,9 @@ case "format":
     testFormat(device: need("--source"), target: need("--target"), processRate: option("--rate").flatMap(Double.init))
 case "music":
     testMusic()
+case "observe":
+    testObserve(device: need("--device"), seconds: Double(option("--seconds") ?? "") ?? 30,
+                freq: Double(option("--freq") ?? "") ?? 1000)
 default:
     fail("unknown command \(command)\n\(usage)")
 }
