@@ -40,6 +40,11 @@ mkdir -p "$resources/completions" "$resources/man"
 # Where SMAppService.agent(plistName:) looks; eq registers it on first use.
 mkdir -p "$app/Contents/Library/LaunchAgents"
 cp Resources/com.servitola.eq.daemon.plist "$app/Contents/Library/LaunchAgents/"
+# `eq mode driver` installs it from here. PlugIns, not Resources: codesign validates a bundle there
+# as nested code, and the app's signature seals it either way.
+if [[ $identity == - ]]; then Driver/build.sh --adhoc; else Driver/build.sh --identity "$identity"; fi
+mkdir -p "$app/Contents/PlugIns"
+ditto Driver/build/EQDriver.driver "$app/Contents/PlugIns/EQDriver.driver"
 
 if [[ $identity == - ]]; then
   codesign --force --sign - --identifier com.servitola.eq \
@@ -48,5 +53,5 @@ else
   codesign --force --sign "$identity" --options runtime --timestamp \
     --entitlements Resources/eq.entitlements "$app"
 fi
-codesign --verify --strict "$app"
+codesign --verify --strict --deep "$app"
 echo "built $app ($version, build $build, identity: $identity)"
