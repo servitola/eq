@@ -36,6 +36,33 @@ final class DaemonEventTests: XCTestCase {
         XCTAssertEqual(try text(.solo(SoloRange(low: 40, high: 250))), #"{"event":"solo","solo":{"high":250,"low":40},"t":1.5}"# + "\n")
         XCTAssertEqual(try text(.daemon(state: .running, version: "2026.09.28", error: nil)),
                        #"{"error":null,"event":"daemon","state":"running","t":1.5,"version":"2026.09.28"}"# + "\n")
+        XCTAssertEqual(try text(.route(app: "com.spotify.client", name: "Spotify", target: "EB-06-EF-24-61-CF:output", targetName: "BE-RCA", reason: .first)),
+                       #"{"app":"com.spotify.client","event":"route","name":"Spotify","reason":"first","t":1.5,"target":"EB-06-EF-24-61-CF:output","targetName":"BE-RCA"}"# + "\n")
+        XCTAssertEqual(try text(.route(app: "com.spotify.client", name: "Spotify", target: nil, targetName: nil, reason: .exhausted)),
+                       #"{"app":"com.spotify.client","event":"route","name":"Spotify","reason":"exhausted","t":1.5,"target":null,"targetName":null}"# + "\n")
+    }
+}
+
+final class RouteEventTests: XCTestCase {
+    func testAnAppIsAnnouncedWhenItsTargetOrReasonChangesAndOnlyThen() {
+        var published: [DaemonEvent] = []
+        let tracker = EventTracker(enabled: true, hooks: Hooks(schedule: { _, _ in }, run: { _ in })) { published.append($0) }
+        let names = ["BE": "BE-RCA", "SPK": "Speakers"]
+        func app(_ target: String?, _ reason: RouteReason) -> RoutedApp {
+            RoutedApp(app: "com.spotify.client", name: "Spotify", target: target, reason: reason, processes: [10], playing: true)
+        }
+        tracker.routes([app("BE", .first)]) { names[$0] }
+        tracker.routes([app("BE", .first)]) { names[$0] }
+        tracker.routes([app("SPK", .fallback)]) { names[$0] }
+        tracker.routes([app("SPK", .identity)]) { names[$0] }
+        tracker.routes([]) { names[$0] }
+        tracker.routes([app("SPK", .identity)]) { names[$0] }
+        XCTAssertEqual(published, [
+            .route(app: "com.spotify.client", name: "Spotify", target: "BE", targetName: "BE-RCA", reason: .first),
+            .route(app: "com.spotify.client", name: "Spotify", target: "SPK", targetName: "Speakers", reason: .fallback),
+            .route(app: "com.spotify.client", name: "Spotify", target: nil, targetName: nil, reason: .identity),
+            .route(app: "com.spotify.client", name: "Spotify", target: nil, targetName: nil, reason: .identity),
+        ], "identity is the main path, so no target; an app that closed its audio is announced again when it comes back")
     }
 }
 

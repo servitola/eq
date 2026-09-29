@@ -140,6 +140,19 @@ enum AudioDeviceManager {
         return value
     }
 
+    /// A live tap takes a changed description: its processes, its mute. The HAL reads the object.
+    static func setTapDescription(_ id: AudioObjectID, _ description: CATapDescription) -> OSStatus {
+        var addr = address(kAudioTapPropertyDescription)
+        var reference = description
+        return withUnsafeMutablePointer(to: &reference) {
+            AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<CATapDescription>.size), $0)
+        }
+    }
+
+    static func isAlive(_ id: AudioObjectID) -> Bool {
+        (uint32Property(id, kAudioDevicePropertyDeviceIsAlive) ?? 0) != 0
+    }
+
     static func setNominalSampleRate(_ id: AudioObjectID, _ rate: Double) -> OSStatus {
         var addr = address(kAudioDevicePropertyNominalSampleRate)
         var value = rate

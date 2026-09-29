@@ -270,6 +270,19 @@ Tests with fake process lists and device lists:
 ratio steered by ring fill). Tests: THD+N and passband ripple at 44.1↔48 kHz, ±500 ppm drift over
 simulated hours, no ring slips. This roughly doubles the feature's size.
 
+**M2 + M2b as built (2026-09-29), before the live test.**
+- `RouteEngine`: a private muted mixdown tap in a tap-only aggregate, a ring, and an output IOProc
+  on the target. It resamples from the tap's own format (`eqc_resampler`: Kaiser-windowed sinc,
+  THD+N −110 dB at 1 kHz, flat to 20 kHz, about 0.17 % of a core for stereo).
+- The ratio is steered by the capture-to-output delay from both IOProcs' host stamps, not by ring
+  fill, which moves only once per tap buffer. PI loop, clamped at ±500 ppm.
+- Idle after 30 s without playback: the IOProcs stop and the tap stays (answer 3).
+- Driver mode routes nothing yet. Routed apps play through the EQ device as before, and the status
+  says so. Hybrid H needs no driver change, but it needs the answer to open question 2 about the
+  indicator, so it stays in M4.
+- `EQ_MAIN_PATH=off` runs a daemon with routes only. `scripts/route-spike/m2-live.sh` uses it to
+  test a route beside the installed daemon, without touching the default output or the mode.
+
 **M3 — command line and visibility.** `eq route …`, completions, man page, help, dry-run, status,
 watch header, events, the `route` hook, the doctor row, README section with the honest limits (lip
 sync, volume keys, stereo, WebKit shared, no AirPlay).

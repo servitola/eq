@@ -170,6 +170,16 @@ final class Daemon {
         stopTap: { [unowned self] in self.stopTap() },
         startDriver: { [unowned self] in self.startDriver() },
         stopDriver: { [unowned self] in self.stopDriver(restoring: $0) })
+    private let mainPathOff = RoutePolicy.mainPathOff(ProcessInfo.processInfo.environment)
+    private var routeState = RouteState()
+    private lazy var routeSink = LiveRouteSink(main: engine)
+    private lazy var routeController = RouteController(sink: routeSink)
+    private lazy var routeProcesses = CoreAudioProcesses(queue: queue, readsAllPaths: true)
+    private var routeListening = false
+    // The listeners can miss a process that starts and stops quickly (FineTune); a slow re-read catches it.
+    private var routeSweep: DispatchSourceTimer?
+    private var routeWake: DispatchWorkItem?
+    private var routeNote: String?
     private lazy var apps = AppFollower(
         source: CoreAudioProcesses(queue: queue),
         identify: { AppIdentity.identify($0, bundleInfo: AppIdentity.liveBundleInfo) },
@@ -211,6 +221,7 @@ final class Daemon {
         let env = ProcessInfo.processInfo.environment
         if let frames = DaemonPolicy.ioFrames(from: env) {
             engine.requestedIOBufferFrames = frames
+            routeSink.requestedIOBufferFrames = frames
             Log.write("IO buffer requested: \(frames) frames")
         } else if let raw = env["EQ_IO_FRAMES"] {
             Log.write("EQ_IO_FRAMES ignored: \(raw)")
@@ -229,7 +240,14 @@ final class Daemon {
         startWatcher()
         apps.configure(config)
         startStatusTimer()
-        choosePath()
+        configureRoutes()
+        if mainPathOff {
+            Log.write("EQ_MAIN_PATH=off: no main path and no mode changes; only routes play")
+            updateRoutes()
+            writeStatus()
+        } else {
+            choosePath()
+        }
         RunLoop.main.run()
         exit(0)
     }
@@ -284,6 +302,7 @@ final class Daemon {
 
     private func terminate() {
         meterServer?.stop()
+        routeController.stopAll()
         engine.stop()
         AudioDeviceManager.destroyStaleAggregates()
         try? FileManager.default.removeItem(at: statusURL)
@@ -421,7 +440,7 @@ final class Daemon {
     // MARK: - Engine
 
     private func rebuild(attempt: Int) {
-        guard !asleep, paths.active != .driver else { return }
+        guard !asleep, paths.active != .driver, !mainPathOff else { return }
         retryWork?.cancel()
         rebuilding = true
         if state == .running || state == .bypassed { setState(.starting, error: nil) }
@@ -569,6 +588,7 @@ final class Daemon {
 
     /// Driver mode needs the EQ device; without it the tap plays, so the user is never left without EQ.
     private func choosePath() {
+        guard !mainPathOff else { return }
         let present = driverPresent()
         if config.audioMode == .driver {
             lastDriverAttempt = Date()
@@ -583,6 +603,7 @@ final class Daemon {
         paths.run(wanted)
         if paths.active == .tap, config.audioMode == .tap { tidyTapMode(present: present) }
         noteMode()
+        updateRoutes()
         writeStatus()
     }
 
@@ -679,6 +700,7 @@ final class Daemon {
     }
 
     private func driverDevicesChanged() {
+        guard !mainPathOff else { return }
         switch (config.audioMode, paths.active) {
         case (.driver, .driver?):
             if driverPresent() {
@@ -763,11 +785,13 @@ final class Daemon {
 
     private func defaultOutputChanged() {
         if paths.active == .driver { session?.defaultOutputChanged() } else { settle.trigger() }
+        updateRoutes()
     }
 
     private func devicesChanged() {
         if paths.active != .driver { settle.trigger() }
         driverDevicesChanged()
+        updateRoutes()
     }
 
     // OnlyEQ #23: the device list can change before the default does, so every event only arms one reconcile that reads the settled truth.
@@ -814,6 +838,7 @@ final class Daemon {
     }
 
     private func willSleep() {
+        stopRoutes()
         if paths.active == .driver {
             Log.write("system going to sleep — the EQ device sleeps with its target")
             return
@@ -832,6 +857,10 @@ final class Daemon {
     }
 
     private func hasPoweredOn() {
+        queue.asyncAfter(deadline: .now() + DaemonPolicy.wakeDelay) { [weak self] in
+            self?.routesAsleepSince = nil
+            self?.updateRoutes()
+        }
         if paths.active == .driver {
             session?.refresh()
             writeStatus()
@@ -885,6 +914,7 @@ final class Daemon {
                 return
             }
             applyProfile()
+            updateRoutes()
             if enabledChanged, state == .running || state == .bypassed {
                 setState(config.enabled ? .running : .bypassed, error: nil)
             } else {
@@ -911,6 +941,119 @@ final class Daemon {
         writeStatus()
     }
 
+    // MARK: - Routes
+
+    private func configureRoutes() {
+        routeSink.curve = { [unowned self] target in
+            (RouteCurve.heard(on: target, in: self.routeState.plan, config: self.config, nowPlaying: nil).profile, self.config.enabled)
+        }
+        routeSink.onInvalidated = { [weak self] target in
+            guard let self, self.routeController.rebuild(target, because: "the target's rate or the tap's format changed", now: Date()) else { return }
+            self.updateRoutes()
+        }
+        routeController.onExclusionRefused = { [weak self] in
+            guard let self, self.paths.active == .tap else { return }
+            Log.write("routes: the main tap refused the new exclusions — rebuilding it")
+            self.rebuild(attempt: 1)
+        }
+    }
+
+    /// Resolves the routes against the processes and devices as they are now and runs the steps.
+    /// No debounce: a second's delay would be a second of the app on the wrong device.
+    private func updateRoutes() {
+        let now = Date()
+        if let since = routesAsleepSince, !DaemonPolicy.wakeFallbackDue(asleepSince: since, now: now) { return }
+        routesAsleepSince = nil
+        let active = RoutePolicy.rules(config, path: paths.active, mainPathOff: mainPathOff)
+        if active.note != routeNote, let note = active.note { Log.write("routes: \(note)") }
+        routeNote = active.note
+        guard !active.rules.isEmpty || !routeState.plan.apps.isEmpty else {
+            stopRouteListening()
+            return
+        }
+        if !active.rules.isEmpty { startRouteListening() }
+        let devices = AudioDeviceManager.outputDevices()
+        routeState.observe(devices.map { RouteDeviceState($0, alive: AudioDeviceManager.isAlive($0.id), rate: AudioDeviceManager.nominalSampleRate($0.id)) }, at: now)
+        let processes = active.rules.isEmpty ? [] : routeProcesses.snapshot()
+        let defaultOutput = AudioDeviceManager.defaultOutputDeviceID().flatMap { AudioDeviceManager.stringProperty($0, kAudioDevicePropertyDeviceUID) }
+        let mainTarget = RouteResolver.mainTarget(path: paths.active, defaultOutput: defaultOutput, driverTarget: session?.target?.uid)
+        var changed = false
+        // A suspension resolves once more, without the suspended apps.
+        for _ in 0..<2 {
+            let actions = routeState.update(rules: active.rules, processes: processes, identify: { AppIdentity.identify($0, bundleInfo: AppIdentity.liveBundleInfo) },
+                                            mainTarget: mainTarget, excluding: getpid(), suspended: routeController.suspended(at: now), now: now)
+            changed = changed || !actions.isEmpty
+            guard routeController.apply(actions, plan: routeState.plan, now: now) else { break }
+        }
+        apps.routed(routeState.plan.routedApps)
+        routeSink.playAll()
+        let names = Dictionary(devices.map { ($0.uid, $0.name) }, uniquingKeysWith: { first, _ in first })
+        events.routes(routeState.plan.apps) { names[$0] }
+        if active.rules.isEmpty { stopRouteListening() }
+        routeWake?.cancel()
+        if let next = routeState.devices.nextChange(after: now) {
+            let work = DispatchWorkItem { [weak self] in self?.updateRoutes() }
+            routeWake = work
+            queue.asyncAfter(deadline: .now() + max(next.timeIntervalSince(now), 0.01), execute: work)
+        }
+        if changed { writeStatus() }
+    }
+
+    /// Set on sleep, cleared on wake, and ignored past the wake fallback, as the main path's is.
+    private var routesAsleepSince: Date?
+
+    private func stopRoutes() {
+        routesAsleepSince = Date()
+        routeController.stopAll()
+        routeState.forgetPlan()
+        apps.routed([])
+    }
+
+    private func startRouteListening() {
+        guard !routeListening else { return }
+        routeListening = routeProcesses.start { [weak self] in self?.updateRoutes() }
+        if !routeListening { Log.write("routes: cannot listen for audio processes — re-reading every \(Int(Self.routeSweepInterval)) s") }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + Self.routeSweepInterval, repeating: Self.routeSweepInterval, leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in self?.updateRoutes() }
+        timer.resume()
+        routeSweep = timer
+    }
+
+    private static let routeSweepInterval: TimeInterval = 10
+
+    private func stopRouteListening() {
+        if routeListening { routeProcesses.stop() }
+        routeListening = false
+        routeSweep?.cancel()
+        routeSweep = nil
+        routeWake?.cancel()
+        routeWake = nil
+    }
+
+    private func routeStatuses() -> [Status.Route]? {
+        guard !config.activeRoutes.isEmpty || !routeState.plan.apps.isEmpty else { return nil }
+        let devices = Dictionary(AudioDeviceManager.outputDevices().map { ($0.uid, $0) }, uniquingKeysWith: { first, _ in first })
+        return routeState.plan.apps.map { app in
+            let target = app.isRouted ? app.target : nil
+            let engine = target.flatMap { routeSink.engines[$0] }
+            let running = engine?.state == .running
+            var note = app.reason == .suspended ? routeController.suspensions[app.app.lowercased()]?.reason : nil
+            if let target, let failure = routeController.failures[target] { note = failure }
+            return Status.Route(
+                app: app.app, name: app.name,
+                target: target.map { uid in Status.Device(uid: uid, name: devices[uid]?.name ?? uid, transport: devices[uid]?.transportName ?? "other") },
+                reason: app.reason, playing: app.playing, idle: running ? engine?.idle : nil, note: note,
+                latencyMs: running ? engine?.addedLatencyMs.map(MeterFrame.round1) : nil,
+                deviceLatencyMs: running ? engine?.deviceLatencyMs.map(MeterFrame.round1) : nil,
+                underruns: running ? engine?.underruns : nil,
+                overruns: running ? engine?.overruns : nil,
+                dropouts: running ? engine?.dropouts : nil,
+                correctionPpm: running ? engine.map { MeterFrame.round1($0.correctionPpm) } : nil,
+                lastOnset: running ? engine?.lastOnset : nil)
+        }
+    }
+
     // MARK: - Status
 
     private func setState(_ new: Status.State, error: String?) {
@@ -934,6 +1077,7 @@ final class Daemon {
                 self.rebuild(attempt: 1)
                 return
             }
+            if self.routeController.tick(now: Date()) { self.updateRoutes() }
             if self.paths.active == .driver {
                 self.driverTick()
                 return
@@ -1047,10 +1191,12 @@ final class Daemon {
             dropouts: running ? engine.dropouts : nil,
             apps: apps.status,
             compReductionDB: compReduction(device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }).map(MeterFrame.round1),
-            mode: paths.active == nil ? nil : .tap)
+            mode: paths.active == nil ? nil : .tap,
+            routes: routeStatuses())
         if config.audioMode == .driver, let fallbackReason {
             status.warnings = (status.warnings ?? []) + ["driver mode: \(fallbackReason) — the tap plays instead"]
         }
+        if mainPathOff { status.warnings = (status.warnings ?? []) + ["EQ_MAIN_PATH=off: only routes play"] }
         save(status)
     }
 
@@ -1084,10 +1230,11 @@ final class Daemon {
             version: Build.version,
             updatedAt: Date(),
             latencyMs: health?.latencyMs,
-            warnings: filterWarnings + [driverUpdate].compactMap { $0 },
+            warnings: filterWarnings + [driverUpdate, routeNote].compactMap { $0 },
             apps: apps.status,
             mode: .driver,
-            driver: driver)
+            driver: driver,
+            routes: routeStatuses())
         save(status)
     }
 

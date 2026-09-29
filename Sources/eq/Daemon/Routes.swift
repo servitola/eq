@@ -7,6 +7,8 @@ extension Config {
 
 enum RouteReason: String, Codable {
     case first, fallback, identity, exhausted
+    /// Its engine failed too often; it plays on the main path for a while.
+    case suspended
 }
 
 /// One app with a rule and audio open, and where it plays.
@@ -49,8 +51,9 @@ enum RouteResolver {
 
     /// `available` holds only real devices that are ready (`RouteDevices`), so an output that is eq's
     /// own device, an aggregate or AirPlay is never a target.
+    /// `suspended` holds lowercased app IDs whose route is suspended.
     static func resolve(rules: [RouteRule], processes: [AudioProcess], identify: (AudioProcess) -> PlayingApp?,
-                        available: Set<String>, mainTarget: String?, excluding: pid_t) -> RoutePlan {
+                        available: Set<String>, mainTarget: String?, excluding: pid_t, suspended: Set<String> = []) -> RoutePlan {
         var found: [Int: RoutedApp] = [:]
         for process in processes where process.pid != excluding {
             guard let app = identify(process), let index = rules.firstIndex(where: { $0.matches(app.id) }) else { continue }
@@ -66,6 +69,9 @@ enum RouteResolver {
             entry.processes.sort()
             entry.target = outputs.first(where: available.contains)
             switch entry.target {
+            case _ where suspended.contains(entry.app.lowercased()):
+                entry.target = nil
+                entry.reason = .suspended
             case nil: entry.reason = .exhausted
             case mainTarget: entry.reason = .identity
             case outputs.first: entry.reason = .first
@@ -204,11 +210,17 @@ struct RouteState {
 
     /// The new plan, and the steps from the old one in the order they must run.
     mutating func update(rules: [RouteRule], processes: [AudioProcess], identify: (AudioProcess) -> PlayingApp?,
-                         mainTarget: String?, excluding: pid_t, now: Date) -> [RouteAction] {
+                         mainTarget: String?, excluding: pid_t, suspended: Set<String> = [], now: Date) -> [RouteAction] {
         let next = RouteResolver.resolve(rules: rules, processes: processes, identify: identify,
-                                         available: devices.available(at: now), mainTarget: mainTarget, excluding: excluding)
+                                         available: devices.available(at: now), mainTarget: mainTarget, excluding: excluding,
+                                         suspended: suspended)
         defer { plan = next }
         return RoutePlanner.actions(from: plan, to: next)
+    }
+
+    /// Every engine is gone (sleep, a mode change): the next update starts each one again.
+    mutating func forgetPlan() {
+        plan = RoutePlan()
     }
 }
 

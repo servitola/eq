@@ -25,18 +25,21 @@ final class CoreAudioProcesses: AudioProcessSource {
     }
 
     private let hal: HAL
+    /// Routing names an app when it opens audio, before it plays, so it needs every path.
+    private let readsAllPaths: Bool
     private var changed: (() -> Void)?
     private var listListener: AudioObjectPropertyListenerBlock?
     private var processListeners: [AudioObjectID: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)]] = [:]
 
     private static let watched = [kAudioProcessPropertyIsRunning, kAudioProcessPropertyIsRunningOutput]
 
-    init(hal: HAL) {
+    init(hal: HAL, readsAllPaths: Bool = false) {
         self.hal = hal
+        self.readsAllPaths = readsAllPaths
     }
 
-    convenience init(queue: DispatchQueue) {
-        self.init(hal: .live(queue: queue))
+    convenience init(queue: DispatchQueue, readsAllPaths: Bool = false) {
+        self.init(hal: .live(queue: queue), readsAllPaths: readsAllPaths)
     }
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
@@ -75,14 +78,14 @@ final class CoreAudioProcesses: AudioProcessSource {
         return apps
     }
 
-    static func process(_ id: AudioObjectID) -> AudioProcess? {
+    static func process(_ id: AudioObjectID, readsPath: Bool = false) -> AudioProcess? {
         var addr = address(kAudioProcessPropertyPID)
         var pid: pid_t = 0
         var size = UInt32(MemoryLayout<pid_t>.size)
         guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &pid) == noErr, pid > 0 else { return nil }
         let playing = (uint32(id, kAudioProcessPropertyIsRunningOutput) ?? 0) != 0
         return AudioProcess(pid: pid, bundleID: AudioDeviceManager.stringProperty(id, kAudioProcessPropertyBundleID),
-                            path: playing ? executablePath(pid) : nil, playing: playing, object: id)
+                            path: playing || readsPath ? executablePath(pid) : nil, playing: playing, object: id)
     }
 
     static func executablePath(_ pid: pid_t) -> String? {
@@ -92,7 +95,7 @@ final class CoreAudioProcesses: AudioProcessSource {
     }
 
     func snapshot() -> [AudioProcess] {
-        hal.objects().compactMap(Self.process)
+        hal.objects().compactMap { Self.process($0, readsPath: readsAllPaths) }
     }
 
     func start(_ changed: @escaping () -> Void) -> Bool {
