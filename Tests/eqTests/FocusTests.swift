@@ -44,7 +44,7 @@ final class FocusTests: XCTestCase {
         var queue = keys
         let text = try line(frame(rate: rate))
         result.code = Watch.run(source: Source(lines: Array(repeating: text, count: keys.count + 1)), size: { size },
-                                zones: zones, hintDismissed: true,
+                                zones: zones,
                                 emit: { if $0.contains("\u{1B}[H") { result.frames.append($0) } },
                                 readKey: { queue.isEmpty ? nil : queue.removeFirst() },
                                 edit: { result.edits.append($0) },
@@ -228,17 +228,18 @@ final class FocusTests: XCTestCase {
     func testSizeSweepNeverTrapsOrOverflows() {
         let voice = instrument("voice")
         for cols in 20...200 {
-            for rows in 8...60 {
+            for rows in 6...60 {
                 for focus in [nil, voice] {
                     for strip in [false, true] {
                         let zones = strip ? (focus == nil ? Instruments.all.count : 1) : 0
                         let layout = WatchLayout.fit(cols: cols, rows: rows, zones: zones, bracket: focus != nil)
                         let lines = Watch.frame(frame(solo: SoloRange(low: 85, high: 9000)), layout: layout,
-                                                strip: strip, focus: focus, hint: rows % 2 == 0, note: "outside voice — Esc to unfocus")
+                                                strip: strip, focus: focus, modal: rows % 2 == 0 ? .help(scroll: 0) : nil,
+                                                note: "outside voice — Esc to unfocus")
                         for line in lines where line.count > cols {
                             XCTFail("\(cols)×\(rows) focus \(focus != nil) strip \(strip): \(line)")
                         }
-                        if rows >= 10, lines.count > rows { XCTFail("\(cols)×\(rows): \(lines.count) lines") }
+                        if lines.count != rows { XCTFail("\(cols)×\(rows): \(lines.count) lines") }
                     }
                 }
             }

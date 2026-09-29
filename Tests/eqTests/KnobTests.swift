@@ -269,7 +269,7 @@ final class KnobTests: XCTestCase {
         var drawn: [String] = []
         var knob = 0.0
         let line = try frameLine()
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), size: { (120, 30) }, hintDismissed: true,
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), size: { (120, 30) },
                       emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
                       readKey: { keys.isEmpty ? nil : keys.removeFirst() },
                       edit: { action in
@@ -306,7 +306,7 @@ final class KnobTests: XCTestCase {
         var keys: [String?] = ["[", "[", "[", "l", "q"]
         var sent: [String] = []
         let line = try frameLine()
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), hintDismissed: true, emit: { _ in },
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), emit: { _ in },
                       readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
         XCTAssertEqual(sent, [#"{"solo":{"low":2000,"high":5000}}"#, #"{"solo":null}"#])
     }

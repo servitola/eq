@@ -74,7 +74,8 @@ struct CommandHelp {
     static let all: [CommandHelp] = [
         CommandHelp(.look, "eq", "show the current device's curve"),
         CommandHelp(.look, "eq status", "is the daemon alive, on which device, at what rate"),
-        CommandHelp(.look, "eq watch [--zones]", "the live equalizer; tune with 1…0, h for keys, q to quit"),
+        CommandHelp(.look, "eq watch [--zones]", "the live equalizer; tune with 1…0, ? lists every key, q quits"),
+        CommandHelp(.look, "eq tui [meter] [--zones]", "the terminal UI, opened on the meter view: the same screen as eq watch"),
         CommandHelp(.look, "eq zones", "instrument frequency ranges and the bands they touch"),
         CommandHelp(.look, "eq export [--format FORMAT] [--device DEVICE] [--out FILE] [--force]",
                     "write the curve for another tool: apo (default, Equalizer APO / Peace / SoundSource text), graphiceq (AutoEq's 127 points, for Wavelet), eqmac (bands only), camilla (CamillaDSP YAML), json (eq's own profile); to stdout, or atomically to FILE, which must not exist unless --force",

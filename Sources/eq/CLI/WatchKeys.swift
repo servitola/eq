@@ -6,90 +6,67 @@ enum WatchAction: Equatable {
     case bass(Double), treble(Double)
     case cyclePreset, previousPreset, undo
     case savePreset(String)
-    case startSave, zones, help, dismissHelp, quit
+    case startSave, zones, instruments, help, quit
     case focusNext, focusPrevious, unfocus, listen
     /// A key's step for the focused instrument's knob; `boost` is that step once the focus names it.
     case knob(Double), boost(String, Double)
     case cycleComp, cycleColour, colourAmount
+    case mouse, palette
+    case closeModal, scrollUp, scrollDown
 }
 
 enum WatchKeys {
-    static let step = 0.5
+    static let step = KeyTable.step
     /// A CSI's parameter and intermediate bytes, then the final byte that ends it.
     static let parameters: ClosedRange<UInt8> = 0x20...0x3F
     static let finals: ClosedRange<UInt8> = 0x40...0x7E
 
-    private static let digits = Array("1234567890")
-    private static let usShifted = Array("!@#$%^&*()")
-    /// Shift+7 on a Russian layout is `?`, which is help on a US one; help wins, so band 7 cannot
-    /// be lowered from a Russian layout — `h` (`р`) is the layout-proof help key.
-    private static let ruShifted = Array("!\"№;%:?*()")
-
-    /// Russian letters sit on the same physical keys, so `q` still quits without switching layout.
+    /// What one typed character does on the meter; `KeyTable` holds both layouts.
     static func action(for key: String) -> WatchAction? {
         guard key.count == 1, let c = key.first else { return nil }
-        switch c {
-        case "+", "=": return .preamp(step)
-        case "-", "_": return .preamp(-step)
-        case "b", "и": return .bass(step)
-        case "B", "И": return .bass(-step)
-        case "t", "е": return .treble(step)
-        case "T", "Е": return .treble(-step)
-        case "z", "Z", "я", "Я": return .zones
-        case "p", "P", "з", "З": return .cyclePreset
-        case "u", "U", "г", "Г": return .undo
-        case "s", "S", "ы", "Ы": return .startSave
-        case "h", "H", "?", "р", "Р": return .help
-        case "x", "X", "ч", "Ч": return .dismissHelp
-        case "q", "Q", "й", "Й", "\u{03}": return .quit
-        case "]", "\t", "ъ", "Ъ": return .focusNext
-        case "[", "х", "Х": return .focusPrevious
-        case "l", "L", "д", "Д": return .listen
-        case ".", ">", "ю", "Ю": return .knob(step)
-        case ",", "<", "б", "Б": return .knob(-step)
-        case "c", "C", "с", "С": return .cycleComp
-        case "v", "м": return .cycleColour
-        case "V", "М": return .colourAmount
-        case "\u{1B}": return .unfocus
-        default: break
-        }
-        if let band = digits.firstIndex(of: c) { return .bandStep(band, step) }
-        if let band = usShifted.firstIndex(of: c) ?? ruShifted.firstIndex(of: c) { return .bandStep(band, -step) }
-        return nil
+        return KeyTable.action(for: c == "\u{1B}" ? .esc : .char(c), in: .meter)
+    }
+
+    static func actions(for keys: String, in context: KeyContext = .meter) -> [WatchAction] {
+        self.keys(in: keys).compactMap { KeyTable.action(for: $0, in: context) }
     }
 
     /// Complete keys as `KeyBuffer` hands them over. Arrows arrive as `ESC [ A`…`D`, or `ESC O A`…`D`
-    /// when the terminal is in application-cursor mode; any other escape sequence is skipped whole,
-    /// so its tail never reads as letter commands. A bare `ESC`, or `ESC [`/`ESC O` whose parameters
-    /// run into anything but a final byte (the end, another `ESC`), is the Esc key and whatever was
-    /// typed after it: the buffer only lets such a tail through once nothing followed it.
-    static func actions(for keys: String) -> [WatchAction] {
+    /// when the terminal is in application-cursor mode, and the wheel as an SGR mouse report
+    /// `ESC [ < 64;x;y M` (65 down); any other escape sequence is skipped whole, so its tail never
+    /// reads as letter commands. A bare `ESC`, or `ESC [`/`ESC O` whose parameters run into anything
+    /// but a final byte (the end, another `ESC`), is the Esc key and whatever was typed after it:
+    /// the buffer only lets such a tail through once nothing followed it.
+    static func keys(in keys: String) -> [Key] {
         let chars = Array(keys)
-        var result: [WatchAction] = []
+        var result: [Key] = []
         var i = 0
         while i < chars.count {
             let c = chars[i]
             i += 1
             guard c == "\u{1B}" else {
-                if let action = action(for: String(c)) { result.append(action) }
+                result.append(.char(c))
                 continue
             }
-            guard i < chars.count else { result.append(.unfocus); break }
+            guard i < chars.count else { result.append(.esc); break }
             let introducer = chars[i]
             i += 1
             guard introducer == "[" || introducer == "O" else { continue }
             let start = i
             while i < chars.count, let byte = chars[i].asciiValue, Self.parameters.contains(byte) { i += 1 }
             guard i < chars.count, let byte = chars[i].asciiValue, Self.finals.contains(byte) else {
-                result.append(.unfocus)
+                result.append(.esc)
                 i = start - 1
                 continue
             }
+            let parameters = String(chars[start..<i])
             switch chars[i] {
-            case "A": result.append(.previousPreset)
-            case "B": result.append(.cyclePreset)
-            case "C": result.append(.knob(step))
-            case "D": result.append(.knob(-step))
+            case "A": result.append(.up)
+            case "B": result.append(.down)
+            case "C": result.append(.right)
+            case "D": result.append(.left)
+            case "M" where parameters.hasPrefix("<64;"): result.append(.wheelUp)
+            case "M" where parameters.hasPrefix("<65;"): result.append(.wheelDown)
             default: break
             }
             i += 1
@@ -146,51 +123,5 @@ struct KeyBuffer {
         // is broken as soon as a byte that arrived is no continuation, not once enough arrived.
         guard b[(i + 1)..<min(i + length, b.count)].allSatisfy({ $0 & 0xC0 == 0x80 }) else { return 1 }
         return i + length <= b.count ? length : nil
-    }
-}
-
-enum HintBox {
-    static let width = 29
-    private static let compactSegments = ["1…0 up", "⇧ down", "+/− preamp", "b bass", "t treble", "p ↑↓ preset", "u undo", "s save",
-                                          "c comp", "v color", "z zones", "[ ] focus", "← → boost", "l listen", "h help", "q quit"]
-
-    /// Whole segments drop from the right to fit `width`, except `q quit`: the way out always shows.
-    static func compact(width: Int) -> String {
-        var segments = compactSegments
-        func line() -> String { segments.joined(separator: " · ") }
-        while line().count > width, segments.count > 1 { segments.remove(at: segments.count - 2) }
-        return line()
-    }
-
-    private static let entries: [[(key: String, text: String)]] = [
-        [("1…0", "band up   0.5 dB")],
-        [("⇧1…0", "band down 0.5 dB")],
-        [("+ −", "preamp")],
-        [("b t", "bass/treble, ⇧ down")],
-        [("p ↑↓", "preset  "), ("u", "undo")],
-        [("s", "save as preset")],
-        [("c v", "comp/color, ⇧v amt")],
-        [("z", "zones   "), ("h", "this hint")],
-        [("[ ]", "focus   "), ("l", "listen")],
-        [("← →", "focused one ±0.5")],
-        [("x", "hide this for good")],
-        [("q", "quit")],
-    ]
-
-    /// The first key of a row is padded to a six-column key column; a later key only gets a space.
-    static var rows: [String] {
-        let inner = width - 4
-        let border = { (text: String) in Paint.ink(.dim, text) }
-        let top = border("┌ ") + "tune" + border(" " + String(repeating: "─", count: width - 8) + "┐")
-        let body = entries.map { parts -> String in
-            var plain = 0
-            let content = parts.enumerated().map { i, part -> String in
-                let key = i == 0 ? part.key + String(repeating: " ", count: max(6 - part.key.count, 0)) : part.key + " "
-                plain += key.count + part.text.count
-                return Paint.ink(.dim, key) + part.text
-            }.joined()
-            return border("│ ") + content + String(repeating: " ", count: max(inner - plain, 0)) + border(" │")
-        }
-        return [top] + body + [border("└" + String(repeating: "─", count: width - 2) + "┘")]
     }
 }

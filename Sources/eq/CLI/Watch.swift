@@ -17,21 +17,30 @@ struct WatchLayout: Equatable {
     var width: Int
     var zoneRows = 0
     var bracketRows = 0
+    /// The message row and the keybar share the bottom row.
+    var folded = false
 
-    /// Two rows beyond the four fixed ones (header, live row, labels, gains) stay free, one of
-    /// them for the "widen" note, so the frame never scrolls the alternate screen.
+    /// Six rows are fixed: header, live row, labels, gains, the message row and the keybar, so
+    /// the frame never scrolls the alternate screen. Below ten rows the meter's four-row floor
+    /// and those six do not fit, so the message row folds into the keybar and the meter takes
+    /// what is left, down to one row.
     /// Four columns is the floor: at three, neighbouring labels and numbers run together.
     /// The focus bracket and the zone strip take their room from the meter down to its four-row
     /// floor — the bracket first, since it names what the dimmed bars mean — then strip rows drop
     /// from the bottom.
     static func fit(cols: Int, rows: Int, zones: Int = 0, bracket: Bool = false) -> WatchLayout {
         let cellWidth = min(max((cols - 2) / 10, 4), 8)
-        let bracketRows = bracket && rows >= 10 ? 1 : 0
-        let zoneRows = min(max(zones, 0), max(rows - 9 - bracketRows, 0))
+        let folded = rows < 10
+        let bracketRows = bracket && rows >= 11 ? 1 : 0
+        let zoneRows = folded ? 0 : min(max(zones, 0), max(rows - 10 - bracketRows, 0))
         return WatchLayout(columns: min(Config.bandLabels.count, max(1, (cols - 2) / cellWidth)),
-                           cellWidth: cellWidth, meterRows: max(4, rows - 5 - zoneRows - bracketRows),
-                           shortLabels: cellWidth < 6, width: cols, zoneRows: zoneRows, bracketRows: bracketRows)
+                           cellWidth: cellWidth,
+                           meterRows: folded ? max(1, rows - 5) : max(4, rows - 6 - zoneRows - bracketRows),
+                           shortLabels: cellWidth < 6, width: cols, zoneRows: zoneRows, bracketRows: bracketRows, folded: folded)
     }
+
+    /// The rows between the header and the message row, where an overlay draws.
+    var bodyRows: Int { bracketRows + meterRows + zoneRows + 3 }
 
     var visibleColumns: Int { min(max(columns, 1), Config.bandLabels.count) }
     var cell: Int { max(cellWidth, 1) }
@@ -45,14 +54,18 @@ struct WatchLayout: Equatable {
 
 enum Watch {
     static let enter = "\u{1B}[?1049h\u{1B}[?25l"
-    static let leave = "\u{1B}[?25h\u{1B}[?1049l"
+    /// Mouse reporting goes off too: `m` may have turned it on.
+    static let leave = "\u{1B}[?1000l\u{1B}[?1006l\u{1B}[?25h\u{1B}[?1049l"
+    /// Button presses and the wheel, in SGR form (1006), which never sends raw bytes above 127.
+    static let mouseOn = "\u{1B}[?1000h\u{1B}[?1006h"
+    static let mouseOff = "\u{1B}[?1000l\u{1B}[?1006l"
     private static let bands = Config.bandLabels.count
     static let floorDB = -60.0
     private static let hotDB = -6.0
     private static let partials = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
-    static func requireTerminal(isTTY: Bool) throws {
-        guard isTTY else { throw CLIError.usage("eq watch needs a terminal") }
+    static func requireTerminal(isTTY: Bool, command: String = "watch") throws {
+        guard isTTY else { throw CLIError.usage("eq \(command) needs a terminal") }
     }
 
     /// Truncates or pads to `n` so a daemon/CLI version skew (a shorter array on the wire)
@@ -64,14 +77,14 @@ enum Watch {
     }
 
     /// Header, the focus bracket, `meterRows` of bars, up to `zoneRows` of the instrument strip,
-    /// the live level row, labels, gains, and one footer row: the save-as `prompt`, else a `note`,
-    /// else the one-line hint when the box does not fit, else — when not every band fits — a
-    /// note to widen the terminal. Sharing that row keeps the frame inside the height
-    /// `WatchLayout.fit` budgeted. With a `focus` the strip shows only that instrument.
+    /// the live level row, labels, gains, the message row — the save-as `prompt`, else a `note`,
+    /// else, when not every band fits, a note to widen the terminal — and the keybar, which is
+    /// always there; folded into one row, only a prompt or a note covers it, and only for a while. With a `focus` the strip shows only that instrument. A `modal` draws over
+    /// everything between the header and the message row.
     static func frame(_ f: MeterFrame, layout: WatchLayout, strip: Bool = false, focus: Instrument? = nil,
-                      hint: Bool = false, flash: Int? = nil, note: String? = nil,
+                      modal: WatchModal? = nil, flash: Int? = nil, note: String? = nil,
                       preset: Table.PresetMark? = nil, preference: Preference? = nil, knobs: [String: Double]? = nil,
-                      dynamics: Dynamics? = nil, prompt: String? = nil) -> [String] {
+                      dynamics: Dynamics? = nil, prompt: String? = nil, listening: Bool = false, mouse: Bool = false) -> [String] {
         let columns = layout.visibleColumns
         let rows = max(layout.meterRows, 1)
         let w = layout.cell
@@ -130,24 +143,24 @@ enum Watch {
         // The header centres with the bars when it fits beside them, and slides left rather than truncate.
         let headerIndent = String(repeating: " ", count: min(indent, max(layout.width - title.plain, 0)))
         var lines = [headerIndent + title.painted] + top + body.map { margin + $0 }
-        let boxFits = HintBox.width * 2 <= layout.width && rows >= HintBox.rows.count
-        if hint, boxFits {
-            let column = max(indent + tableWidth - HintBox.width, 0)
-            for (i, row) in HintBox.rows.enumerated() {
-                lines[1 + top.count + i] = overlay(lines[1 + top.count + i], row, at: column, width: HintBox.width)
-            }
-        }
         lines += stripped.map { Strip.row($0, layout: layout, levels: outLevels, gains: gains, highlighted: focus != nil) }
         lines += tail.map { margin + $0 }
+        if let modal {
+            lines = WatchOverlay.draw(modal, over: lines, width: layout.width, focus: focus, knobs: knobs)
+        }
         let room = max(layout.width - indent, 1)
+        var message: String?
         if let prompt {
             // The end of a long name stays in sight: that is where the typing happens.
             let typed = String(prompt.suffix(max(room - promptLabel.count - 1, 0)))
-            lines.append(margin + Paint.ink(.dim, promptLabel) + typed + "▏")
-        } else if let footer = note ?? (hint && !boxFits ? HintBox.compact(width: room) : nil) ?? (columns < bands ? "… widen for all bands" : nil) {
-            lines.append(margin + Paint.ink(.dim, String(footer.prefix(room))))
+            message = margin + Paint.ink(.dim, promptLabel) + typed + "▏"
+        } else if let text = note ?? (columns < bands && !layout.folded ? "… widen for all bands" : nil) {
+            message = margin + Paint.ink(.dim, TerminalText.prefix(text, columns: room))
         }
-        return lines
+        let context: KeyContext = prompt != nil ? .prompt : modal?.context ?? .meter
+        let state = KeyState(strip: strip, focused: focus != nil, listening: listening, mouse: mouse)
+        let bar = Keybar.line(context, state: state, width: layout.width, compact: layout.folded)
+        return lines + (layout.folded ? [message ?? bar] : [message ?? "", bar])
     }
 
     /// Splices `text` over `width` visible columns of a painted line: escapes don't take a column,
@@ -262,24 +275,23 @@ enum Watch {
             var painted = shown.map(\.painted).joined(separator: " · ")
             for flag in flags {
                 // LIMIT sits at the right edge of the bars, where the eye already is.
-                let gap = flag.plain == "LIMIT" ? max(1, tableWidth - flag.plain.count - plain.count) : 1
+                let gap = flag.plain == "LIMIT" ? max(1, tableWidth - flag.plain.count - TerminalText.width(plain)) : 1
                 plain += String(repeating: " ", count: gap) + flag.plain
                 painted += String(repeating: " ", count: gap) + flag.painted
             }
-            return (plain.count, painted)
+            return (TerminalText.width(plain), painted)
         }
         while compose().plain > cols, segments.count > 1 { segments.removeLast() }
         while compose().plain > cols, !flags.isEmpty { flags.removeLast() }
         if compose().plain > cols { focusSegment = nil }
         if compose().plain > cols {
-            let cut = String(device.prefix(cols))
-            return (cut.count, Paint.ink(.bold, cut))
+            let cut = TerminalText.prefix(device, columns: cols)
+            return (TerminalText.width(cut), Paint.ink(.bold, cut))
         }
         return compose()
     }
 
     /// Frame counts at the daemon's 30 frames a second.
-    static let hintFrames = 240
     static let flashFrames = 15
     static let noteFrames = 60
     static let markFrames = 30
@@ -313,6 +325,7 @@ enum Watch {
 
     static func outsideNote(_ instrument: Instrument) -> String { "outside \(instrument.name) — Esc to unfocus" }
     static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
+    static let paletteNote = "the command palette is not here yet — ? lists every key"
     static func cannotListen(_ instrument: Instrument) -> String { "can't listen to \(instrument.name) at this rate" }
 
     /// What the header shows of the current device's profile beside the meters.
@@ -321,34 +334,39 @@ enum Watch {
         var preference: Preference?
         var knobs: [String: Double]?
         var dynamics: Dynamics?
+        var mouse = false
     }
 
     /// Redraws on every frame the source delivers, and after keys that arrive between frames; a
-    /// line that is no frame (the client's wake-up for input) only reads keys. The terminal size
-    /// is checked on every draw. `edit` applies a band, preamp, preset, knob or undo step; what it
-    /// throws is shown in the footer for two seconds. `header` is asked again after every edit and
-    /// once a second, so a change from another terminal shows too. `send` writes one request line
-    /// to the daemon (solo on/off); a solo this loop turned on is turned off again on the way out,
-    /// and the daemon drops it anyway once the socket closes.
+    /// line that is no frame (the client's wake-up for input) only reads keys, and redraws when
+    /// the terminal changed size or `invalidated` says the screen was lost (a resume). The
+    /// terminal size is checked on every draw. `edit` applies a band, preamp, preset, knob, mouse
+    /// or undo step; what it throws is shown in the message row for two seconds. `header` is asked
+    /// again after every edit and once a second, so a change from another terminal shows too, and
+    /// `mouse` is told whenever its setting changes. `send` writes one request line to the daemon
+    /// (solo on/off); a solo this loop turned on is turned off again on the way out, and the
+    /// daemon drops it anyway once the socket closes.
     static func run(source: MeterSource, size: () -> (cols: Int, rows: Int) = { (80, 24) },
-                    zones: Bool = false, hintDismissed: Bool = false, emit: (String) -> Void,
+                    zones: Bool = false, emit: (String) -> Void,
                     readKey: () -> String?, edit: (WatchAction) throws -> Void = { _ in },
                     header: () -> Header = { Header() },
-                    dismissHint: () -> Void = {}, send: (String) throws -> Void = { _ in }) -> Int32 {
+                    send: (String) throws -> Void = { _ in },
+                    invalidated: () -> Bool = { false }, mouse: (Bool) -> Void = { _ in }) -> Int32 {
         emit(enter)
         var current = size()
         var strip = zones
         var focus: Int?
         var listening = false
-        var dismissed = hintDismissed
-        var hintLeft = dismissed ? 0 : hintFrames
+        var modal: WatchModal?
         var flash: (band: Int, left: Int)?
         var note: (text: String, left: Int)?
         var prompt: String?
         var shown = header()
+        var mouseOn = false
         var framesSinceMark = 0
         var last: MeterFrame?
         var requestedAt: Double?
+        var clearPending = false
         var focused: Instrument? { focus.map { Instruments.all[$0] } }
         func fit() -> WatchLayout {
             .fit(cols: current.cols, rows: current.rows,
@@ -356,9 +374,16 @@ enum Watch {
         }
         var layout = fit()
         func show(_ text: String) { note = (text, noteFrames) }
+        func syncMouse() {
+            guard shown.mouse != mouseOn else { return }
+            mouseOn = shown.mouse
+            mouse(mouseOn)
+        }
+        syncMouse()
         func refresh() {
             shown = header()
             framesSinceMark = 0
+            syncMouse()
         }
         func apply(_ action: WatchAction) {
             if case .bandStep(let band, _) = action, let instrument = focused, !instrument.bands.contains(band) {
@@ -404,20 +429,20 @@ enum Watch {
             guard let f = last else { return }
             let now = size()
             var clear = ""
-            if now != current {
+            if now != current || clearPending {
                 current = now
                 layout = fit()
+                clearPending = false
                 // A terminal reflows on resize, so the old frame lands in places the new one never overwrites.
                 clear = "\u{1B}[2J"
             }
-            let lines = frame(f, layout: layout, strip: strip, focus: focused, hint: hintLeft > 0, flash: flash?.band,
+            let lines = frame(f, layout: layout, strip: strip, focus: focused, modal: modal, flash: flash?.band,
                               note: note?.text, preset: shown.preset, preference: shown.preference, knobs: shown.knobs,
-                              dynamics: shown.dynamics, prompt: prompt)
+                              dynamics: shown.dynamics, prompt: prompt, listening: listening, mouse: mouseOn)
             emit(clear + "\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J")
         }
         /// False to quit.
         func handle(_ keys: String) -> Bool {
-            hintLeft = 0
             if let typed = prompt {
                 switch promptStep(typed, keys) {
                 case .typing(let text): prompt = text
@@ -429,7 +454,8 @@ enum Watch {
                 return true
             }
             let count = Instruments.all.count
-            for action in WatchKeys.actions(for: keys) {
+            for key in WatchKeys.keys(in: keys) {
+                guard let action = KeyTable.action(for: key, in: modal?.context ?? .meter) else { continue }
                 switch action {
                 case .quit:
                     if listening { _ = request(nil) }
@@ -437,9 +463,12 @@ enum Watch {
                 case .zones:
                     strip.toggle()
                     layout = fit()
-                case .help: hintLeft = hintFrames
-                case .dismissHelp:
-                    if !dismissed { dismissed = true; dismissHint() }
+                case .help: modal = .help(scroll: 0)
+                case .instruments: modal = .instruments(scroll: 0)
+                case .closeModal: modal = nil
+                case .scrollUp, .scrollDown:
+                    modal = modal.map { $0.scrolled(by: action == .scrollUp ? -1 : 1, layout: layout) }
+                case .palette: show(paletteNote)
                 case .startSave:
                     // The rest of this read would otherwise act as commands after the prompt opened.
                     prompt = ""
@@ -459,13 +488,14 @@ enum Watch {
                     guard let instrument = focused else { show(listenNeedsFocus); break }
                     apply(.boost(instrument.name, delta))
                 case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
-                     .cycleComp, .cycleColour, .colourAmount:
+                     .cycleComp, .cycleColour, .colourAmount, .mouse:
                     apply(action)
                 }
             }
             return true
         }
         let eof = source.lines(maxLines: nil) { line in
+            if invalidated() { clearPending = true }
             let f = try? JSONDecoder().decode(MeterFrame.self, from: Data(line.utf8))
             if let f {
                 let hadSolo = last?.solo != nil
@@ -481,17 +511,132 @@ enum Watch {
                 framesSinceMark += 1
                 if framesSinceMark >= markFrames { refresh() }
                 draw()
-                hintLeft = max(hintLeft - 1, 0)
                 flash = flash.flatMap { $0.left > 1 ? ($0.band, $0.left - 1) : nil }
                 note = note.flatMap { $0.left > 1 ? ($0.text, $0.left - 1) : nil }
             }
-            guard let keys = readKey() else { return true }
+            guard let keys = readKey() else {
+                if f == nil, clearPending || size() != current { draw() }
+                return true
+            }
             guard handle(keys) else { return false }
             if f == nil { draw() }
             return true
         }
         emit(leave)
         return eof ? 1 : 0
+    }
+}
+
+/// An overlay the watch draws over the meter until it is closed.
+enum WatchModal: Equatable {
+    case help(scroll: Int), instruments(scroll: Int)
+
+    var context: KeyContext {
+        switch self {
+        case .help: return .help
+        case .instruments: return .instruments
+        }
+    }
+
+    var scroll: Int {
+        switch self {
+        case .help(let scroll), .instruments(let scroll): return scroll
+        }
+    }
+
+    /// Stops where the last line comes into view, so ↑ answers at once after too many ↓.
+    func scrolled(by delta: Int, layout: WatchLayout) -> WatchModal {
+        let lines = WatchOverlay.lines(self, focus: nil, knobs: nil).count
+        let visible = max(min(lines + 2, layout.bodyRows) - 2, 1)
+        let next = min(max(scroll + delta, 0), max(lines - visible, 0))
+        switch self {
+        case .help: return .help(scroll: next)
+        case .instruments: return .instruments(scroll: next)
+        }
+    }
+}
+
+enum WatchOverlay {
+    typealias Line = (plain: String, painted: String)
+
+    static func lines(_ modal: WatchModal, focus: Instrument?, knobs: [String: Double]?) -> [Line] {
+        switch modal {
+        case .help: return helpLines()
+        case .instruments: return instrumentLines(focus: focus, knobs: knobs)
+        }
+    }
+
+    private static func helpLines() -> [Line] {
+        let entries = KeyHelp.lines()
+        let keyWidth = entries.filter { !$0.text.isEmpty }.map { TerminalText.width($0.key) }.max() ?? 0
+        return entries.map { entry in
+            if entry.text.isEmpty { return (entry.key, Paint.ink(.bold, entry.key)) }
+            let key = entry.key + String(repeating: " ", count: max(keyWidth - TerminalText.width(entry.key), 0))
+            return (key + "  " + entry.text, Paint.ink(.cyan, key) + "  " + entry.text)
+        }
+    }
+
+    /// What `eq zones` and `eq boost` list, one row per range: the instrument and its knob on the
+    /// first, the character range (the one the knob turns and `l` solos) in bold.
+    private static func instrumentLines(focus: Instrument?, knobs: [String: Double]?) -> [Line] {
+        let nameWidth = Instruments.all.map(\.name.count).max() ?? 0
+        let rangeWidth = Instruments.all.flatMap { $0.ranges.map { InstrumentTable.rangeText($0).count } }.max() ?? 0
+        let head = "  " + "".padding(toLength: nameWidth, withPad: " ", startingAt: 0) + "  knob  "
+            + "range".padding(toLength: rangeWidth, withPad: " ", startingAt: 0) + "  bands"
+        var result: [Line] = [(head, Paint.ink(.dim, head))]
+        for instrument in Instruments.all {
+            let gain = knobs?[instrument.name] ?? 0
+            for (index, range) in instrument.ranges.enumerated() {
+                let first = index == 0
+                let marker = first && instrument == focus ? "▸ " : "  "
+                let name = (first ? instrument.name : "").padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+                let knob = first ? String(format: "%+.1f", gain) : "    "
+                let rangeText = InstrumentTable.rangeText(range).padding(toLength: rangeWidth, withPad: " ", startingAt: 0)
+                let bands = InstrumentTable.bandsText(range)
+                let plain = marker + name + "  " + knob + "  " + rangeText + "  " + bands
+                let painted = marker + (first ? Paint.ink(.bold, name) : name) + "  "
+                    + (first ? Paint.ink(Paint.gain(gain), knob) : knob) + "  "
+                    + (range.name == instrument.character ? Paint.ink(.bold, rangeText) : rangeText) + "  " + Paint.ink(.dim, bands)
+                result.append((plain, painted))
+            }
+        }
+        return result
+    }
+
+    /// A box centred over `lines[1...]`: the header stays visible above it. Lines wider than the
+    /// box are cut with `…`; when not all fit, the bottom border says which part shows.
+    static func draw(_ modal: WatchModal, over lines: [String], width: Int, focus: Instrument?, knobs: [String: Double]?) -> [String] {
+        let content = self.lines(modal, focus: focus, knobs: knobs)
+        let region = lines.count - 1
+        let title: String
+        switch modal {
+        case .help: title = "keys"
+        case .instruments: title = "instruments"
+        }
+        let boxWidth = min(width, (content.map { TerminalText.width($0.plain) }.max() ?? 0) + 4)
+        guard region >= 3, boxWidth >= title.count + 6 else { return lines }
+        let height = min(content.count + 2, region)
+        let visible = height - 2
+        let start = min(max(modal.scroll, 0), max(content.count - visible, 0))
+        let inner = boxWidth - 4
+        let border = { (text: String) in Paint.ink(.dim, text) }
+        var rows = [border("┌ ") + title + border(" " + String(repeating: "─", count: max(boxWidth - title.count - 4, 0)) + "┐")]
+        for line in content[start..<min(start + visible, content.count)] {
+            let fits = TerminalText.width(line.plain) <= inner
+            let plain = fits ? line.plain : TerminalText.prefix(line.plain, columns: inner - 1) + "…"
+            let text = fits ? line.painted : plain
+            rows.append(border("│ ") + text + String(repeating: " ", count: max(inner - TerminalText.width(plain), 0)) + border(" │"))
+        }
+        let position = content.count > visible ? " \(start + 1)–\(start + visible) of \(content.count) " : ""
+        let dashes = max(boxWidth - 2 - position.count, 0)
+        rows.append(border("└" + String(repeating: "─", count: dashes / 2) + position + String(repeating: "─", count: dashes - dashes / 2) + "┘"))
+        var result = lines
+        let column = max((width - boxWidth) / 2, 0)
+        let top = 1 + max((region - height) / 2, 0)
+        for (i, row) in rows.enumerated() {
+            result[top + i] = Watch.overlay(result[top + i], row, at: column, width: boxWidth)
+        }
+        return result
     }
 }
 

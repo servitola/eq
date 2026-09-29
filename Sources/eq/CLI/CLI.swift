@@ -95,7 +95,7 @@ enum CLI {
         let args = args.filter { $0 != "--json" && $0 != "--dry-run" }
         let command = args.first ?? "show"
         do {
-            if wantsJSON && args.first == "watch" { throw CLIError.usage("eq watch has no JSON form; use eq stream") }
+            if wantsJSON, let first = args.first, ["watch", "tui"].contains(first) { throw CLIError.usage("eq \(first) has no JSON form; use eq stream") }
             checkDaemon(args, context)
             let output = try dispatch(args, context, dryRun: dryRun)
             // A streamed command already printed its own lines; the empty final Output carries
@@ -178,6 +178,7 @@ enum CLI {
         case "stream": return try stream(rest, ctx)
         case "events": return try events(rest, ctx)
         case "watch": return try watch(rest, ctx)
+        case "tui": return try tui(rest, ctx)
         case "zones": return try zones(rest, ctx)
         case "preset": return try preset(rest, ctx)
         case "app": return try app(rest, ctx)
@@ -665,40 +666,43 @@ enum CLI {
 
     private static func watch(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.allSatisfy({ $0 == "--zones" }) else { throw CLIError.usage("eq watch [--zones]") }
+        return try meter(zones: !args.isEmpty, command: "watch", ctx)
+    }
+
+    /// Only the meter view exists so far; `eq tui` opens on it, as `eq watch` does.
+    private static func tui(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let flags = args.first == "meter" ? Array(args.dropFirst()) : args
+        guard flags.allSatisfy({ $0 == "--zones" }) else {
+            if let view = flags.first(where: { !$0.hasPrefix("-") }) {
+                throw CLIError.usage("eq tui has no view \"\(view)\" yet; meter is the one there is")
+            }
+            throw CLIError.usage("eq tui [meter] [--zones]")
+        }
+        return try meter(zones: !flags.isEmpty, command: "tui", ctx)
+    }
+
+    private static func meter(zones: Bool, command: String, _ ctx: CLIContext) throws -> Output {
         let terminal = ctx.terminal()
-        try Watch.requireTerminal(isTTY: terminal.isTTY)
+        try Watch.requireTerminal(isTTY: terminal.isTTY, command: command)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
         client.input = 0
+        TerminalText.useUTF8Widths()
         LiveTerminal.enterRaw()
         let session = WatchSession(ctx)
         var keys = KeyBuffer()
         let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
-                                 zones: !args.isEmpty,
-                                 hintDismissed: hintDismissed(ctx),
+                                 zones: zones,
                                  emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
                                  edit: session.apply, header: session.header,
-                                 dismissHint: { dismissHint(ctx) },
-                                 send: client.send)
+                                 send: client.send,
+                                 mouse: { LiveTerminal.emit($0 ? Watch.mouseOn : Watch.mouseOff) })
         LiveTerminal.leaveRaw()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
         output.exitCode = exitCode
         output.streamed = true
         return output
-    }
-
-    private static let hintOffName = "watch-hint-off"
-
-    /// Older versions left the marker beside eq.json; it still counts.
-    static func hintDismissed(_ ctx: CLIContext) -> Bool {
-        [ctx.stateDirectory, ctx.store.url.deletingLastPathComponent()]
-            .contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent(hintOffName).path) }
-    }
-
-    static func dismissHint(_ ctx: CLIContext) {
-        try? FileManager.default.createDirectory(at: ctx.stateDirectory, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: ctx.stateDirectory.appendingPathComponent(hintOffName).path, contents: nil)
     }
 
     static func watchEdit(_ action: WatchAction, _ ctx: CLIContext) throws {
@@ -721,7 +725,7 @@ enum CLI {
             guard let config = try? loadConfig(ctx), let target = try? currentDevice(ctx) else { return Watch.Header() }
             let profile = config.profile(forDeviceUID: target.uid).profile
             return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments,
-                                dynamics: profile.dynamics)
+                                dynamics: profile.dynamics, mouse: config.tui?.mouse == true)
         }
 
         func apply(_ action: WatchAction) throws {
@@ -730,6 +734,11 @@ enum CLI {
             if case .undo = action {
                 guard let last = history.popLast() else { throw Note(description: "nothing left to undo in this session") }
                 config.devices[last.uid] = last.profile
+                try save(config, over: original)
+                return
+            }
+            if case .mouse = action {
+                config.tui = config.tui?.mouse == true ? nil : TUIOptions(mouse: true)
                 try save(config, over: original)
                 return
             }
@@ -786,8 +795,9 @@ enum CLI {
                 profile = config.presets![next]!
                 profile.name = before.name
                 profile.preset = next
-            case .undo, .savePreset, .startSave, .zones, .help, .dismissHelp, .quit,
-                 .focusNext, .focusPrevious, .unfocus, .listen, .knob:
+            case .undo, .savePreset, .startSave, .zones, .instruments, .help, .quit,
+                 .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
+                 .closeModal, .scrollUp, .scrollDown:
                 return nil
             }
             return profile == before ? nil : profile

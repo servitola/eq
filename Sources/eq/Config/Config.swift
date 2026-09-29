@@ -233,6 +233,12 @@ enum AudioMode: String, Codable, CaseIterable {
     case tap, driver
 }
 
+/// Settings of `eq tui` and `eq watch` that outlive one session.
+struct TUIOptions: Codable, Equatable {
+    /// Off by default: mouse reporting takes plain drag-to-select away from the terminal.
+    var mouse: Bool?
+}
+
 struct DriverOptions: Codable, Equatable {
     /// The decision-4 experiment: keep the EQ device hidden while it is the default output.
     var hideWhileDefault: Bool? = nil
@@ -306,6 +312,7 @@ struct Config: Codable, Equatable {
     /// nil reads as tap, so a config from before driver mode means what it always meant.
     var mode: AudioMode? = nil
     var driver: DriverOptions? = nil
+    var tui: TUIOptions? = nil
 
     var followsApps: Bool { experimental?.apps == true }
     var followsRoutes: Bool { experimental?.routes == true }

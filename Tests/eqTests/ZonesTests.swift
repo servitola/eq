@@ -79,7 +79,7 @@ final class ZonesTests: XCTestCase {
     func testStripSitsDirectlyAboveTheLiveRow() {
         let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 8)
         let lines = Watch.frame(frame(), layout: layout, strip: true)
-        XCTAssertEqual(lines.count, 1 + layout.meterRows + 8 + 3)
+        XCTAssertEqual(lines.count, 1 + layout.meterRows + 8 + 3 + 2)
         XCTAssertTrue(lines[1 + layout.meterRows].hasPrefix("  kick"), lines[1 + layout.meterRows])
         XCTAssertTrue(lines[layout.meterRows + 8].hasPrefix("  air"), lines[layout.meterRows + 8])
         XCTAssertEqual(lines[1 + layout.meterRows + 8], String(repeating: " ", count: 10) + String(repeating: "     -20", count: 10))
@@ -104,16 +104,17 @@ final class ZonesTests: XCTestCase {
     }
 
     func testFitReservesStripAndBracketRows() {
-        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 8).meterRows, 17)
-        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 1, bracket: true).meterRows, 23)
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 8).meterRows, 16)
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30, zones: 1, bracket: true).meterRows, 22)
         let short = WatchLayout.fit(cols: 100, rows: 14, zones: 8, bracket: true)
         XCTAssertEqual(short.meterRows, 4)
         XCTAssertEqual(short.bracketRows, 1)
-        XCTAssertEqual(short.zoneRows, 4)
+        XCTAssertEqual(short.zoneRows, 3)
         let voice = Instruments.all.first { $0.name == "voice" }
-        XCTAssertEqual(Watch.frame(frame(), layout: short, strip: true, focus: voice).count, 1 + 1 + 4 + 1 + 3,
+        XCTAssertEqual(Watch.frame(frame(), layout: short, strip: true, focus: voice).count, 1 + 1 + 4 + 1 + 3 + 2,
                        "a focus shows one strip row however many are budgeted")
-        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 9, zones: 8, bracket: true).bracketRows, 0)
+        XCTAssertEqual(Watch.frame(frame(), layout: .fit(cols: 100, rows: 14, zones: 1, bracket: true), strip: true, focus: voice).count, 14)
+        XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 10, zones: 8, bracket: true).bracketRows, 0)
         XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 8, zones: 8).zoneRows, 0)
         XCTAssertEqual(WatchLayout.fit(cols: 100, rows: 30), WatchLayout.fit(cols: 100, rows: 30, zones: 0))
     }

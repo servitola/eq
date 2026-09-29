@@ -1,0 +1,30 @@
+          BE-RCA · 44.1 kHz · preamp -4.8 dB · favourite* · voice +3.0 · focus: voice (85 Hz–9 kHz)
+                           ┌────────────┐ ┌─── F1 ────┐ ┌── F2 ──┐ ┌──────┐ ┌────┐
+
+
+     ┌ instruments ───────────────────────────────────────────────────────────────────────────┐
+     │            knob  range                      bands                                      │
+     │   kick     +0.0  thump 50Hz–100Hz           64Hz 125Hz                                 │
+     │                  beater click 2kHz–5kHz     2kHz 4kHz                                  │
+     │   bass     +0.0  fundamental 40Hz–250Hz     32Hz 64Hz 125Hz 250Hz                      │
+     │                  growl/attack 700Hz–1.2kHz  500Hz 1kHz                                 │
+     │   snare    +0.0  body 150Hz–250Hz           125Hz 250Hz                                │
+     │                  crack 4kHz–6kHz            4kHz 8kHz                                  │
+     │   guitar   +0.0  body 80Hz–1.2kHz           64Hz 125Hz 250Hz 500Hz 1kHz                │
+     │                  bite 2kHz–5kHz             2kHz 4kHz                                  │
+     │   piano    +0.0  fundamental 27Hz–4.2kHz    32Hz 64Hz 125Hz 250Hz 500Hz 1kHz 2kHz 4kHz │
+     │                  brightness 4kHz–8kHz       4kHz 8kHz                                  │
+     │ ▸ voice    +3.0  fundamental 85Hz–255Hz     64Hz 125Hz 250Hz                           │
+     │                  F1 300Hz–1kHz              250Hz 500Hz 1kHz                           │
+     │                  F2 900Hz–2.8kHz            1kHz 2kHz                                  │
+     │                  presence 2kHz–5kHz         2kHz 4kHz                                  │
+     │                  sibilance 5kHz–9kHz        4kHz 8kHz                                  │
+     │   cymbals  +0.0  shimmer 6kHz–16kHz         8kHz 16kHz                                 │
+     │   air      +0.0  sparkle 10kHz–20kHz        8kHz 16kHz                                 │
+     └────────────────────────────────────────────────────────────────────────────────────────┘
+               ███     ███     ███     ███     ███     ███     ███     ███     ███     ███
+               -14     -12     -16     -20     -24     -21     -26     -30     -33     -41
+              32Hz    64Hz   125Hz   250Hz   500Hz    1kHz    2kHz    4kHz    8kHz   16kHz
+              +4.8    +4.0    +4.2    +2.3    +0.0    -3.1    +0.0    +0.0    +3.1    +2.4
+
+↑↓ scroll  Esc close

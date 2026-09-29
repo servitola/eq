@@ -73,7 +73,8 @@ coreaudiod's own, rewritten while it runs, and nothing reads the entry once the 
 | --- | --- |
 | `eq` | the curve in effect on the current output |
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
-| `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `q` to quit |
+| `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `?` lists every key, `q` quits |
+| `eq tui [meter] [--zones]` | the terminal UI, opened on its meter view: today the same screen as `eq watch` |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
@@ -371,36 +372,56 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 
 ### Keys
 
-| Key | Action |
-| --- | --- |
-| `1` … `9`, `0` | raise band 32 Hz … 16 kHz by 0.5 dB (`0` is the tenth band, 16 kHz) |
-| Shift + the same key | lower it by 0.5 dB — `! @ # $ % ^ & * ( )` on a US layout, `! " № ; % : * ( )` on a Russian one |
-| `+` / `-` | preamp ±0.5 dB (`=` and `_` work too, no Shift needed) |
-| `b` / `B` | bass shelf ±0.5 dB |
-| `t` / `T` | treble shelf ±0.5 dB |
-| `p`, `↓` | next preset, alphabetically, wrapping round |
-| `↑` | previous preset, wrapping round |
-| `c` | compressor: off → gentle → night → off |
-| `v` / `V` | colour: off → tape → tube → off, starting at amount 0.3 / raise the amount by 0.1, from 1 back to 0.1 |
-| `u` | undo the last change made in this session, back to how it started |
-| `s` | save the curve as a preset: type a name, Enter saves, Esc cancels |
-| `z` | the instrument strip, on and off |
-| `]`, `Tab` / `[` | focus the next / previous instrument |
-| `→` / `←` | the focused instrument's knob ±0.5 dB (`.` / `,` work too, no Shift needed; `ю` / `б` on a Russian layout) |
-| `Esc` | leave the focus (and stop listening) |
-| `l` | listen to the focused instrument alone, and back |
-| `h`, `?` | show the hint again |
-| `x` | hide the hint for good |
-| `q`, Ctrl‑C | exit |
+| Key | Russian | Action |
+| --- | --- | --- |
+| `1` … `9` `0` |  | raise band 32 Hz … 16 kHz by 0.5 dB (0 is the tenth band, 16 kHz) |
+| `⇧1` … `⇧0` | `"` `№` `:` | lower it by 0.5 dB: ! @ # $ % ^ & * ( ) on a US layout |
+| `+` `-` |  | preamp ±0.5 dB (= and _ work too, no Shift needed) |
+| `b` `B` `t` `T` | `и` `И` `е` `Е` | bass / treble shelf +0.5 dB, with Shift −0.5 dB |
+| `p` `↓` `↑` | `з` `З` | next preset (p, ↓) / previous one (↑), alphabetically, wrapping round |
+| `c` | `с` `С` | compressor: off → gentle → night → off |
+| `v` `V` | `м` `М` | colour: off → tape → tube → off, starting at 0.3 / raise the amount by 0.1, from 1 back to 0.1 |
+| `u` | `г` `Г` | undo the last change made in this session, back to how it started |
+| `s` | `ы` `Ы` | save the curve as a preset: type a name, Enter saves, Esc cancels |
+| `z` | `я` `Я` | the instrument strip, on and off |
+| `i` | `ш` `Ш` | the instrument table: ranges in Hz, the bands each touches, knob gains |
+| `]` `Tab` `[` | `ъ` `Ъ` `х` `Х` | focus the next / previous instrument |
+| `→` `←` | `ю` `Ю` `б` `Б` | the focused instrument's knob ±0.5 dB (. and , work too, no Shift needed) |
+| `l` | `д` `Д` | listen to the focused instrument alone, and back |
+| `Esc` |  | leave the focus (and stop listening) |
+| `m` | `ь` `Ь` | mouse on and off, remembered as tui.mouse in eq.json; on, the wheel scrolls these lists |
+| `;` `Ctrl-P` | `ж` | the command palette; the key is kept for it, the palette is not here yet |
+| `?` `h` | `р` `Р` | the list of every key, over the meter; ?, Esc or q closes it |
+| `q` | `й` `Й` | quit |
+| `Ctrl-C` |  | quit, from the lists too |
+
+The bottom row is the keybar: the keys of what is on screen, most useful first, whole entries
+dropped from the right when the terminal is narrow, `? keys` and `q quit` always kept. It never
+hides. The row above it holds the save-as prompt and the notes that last two seconds, and stays
+reserved when empty, so a note never moves the meter. Below ten rows the two share one row and
+the keybar is only `? keys  q quit`. `z` shows its state on the keybar (`z zones on`), and while
+an instrument is focused its knob, `l listen` and `Esc unfocus` join it.
+
+`?` or `h` opens the list of every key over the meter, grouped, and it stays until `?`, `Esc` or
+`q` closes it; `↑`/`↓` (`j`/`k`) scroll it when it is taller than the terminal. Keys under it do
+nothing to the curve. `i` opens the instrument table the same way: each instrument's ranges in Hz,
+the bands each range touches, its knob gain, the character range in bold and the focus marked
+`▸`. `eq tui` runs this same screen; its other views are still to come. `;` (`ж`) and Ctrl-P are
+kept for the command palette and only say so for now. `m` turns mouse reporting on and remembers
+it as `"tui": {"mouse": true}` in eq.json; it is off by default because it takes plain
+drag-to-select away from the terminal, and for now the wheel scrolls the two lists and nothing
+else. The table above is generated from the same key table the watch reads its keys from, and a
+test keeps the two equal.
 
 A step edits the current device's profile — the same one `eq set` would: the daemon's device,
 else the default output — clamps to ±12 dB (preamp −30…+12), and saves at once; the daemon
 picks it up and the slider marker moves on the next frame, while the band's label flashes
-bold. When the edit cannot be saved (no config yet, say), the reason shows in a dim line at
-the bottom for two seconds. On a Russian layout Shift+7 types `?`, which is the help key, so
-band 7 (2 kHz) can only be lowered from a US layout; the letter keys work from the same
-physical keys on either layout (`и` for `b`, `е` for `t`, `з` for `p`, `г` for `u`, `ы` for `s`, `с` for `c`, `м` for `v`, `х`/`ъ` for `[`/`]`,
-`д` for `l`, and so on).
+bold. When the edit cannot be saved (no config yet, say), the reason shows dim in the message
+row for two seconds. Every letter key works from the same physical key on a Russian
+layout, as the table's middle column shows. Three keys collide there, and the US meaning wins:
+Shift+7 types `?`, the key list, so band 7 (2 kHz) is lowered from a US layout; Shift+4 types
+`;`, the palette's key, so band 4 (250 Hz) is too; and the key that types `?` on a US layout
+types `,`, which turns the knob down, so `h` (`р`) opens the key list there.
 
 The header names the device's preset after the preamp, with the yellow `*` once the curve has
 moved away from it. Bass, treble and tilt follow it when set: `bass +3 treble -2`, then the
@@ -408,14 +429,8 @@ instrument knobs that are set, and the focused one even at 0: `voice +3.0`, then
 compressor with its live reduction and the colour: `night comp -3.2 · tape 0.3`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
 through this session's steps, preset changes included, one per press, until the curve is as it
 was when the session started; it does not reach past the session — that is `eq undo`. `s`
-turns the bottom line into `save as: ▏`; while it is open every key types into it, digits
+turns the message row into `save as: ▏`; while it is open every key types into it, digits
 included, Backspace deletes, and a bad name shows its error in the same line for two seconds.
-
-On start a small box in the top-right corner lists the keys. It hides after 8 seconds or on
-any key; `h` brings it back. `x` hides it and writes the empty marker
-`~/.cache/eq/watch-hint-off`, after which it no longer appears on start (delete the file to
-get it back; one left in `~/.config/eq` by an older version still counts). A terminal narrower than twice the box shows one dim line at the bottom instead,
-which leaves out whole keys rather than cut one in half, and always keeps `q quit`.
 
 ### Instruments
 
@@ -443,7 +458,7 @@ the header says `focus: voice (85 Hz–9 kHz)`, a bracket row above the bars mar
 ranges — the character range bright, the rest dim — the bars, labels and gains of bands it does not touch turn dim, and its level numbers
 turn bright. The strip, when open, shows only that instrument. Digit keys still name all ten
 bands, but a band outside the focus is refused with `outside voice — Esc to unfocus` in the
-footer, so tuning stays on the instrument. A band belongs to the focus when any of the
+message row, so tuning stays on the instrument. A band belongs to the focus when any of the
 instrument's ranges overlaps the octave around the band's centre, which is why voice reaches
 down to the 64 Hz band.
 
@@ -453,7 +468,7 @@ of the instrument's character range (voice is heard at 2–5 kHz, not across its
 it. Switching focus moves the solo to the new instrument. `l` again, `Esc` and `q` switch it
 off; so does the watch going away in any other way, since the daemon drops a solo the moment
 the client that asked for it disconnects. At a rate too low for the focus (air on a headset
-in call mode) the footer says `can't listen to air at this rate` and nothing plays solo until
+in call mode) the message row says `can't listen to air at this rate` and nothing plays solo until
 the focus moves to an instrument the rate can carry. A solo asked for while the device is
 still settling at 0 Hz is asked for again once the rate arrives. A solo is never saved and never reaches `eq.json`.
 It is the curve you hear through, not a second curve: the EQ stays one curve per device.

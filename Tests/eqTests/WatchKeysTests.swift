@@ -40,30 +40,6 @@ final class WatchKeysTests: XCTestCase {
         try ctx.store.load().profile(forDeviceUID: "SPK").profile
     }
 
-    func testHintMarkerMovedToTheCacheButTheOldOneStillCounts() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-hint-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let ctx = CLIContext(
-            store: ConfigStore(url: dir.appendingPathComponent("config/eq.json")),
-            statusURL: dir.appendingPathComponent("status.json"),
-            connectedDevices: { [] },
-            defaultOutput: { nil },
-            fetch: { _ in throw URLError(.notConnectedToInternet) },
-            cacheDirectory: dir.appendingPathComponent("cache/autoeq"),
-            today: { "2026-09-28" })
-        let old = dir.appendingPathComponent("config/watch-hint-off")
-        let new = dir.appendingPathComponent("cache/watch-hint-off")
-        XCTAssertFalse(CLI.hintDismissed(ctx))
-        try FileManager.default.createDirectory(at: old.deletingLastPathComponent(), withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: old.path, contents: nil)
-        XCTAssertTrue(CLI.hintDismissed(ctx))
-        try FileManager.default.removeItem(at: old)
-        CLI.dismissHint(ctx)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: new.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
-        XCTAssertTrue(CLI.hintDismissed(ctx))
-    }
-
     func testDigitsRaiseTheirBand() {
         for (i, key) in "1234567890".enumerated() {
             XCTAssertEqual(WatchKeys.action(for: String(key)), .bandStep(i, 0.5), String(key))
@@ -74,7 +50,7 @@ final class WatchKeysTests: XCTestCase {
         for (i, key) in "!@#$%^&*()".enumerated() {
             XCTAssertEqual(WatchKeys.action(for: String(key)), .bandStep(i, -0.5), String(key))
         }
-        for (i, key) in "!\"№;%:?*()".enumerated() where key != "?" {
+        for (i, key) in "!\"№;%:?*()".enumerated() where key != "?" && key != ";" {
             XCTAssertEqual(WatchKeys.action(for: String(key)), .bandStep(i, -0.5), String(key))
         }
         XCTAssertEqual(WatchKeys.action(for: "№"), .bandStep(2, -0.5))
@@ -90,7 +66,14 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertEqual(WatchKeys.action(for: "?"), .help, "help wins over Russian Shift+7")
         XCTAssertEqual(WatchKeys.action(for: "h"), .help)
         XCTAssertEqual(WatchKeys.action(for: "р"), .help)
-        XCTAssertEqual(WatchKeys.action(for: "x"), .dismissHelp)
+        XCTAssertNil(WatchKeys.action(for: "x"), "the box x hid is gone")
+        XCTAssertEqual(WatchKeys.action(for: "i"), .instruments)
+        XCTAssertEqual(WatchKeys.action(for: "ш"), .instruments)
+        XCTAssertEqual(WatchKeys.action(for: "m"), .mouse)
+        XCTAssertEqual(WatchKeys.action(for: ";"), .palette, "the palette's key, over Russian Shift+4")
+        XCTAssertEqual(WatchKeys.action(for: "ж"), .palette)
+        XCTAssertEqual(WatchKeys.action(for: "\u{10}"), .palette)
+        XCTAssertEqual(WatchKeys.action(for: ":"), .bandStep(5, -0.5), "Russian Shift+6 still lowers 1 kHz")
         XCTAssertEqual(WatchKeys.action(for: "q"), .quit)
         XCTAssertEqual(WatchKeys.action(for: "Q"), .quit)
         XCTAssertEqual(WatchKeys.action(for: "й"), .quit)
@@ -124,72 +107,6 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertTrue(ctx.store.exists())
     }
 
-    func testHintOnFirstFrameUntilAnyKey() throws {
-        let line = try frameLine()
-        var emitted: [String] = []
-        var keys: [String?] = [nil, "a", nil]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() })
-        XCTAssertEqual(frames(emitted).map { $0.contains("┌ tune") }, [true, true, false])
-        XCTAssertTrue(frames(emitted)[0].contains("│ x     hide this for good  │"))
-    }
-
-    func testHintHidesAfterEightSeconds() throws {
-        let line = try frameLine()
-        var emitted: [String] = []
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: Watch.hintFrames + 1)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { nil })
-        XCTAssertTrue(frames(emitted)[Watch.hintFrames - 1].contains("┌ tune"))
-        XCTAssertFalse(frames(emitted)[Watch.hintFrames].contains("┌ tune"))
-    }
-
-    func testDismissedHintStaysOffUntilHelp() throws {
-        let line = try frameLine()
-        var emitted: [String] = []
-        var keys: [String?] = [nil, "h", nil]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) }, hintDismissed: true,
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() })
-        XCTAssertEqual(frames(emitted).map { $0.contains("┌ tune") }, [false, false, true])
-    }
-
-    func testXDismissesOnce() throws {
-        let line = try frameLine()
-        var emitted: [String] = []
-        var dismissals = 0
-        var keys: [String?] = ["x", "x"]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                      dismissHint: { dismissals += 1 })
-        XCTAssertEqual(dismissals, 1)
-        XCTAssertEqual(frames(emitted).map { $0.contains("┌ tune") }, [true, false, false])
-    }
-
-    func testNarrowShowsOneLineHint() throws {
-        let line = try frameLine()
-        var emitted: [String] = []
-        _ = Watch.run(source: Source(lines: [line]), size: { (56, 24) },
-                      emit: { emitted.append($0) }, readKey: { nil })
-        let drawn = try XCTUnwrap(frames(emitted).first)
-        XCTAssertFalse(drawn.contains("┌ tune"))
-        XCTAssertTrue(drawn.contains("1…0 up · ⇧ down · +/− preamp"), drawn)
-    }
-
-    func testBoxSitsTopRightOverTheMeter() {
-        let layout = WatchLayout.fit(cols: 100, rows: 30)
-        let f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
-                           gains: [], preamp: 0, enabled: true)
-        let lines = Watch.frame(f, layout: layout, hint: true)
-        XCTAssertEqual(lines.count, Watch.frame(f, layout: layout).count)
-        XCTAssertTrue(lines[1].hasSuffix("┌ tune ─────────────────────┐"), lines[1])
-        XCTAssertTrue(lines[11].contains("│ ← →   focused one ±0.5    │"), lines[11])
-        XCTAssertTrue(lines[14].hasSuffix("└───────────────────────────┘"), lines[14])
-        XCTAssertTrue(lines[5].contains("│ b t   bass/treble, ⇧ down │"), lines[5])
-        XCTAssertTrue(lines[6].contains("│ p ↑↓  preset  u undo      │"), lines[6])
-        XCTAssertTrue(lines[8].contains("│ c v   comp/color, ⇧v amt  │"), lines[8])
-        XCTAssertTrue(lines[10].contains("│ [ ]   focus   l listen    │"), lines[10])
-        XCTAssertEqual(lines[1].count, 90)
-    }
-
     func testOverlayKeepsColourAroundTheBox() {
         Paint.forced = true
         let line = "\u{1B}[32m" + String(repeating: "█", count: 6) + "\u{1B}[0m"
@@ -203,7 +120,7 @@ final class WatchKeysTests: XCTestCase {
         var emitted: [String] = []
         var keys: [String?] = ["6", "7"]
         var edits: [WatchAction] = []
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) }, hintDismissed: true,
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
                       emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
                       edit: { action in
                           edits.append(action)
@@ -323,7 +240,7 @@ final class WatchKeysTests: XCTestCase {
         var queue = keys
         var seen: [WatchAction] = []
         _ = Watch.run(source: Source(lines: Array(repeating: line, count: count ?? keys.count + 1)), size: { (100, 30) },
-                      hintDismissed: true, emit: { emitted.append($0) },
+                      emit: { emitted.append($0) },
                       readKey: { queue.isEmpty ? nil : queue.removeFirst() }, edit: { seen.append($0) })
         edits = seen
         return frames(emitted)
@@ -356,7 +273,7 @@ final class WatchKeysTests: XCTestCase {
         let line = try frameLine()
         var emitted: [String] = []
         var keys: [String?] = ["s", "?\n"]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 4)), size: { (100, 30) }, hintDismissed: true,
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 4)), size: { (100, 30) },
                       emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
                       edit: { if case .savePreset(let name) = $0 { throw CLIError.badPresetName(name) } })
         XCTAssertTrue(frames(emitted)[2].contains("bad preset name \"?\""), frames(emitted)[2])
@@ -367,23 +284,11 @@ final class WatchKeysTests: XCTestCase {
         var emitted: [String] = []
         var modified = false
         var keys: [String?] = [nil, "1"]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) }, hintDismissed: true,
+        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
                       emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() },
                       edit: { _ in modified = true }, header: { Watch.Header(preset: ("favourite", modified)) })
         XCTAssertTrue(frames(emitted)[0].contains("preamp -1.5 dB · favourite · peak"), frames(emitted)[0])
         XCTAssertTrue(frames(emitted)[2].contains("preamp -1.5 dB · favourite* · peak"), frames(emitted)[2])
-    }
-
-    func testCompactHintDropsWholeSegments() {
-        let full = HintBox.compact(width: 200)
-        XCTAssertEqual(full, "1…0 up · ⇧ down · +/− preamp · b bass · t treble · p ↑↓ preset · u undo · s save · c comp · v color · z zones · [ ] focus · ← → boost · l listen · h help · q quit")
-        for width in 6..<full.count {
-            let line = HintBox.compact(width: width)
-            XCTAssertLessThanOrEqual(line.count, width, "\(width)")
-            XCTAssertTrue(line.hasSuffix("q quit"), line)
-            let segments = line.components(separatedBy: " · ")
-            XCTAssertTrue(segments.allSatisfy(full.components(separatedBy: " · ").contains), line)
-        }
     }
 
     private func feed(_ reads: [String]) -> [WatchAction] {

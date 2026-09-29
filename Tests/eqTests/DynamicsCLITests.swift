@@ -296,9 +296,9 @@ final class DynamicsWatchTests: XCTestCase {
         XCTAssertFalse(Watch.frame(f, layout: layout)[0].contains("comp"))
     }
 
-    func testHintNamesTheKeys() {
-        XCTAssertTrue(HintBox.rows.contains { $0.contains("comp/color, ⇧v amt") })
-        XCTAssertTrue(HintBox.compact(width: 400).contains("c comp · v color"))
+    func testKeybarAndHelpNameTheKeys() {
+        XCTAssertTrue(KeyHelp.lines().contains { $0.key == "v V" && $0.text.contains("raise the amount by 0.1") })
+        XCTAssertTrue(Keybar.line(.meter, state: KeyState(), width: 400).contains("c comp  v color"))
     }
 
     func testFrameAndStatusCarryTheReductionOnlyWhileItRuns() throws {

@@ -24,7 +24,7 @@ final class WatchLoopTests: XCTestCase {
         var keys: [String?] = ["]", "l", nil, nil, "]", nil]
         var sent: [String] = []
         let settling = try frameLine(rate: 0), settled = try frameLine()
-        _ = Watch.run(source: Source(lines: [settling, settling, settling, settled, settled, settled, settled]), hintDismissed: true,
+        _ = Watch.run(source: Source(lines: [settling, settling, settling, settled, settled, settled, settled]),
                       emit: { _ in }, readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
         let kick = #"{"solo":{"low":50,"high":100}}"#, bass = #"{"solo":{"low":700,"high":1200}}"#
         XCTAssertEqual(sent, [kick, bass], "held back at 0 Hz, sent once the rate settles, then follows the focus")
@@ -36,7 +36,7 @@ final class WatchLoopTests: XCTestCase {
     private func soloRun(_ frames: [String], keys: [String?]) -> (sent: [String], drawn: [String]) {
         var keys = keys
         var sent: [String] = [], drawn: [String] = []
-        _ = Watch.run(source: Source(lines: frames), hintDismissed: true,
+        _ = Watch.run(source: Source(lines: frames),
                       emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
                       readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
         return (sent, drawn)
@@ -70,7 +70,7 @@ final class WatchLoopTests: XCTestCase {
         var keys: [String?] = [nil, "]", "q"]
         var drawn: [String] = []
         let line = try frameLine()
-        let code = Watch.run(source: Source(lines: [line, "", "", ""]), hintDismissed: true,
+        let code = Watch.run(source: Source(lines: [line, "", "", ""]),
                              emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
                              readKey: { keys.isEmpty ? nil : keys.removeFirst() })
         XCTAssertEqual(code, 0, "q quits with no frame after the first")
@@ -87,8 +87,8 @@ final class WatchLoopTests: XCTestCase {
         XCTAssertEqual(actions("\u{1B}O"), [])
         XCTAssertEqual(actions(""), [.unfocus])
         XCTAssertEqual(actions("\u{1B}[1;"), [])
-        XCTAssertEqual(actions(""), [.unfocus, .focusPrevious, .bandStep(0, 0.5), .bandStep(3, -0.5)],
-                       "`;` is ⇧4 on a Russian layout; a terminal writes parameters and final byte together, so these were typed")
+        XCTAssertEqual(actions(""), [.unfocus, .focusPrevious, .bandStep(0, 0.5), .palette],
+                       "a terminal writes parameters and final byte together, so these were typed")
         XCTAssertEqual(actions("\u{1B}[1"), [])
         XCTAssertEqual(actions(""), [.unfocus, .focusPrevious, .bandStep(0, 0.5)])
         XCTAssertEqual(actions("2q"), [.bandStep(1, 0.5), .quit], "later digits and q are not held back")
