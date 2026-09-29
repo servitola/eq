@@ -13,10 +13,16 @@ public enum TerminalText {
         text.reduce(0) { $0 + width(of: $1) }
     }
 
+    private static let narrow: [ClosedRange<UInt32>] = [0x2010...0x2027, 0x2190...0x21FF, 0x2500...0x25FF, 0x2800...0x28FF]
+
     public static func width(of c: Character) -> Int {
         if let ascii = c.asciiValue { return ascii < 0x20 || ascii == 0x7F ? 0 : 1 }
         let scalars = c.unicodeScalars
         guard let first = scalars.first else { return 0 }
+        // Box drawing, blocks, geometric shapes, arrows, braille, dashes and the ellipsis — what the
+        // screens are drawn with — are one column; asking the Unicode tables for each costs more
+        // than the rest of a frame.
+        if scalars.count == 1, Self.narrow.contains(where: { $0.contains(first.value) }) { return 1 }
         if first.properties.isEmojiPresentation || scalars.contains("\u{FE0F}") { return 2 }
         let measured = Int(wcwidth(wchar_t(bitPattern: first.value)))
         return measured < 0 ? 1 : min(measured, 2)

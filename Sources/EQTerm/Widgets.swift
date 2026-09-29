@@ -188,10 +188,11 @@ public enum Keybar {
     public static let separator = "  "
 
     /// Entries most useful first; whole entries drop from the right, highest rank first, until
-    /// the line fits, then from the left among the pinned ones.
-    public static func fit(_ entries: [Entry], width: Int) -> [Entry] {
+    /// the line fits, then from the left among the pinned ones. `extra` columns go to each entry
+    /// beyond its words: the blanks around a keycap.
+    public static func fit(_ entries: [Entry], width: Int, extra: Int = 0) -> [Entry] {
         var entries = entries.sorted { ($0.rank == 0 ? Int.max : $0.rank) < ($1.rank == 0 ? Int.max : $1.rank) }
-        func plain() -> Int { TerminalText.width(entries.map(\.plain).joined(separator: separator)) }
+        func plain() -> Int { TerminalText.width(entries.map(\.plain).joined(separator: separator)) + extra * entries.count }
         while plain() > width, let drop = entries.indices.filter({ entries[$0].rank > 0 }).max(by: { entries[$0].rank < entries[$1].rank }) {
             entries.remove(at: drop)
         }
