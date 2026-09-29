@@ -55,6 +55,28 @@ struct Status: Codable, Equatable {
     var mode: AudioMode? = nil
     /// Only while the driver path runs.
     var driver: DriverStatus? = nil
+    /// Each app with a route rule and audio open, while `experimental.routes` is on.
+    var routes: [Route]? = nil
+
+    struct Route: Codable, Equatable {
+        var app: String
+        var name: String
+        /// Where it plays; nil when it follows the main path.
+        var target: Device?
+        var reason: RouteReason
+        var playing: Bool
+        /// Why a route failed or was suspended.
+        var note: String? = nil
+        /// From the tap's capture to the target's output, eq's share; the target adds `deviceLatencyMs`.
+        var latencyMs: Double? = nil
+        var deviceLatencyMs: Double? = nil
+        var underruns: UInt64? = nil
+        var overruns: UInt64? = nil
+        var dropouts: UInt64? = nil
+        /// How far the drift servo speeds up (+) or slows down (−) its reading of the tap.
+        var correctionPpm: Double? = nil
+        var lastOnset: Onset? = nil
+    }
 
     struct DriverStatus: Codable, Equatable {
         /// "BE-RCA · EQ", as the Sound menu shows it.
@@ -116,6 +138,7 @@ extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
         case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps, compReductionDB, mode, driver
+        case routes
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -148,5 +171,6 @@ extension Status {
         compReductionDB = try c.decodeIfPresent(Double.self, forKey: .compReductionDB)
         mode = try? c.decodeIfPresent(AudioMode.self, forKey: .mode)
         driver = try? c.decodeIfPresent(DriverStatus.self, forKey: .driver)
+        routes = try? c.decodeIfPresent([Route].self, forKey: .routes)
     }
 }

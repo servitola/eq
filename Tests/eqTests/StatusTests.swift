@@ -79,6 +79,22 @@ final class StatusTests: XCTestCase {
         XCTAssertNil(status.underruns)
     }
 
+    func testRoutesRoundTripAndAnOldStatusHasNone() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-status-\(UUID().uuidString)/status.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var status = sample(at: Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertNil(status.routes)
+        status.routes = [
+            Status.Route(app: "com.spotify.client", name: "Spotify", target: .init(uid: "BE", name: "BE-RCA", transport: "bluetooth"),
+                         reason: .first, playing: true, latencyMs: 9.4, deviceLatencyMs: 180, underruns: 0, overruns: 0, dropouts: 0,
+                         correctionPpm: -41.5, lastOnset: Status.Onset(tapHostSeconds: 1, outputHostSeconds: 1.01, count: 2)),
+            Status.Route(app: "com.google.Chrome", name: "Google Chrome", target: nil, reason: .suspended, playing: false,
+                         note: "rebuilt 3 times in a minute"),
+        ]
+        try status.write(to: url)
+        XCTAssertEqual(Status.read(from: url), status)
+    }
+
     func testLatencyAndSilenceRoundTrip() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("eq-status-\(UUID().uuidString)/status.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

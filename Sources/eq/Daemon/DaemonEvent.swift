@@ -13,6 +13,8 @@ enum DaemonEvent: Equatable {
     case mode(AudioMode, target: String?, reason: String?)
     /// The EQ device moved to another real device.
     case target(name: String, uid: String)
+    /// Where an app with a route rule plays now; `target` nil when it is on the main path.
+    case route(app: String, name: String, target: String?, targetName: String?, reason: RouteReason)
 
     var kind: String {
         switch self {
@@ -25,6 +27,7 @@ enum DaemonEvent: Equatable {
         case .app: return "app"
         case .mode: return "mode"
         case .target: return "target"
+        case .route: return "route"
         }
     }
 
@@ -89,6 +92,12 @@ enum DaemonEvent: Equatable {
             case .target(let name, let uid):
                 try c.encode(name, forKey: Key("device"))
                 try c.encode(uid, forKey: Key("uid"))
+            case .route(let app, let name, let target, let targetName, let reason):
+                try c.encode(app, forKey: Key("app"))
+                try c.encode(name, forKey: Key("name"))
+                try c.encode(target, forKey: Key("target"))
+                try c.encode(targetName, forKey: Key("targetName"))
+                try c.encode(reason, forKey: Key("reason"))
             }
         }
     }
@@ -173,6 +182,21 @@ final class EventTracker {
         } else if let newTarget {
             publish(.target(name: newTarget.name, uid: newTarget.uid))
         }
+    }
+
+    private var routes: [String: RoutedApp] = [:]
+
+    /// Once per change of an app's target or reason. Hooks come with the command line (M3).
+    func routes(_ apps: [RoutedApp], names: (String) -> String?) {
+        var seen: [String: RoutedApp] = [:]
+        for app in apps {
+            seen[app.app] = app
+            let old = routes[app.app]
+            let target = app.isRouted ? app.target : nil
+            guard old == nil || (old!.isRouted ? old!.target : nil) != target || old!.reason != app.reason else { continue }
+            publish(.route(app: app.app, name: app.name, target: target, targetName: target.flatMap(names), reason: app.reason))
+        }
+        routes = seen
     }
 
     func solo(_ range: SoloRange?) {
