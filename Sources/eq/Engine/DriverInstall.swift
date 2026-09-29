@@ -226,6 +226,7 @@ enum DriverInstall {
     static func run(_ action: Action, _ elevation: Elevation) throws {
         let requirement = requirement(team: ownTeam())
         let command = elevation == .sudo ? sudoCommand(action, requirement: requirement) : dialogCommand(action, requirement: requirement)
+        if elevation == .sudo { return try runInForeground(command) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: command[0])
         process.arguments = Array(command.dropFirst())
@@ -238,6 +239,22 @@ enum DriverInstall {
         if message.contains("(-128)") { throw Failure.cancelled }
         let detail = message.trimmingCharacters(in: .whitespacesAndNewlines)
         throw Failure.failed("\(command[0]) exited with status \(process.terminationStatus)" + (detail.isEmpty ? "" : ": \(detail)"))
+    }
+
+    /// Foundation's Process starts the child in a process group of its own, which the terminal
+    /// treats as background: sudo then cannot turn off echo or read the password it prompts for.
+    private static func runInForeground(_ command: [String]) throws {
+        var pid: pid_t = 0
+        let args = command.map { strdup($0) } + [nil]
+        defer { args.forEach { free($0) } }
+        let spawned = posix_spawn(&pid, command[0], nil, nil, args, environ)
+        guard spawned == 0 else { throw Failure.failed("cannot run \(command[0]): \(String(cString: strerror(spawned)))") }
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
+        let exited = (status & 0x7f) == 0
+        let code = (status >> 8) & 0xff
+        guard !exited || code != 0 else { return }
+        throw Failure.failed("\(command[0]) " + (exited ? "exited with status \(code)" : "was stopped by signal \(status & 0x7f)"))
     }
 
     static func ownTeam() -> String? {
