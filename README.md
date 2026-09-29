@@ -29,7 +29,8 @@ brew install --cask servitola/tap/eq
 ```
 
 That is all. Homebrew wants third-party taps named in full; the line above trusts this one
-cask, no more.
+cask, no more. The cask also carries the audio driver for [driver mode](#driver-mode-experimental),
+inside EQ.app; nothing goes into `/Library` until you turn driver mode on.
 
 The first `eq` you run registers the daemon as a login item named **EQ**: macOS says "Background Items Added", and it is listed under System Settings →
 General → Login Items → Allow in the Background, where it can be switched off. From then on
@@ -47,6 +48,24 @@ If you started eq with a hand-made `~/Library/LaunchAgents/com.servitola.eq.plis
 app carried its own, that plist keeps working and eq never registers a second daemon beside
 it; `eq doctor` names it as `legacy`. `eq agent install --replace-legacy` boots it out, moves
 the plist to the Trash and starts the bundled login item instead.
+
+### Uninstall
+
+```sh
+brew uninstall --cask eq          # --zap also removes the config, cache, log and login items
+```
+
+If driver mode ever installed the driver, this takes it out too: eq switches to tap mode, which
+moves the default output back to a real device, then asks once for an administrator password to
+remove `/Library/Audio/Plug-Ins/HAL/EQDriver.driver` and restart coreaudiod. `brew upgrade` and
+`brew reinstall` run the same cask step, and there the driver stays: Homebrew passes the step
+nothing that tells them apart, so eq reads the command line of the `brew` process above it and
+removes the driver only under `brew uninstall` (`rm`, `remove`). Without Homebrew, or to drop the
+driver and keep eq: `eq driver uninstall`.
+
+coreaudiod keeps the curves the driver stored, a few kilobytes under `Plug-In.com.servitola.eq.driver`
+in `/Library/Preferences/Audio/com.apple.audio.SystemSettings.plist`. eq leaves them: that file is
+coreaudiod's own, rewritten while it runs, and nothing reads the entry once the driver is gone.
 
 ## Commands
 
@@ -726,17 +745,25 @@ records audio, so there is no permission and no indicator, and the device report
 so video players keep lip sync. It breaks Apple's rule that a plug-in may not use the HAL client
 API, which is how it plays on the real device; see `docs/research/06a–06c`.
 
-Install it from this repository until the `eq-driver` cask exists:
-
 ```sh
-Driver/build.sh && sudo Driver/dev-install.sh   # copies to /Library/Audio/Plug-Ins/HAL, restarts coreaudiod
-eq mode driver                                   # needs eq from a signed EQ.app, which the plug-in lets write curves
+eq mode driver
 ```
 
-`eq mode driver` refuses, and says how to install, when the EQ device is missing or older than this
-eq. Otherwise it shows the device, points it at the current output, sends it that output's curve,
+The first time, it installs the driver EQ.app carries: one administrator prompt (sudo in a
+terminal, a macOS dialog otherwise), a copy to `/Library/Audio/Plug-Ins/HAL`, and a coreaudiod
+restart, which drops every app's sound for about a second; eq waits for the EQ device, then
+switches. It shows the device, points it at the current output, sends it that output's curve,
 makes it the default output and writes `"mode": "driver"` to `eq.json`; the daemon then stops its
-tap. `eq mode` shows the mode, `--dry-run` says what a switch would do.
+tap. `eq mode` shows the mode and the driver's build, `--dry-run` says what a switch would do,
+password prompt included.
+
+After `brew upgrade eq` the driver in `/Library` stays and keeps playing. When the new EQ.app carries
+a newer one, `eq status`, `eq mode` and `eq doctor` say so, and `eq mode driver` updates it with the
+same one prompt; until then nothing asks. Only a driver too old to read this eq's settings sends the
+daemon back to the tap until you run it. The daemon never asks for a password. A driver disabled by
+its kill file (below) is never replaced.
+
+From a checkout: `Driver/build.sh && sudo Driver/dev-install.sh` (see `Driver/README.md`).
 
 While the daemon runs in driver mode:
 
@@ -771,7 +798,7 @@ cannot be moved, it says so and prints the next steps. In order, stop at the fir
 1. `sudo killall coreaudiod` (launchd starts it again).
 2. Disable the plug-in with its kill file:
    `sudo touch /Library/Audio/Plug-Ins/HAL/EQDriver.driver/Contents/Resources/disabled && sudo killall coreaudiod`.
-3. Remove it: `sudo Driver/dev-uninstall.sh`, or `sudo rm -rf /Library/Audio/Plug-Ins/HAL/EQDriver.driver && sudo killall coreaudiod`.
+3. Remove it: `eq driver uninstall`, or `sudo rm -rf /Library/Audio/Plug-Ins/HAL/EQDriver.driver && sudo killall coreaudiod`.
 
 `Driver/README.md` has more on the plug-in.
 
@@ -786,7 +813,7 @@ Measured with `scripts/footprint.sh` while a tone played over Bluetooth at 44.1 
 | context switches | 189 /s | 191 /s |
 | status.json writes | 12 /min | ≤ 2 /min (30 s heartbeat + changes) |
 | log | unrotated | capped by the cleanup job |
-| `brew uninstall` | agent stays loaded | daemon exits with its binary; `eq agent uninstall` first removes the login item; `--zap` also unloads both jobs and removes a hand-installed plist |
+| `brew uninstall` | agent stays loaded | daemon exits with its binary, the EQ driver is removed; `eq agent uninstall` first removes the login item; `--zap` also unloads both jobs and removes a hand-installed plist |
 
 512 IO frames halves context switches but more than doubles CPU, so 256 stays the default;
 `EQ_IO_FRAMES` is the escape hatch to re-measure on other hardware (see "How it works" above).

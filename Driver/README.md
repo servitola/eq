@@ -26,6 +26,22 @@ Driver/test.sh --host-idle  # also loads the built plug-in into a fake host that
 Driver/test.sh --host       # the same, then plays silence on the built-in output for about 25 s
 ```
 
+## In EQ.app
+
+`scripts/build-app.sh` runs `build.sh` with the app's identity and puts the bundle in
+`EQ.app/Contents/PlugIns`. `eq mode driver` installs it from there, and `eq driver uninstall`
+removes it, each through one privileged `/bin/sh` script that lives in the eq binary
+(`DriverInstall.script`): it copies to a staging folder beside `HAL/`, makes it root-owned, checks
+the copy against eq's own team (`codesign --test-requirement`), renames it into place and restarts
+coreaudiod. Two keys in `Info.plist` say which driver it is:
+
+| Key | |
+| --- | --- |
+| `EQDriverProtocol` | `EQC_BLOB_VERSION`, the settings record it reads; eq falls back to the tap below its own |
+| `EQDriverRevision` | commits that touched `Driver/Source`, `Info.plist`, `build.sh` or `Sources/EQCore`; eq offers an update when its own is higher, so a release that leaves the driver alone asks for no password |
+
+A driver installed before these keys reads as revision 0.
+
 ## Development install
 
 ```sh

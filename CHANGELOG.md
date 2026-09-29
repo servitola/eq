@@ -3,6 +3,18 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- EQ.app carries the driver for driver mode, so one `brew install` is all a Mac needs. The first
+  `eq mode driver` installs it into `/Library/Audio/Plug-Ins/HAL` with one administrator prompt
+  (sudo in a terminal, a macOS dialog otherwise), restarts coreaudiod and waits for the EQ device;
+  `--dry-run` says so first. After an upgrade that carries a newer driver, `eq status`, `eq mode`
+  and `eq doctor` say so and `eq mode driver` updates it; the old one keeps playing meanwhile.
+- `eq driver uninstall`: tap mode, then the driver removed and coreaudiod restarted.
+  `brew uninstall eq` runs it; `brew upgrade` and `brew reinstall` leave the driver in place.
+
 ## 2026.09.29 — 2026-09-29
 
 ### Added
