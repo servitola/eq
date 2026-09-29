@@ -189,16 +189,43 @@ struct AppRule: Codable, Equatable {
     }
 }
 
+/// While `app` has audio open, it plays on the first of `outputs` that is available, whatever the default output is.
+struct RouteRule: Codable, Equatable {
+    static let outputCount = 1...4
+
+    var app: String
+    var outputs: [String]
+
+    func matches(_ bundleID: String) -> Bool {
+        app.caseInsensitiveCompare(bundleID) == .orderedSame
+    }
+}
+
 struct Experimental: Codable, Equatable {
     var apps: Bool
+    var routes: Bool
 
-    init(apps: Bool) { self.apps = apps }
+    init(apps: Bool = false, routes: Bool = false) {
+        self.apps = apps
+        self.routes = routes
+    }
 
-    private enum CodingKeys: String, CodingKey { case apps }
+    private enum CodingKeys: String, CodingKey { case apps, routes }
 
     init(from decoder: Decoder) throws {
-        apps = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(Bool.self, forKey: .apps) ?? false
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        apps = try c.decodeIfPresent(Bool.self, forKey: .apps) ?? false
+        routes = try c.decodeIfPresent(Bool.self, forKey: .routes) ?? false
     }
+
+    /// Only the flags that are on, so a config from before routes writes the block it always wrote.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        if apps { try c.encode(true, forKey: .apps) }
+        if routes { try c.encode(true, forKey: .routes) }
+    }
+
+    var isOff: Bool { !apps && !routes }
 }
 
 /// Which path carries the EQ: a process tap in the daemon, or the HAL plug-in in Driver/.
@@ -226,6 +253,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
     case badPresetName(String)
     case filterUnstable(String, Int)
     case preferenceOutOfRange(String, String)
+    case badRoute(String, String)
 
     var description: String {
         switch self {
@@ -238,6 +266,7 @@ enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .filterUnstable(let key, let number):
             return "profile \"\(key)\": filter \(number) would be unstable at \(Int(Config.stabilityCheckRate / 1000)) kHz (its output would ring or grow without end); change its frequency or Q"
         case .preferenceOutOfRange(let key, let what): return "profile \"\(key)\" has \(what) outside the allowed range"
+        case .badRoute(let app, let why): return "route for \"\(app)\" \(why)"
         case .badPresetName(let name): return "preset name \"\(name)\" is not 1–\(Config.presetNameLength.upperBound) letters, digits, spaces or - _ . (or repeats another name)"
         }
     }
@@ -271,17 +300,30 @@ struct Config: Codable, Equatable {
     var hooks: [String: String]? = nil
     /// In order: the first rule whose app plays wins, unless several play at once.
     var apps: [AppRule]? = nil
+    /// One rule per app; nothing plays by them unless `experimental.routes` is on.
+    var routes: [RouteRule]? = nil
     var experimental: Experimental? = nil
     /// nil reads as tap, so a config from before driver mode means what it always meant.
     var mode: AudioMode? = nil
     var driver: DriverOptions? = nil
 
     var followsApps: Bool { experimental?.apps == true }
+    var followsRoutes: Bool { experimental?.routes == true }
     var audioMode: AudioMode { mode ?? .tap }
     var hidesWhileDefault: Bool { driver?.hideWhileDefault == true }
 
     mutating func setFollowsApps(_ on: Bool) {
-        experimental = on ? Experimental(apps: true) : nil
+        setExperimental { $0.apps = on }
+    }
+
+    mutating func setFollowsRoutes(_ on: Bool) {
+        setExperimental { $0.routes = on }
+    }
+
+    private mutating func setExperimental(_ edit: (inout Experimental) -> Void) {
+        var flags = experimental ?? Experimental()
+        edit(&flags)
+        experimental = flags.isOff ? nil : flags
     }
 
     static let presetNameLength = 1...32
@@ -339,6 +381,21 @@ struct Config: Codable, Equatable {
         for (name, profile) in (presets ?? [:]).sorted(by: { $0.key < $1.key }) {
             guard Self.isValidPresetName(name), seen.insert(name.lowercased()).inserted else { throw ConfigError.badPresetName(name) }
             try Self.validate(profile: profile, key: "preset \(name)")
+        }
+        try Self.validate(routes: routes ?? [])
+    }
+
+    private static func validate(routes: [RouteRule]) throws {
+        var apps = Set<String>()
+        for rule in routes {
+            guard !rule.app.isEmpty else { throw ConfigError.badRoute(rule.app, "names no app") }
+            guard apps.insert(rule.app.lowercased()).inserted else { throw ConfigError.badRoute(rule.app, "repeats: one rule per app") }
+            let range = RouteRule.outputCount
+            guard range.contains(rule.outputs.count) else {
+                throw ConfigError.badRoute(rule.app, "has \(rule.outputs.count) outputs, expected \(range.lowerBound)–\(range.upperBound)")
+            }
+            guard !rule.outputs.contains(where: \.isEmpty) else { throw ConfigError.badRoute(rule.app, "has an empty output") }
+            guard Set(rule.outputs).count == rule.outputs.count else { throw ConfigError.badRoute(rule.app, "lists an output twice") }
         }
     }
 

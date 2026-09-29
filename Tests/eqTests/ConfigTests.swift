@@ -199,3 +199,75 @@ final class ConfigModeTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(Config.self, from: JSONSerialization.data(withJSONObject: json)))
     }
 }
+
+final class RouteRulesConfigTests: XCTestCase {
+    private let spotify = RouteRule(app: "com.spotify.client", outputs: ["EB-06-EF-24-61-CF:output", "BuiltInSpeakerDevice"])
+
+    private func config(_ routes: [RouteRule]) -> Config {
+        var config = Config.initial(builtInUID: nil, builtInName: nil)
+        config.routes = routes
+        return config
+    }
+
+    func testRulesAndTheFlagRoundTripAndStayOutOfAPlainConfig() throws {
+        let plain = Config.initial(builtInUID: nil, builtInName: nil)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(plain), as: UTF8.self).contains("routes"))
+        XCTAssertFalse(plain.followsRoutes)
+
+        var config = config([spotify])
+        config.setFollowsRoutes(true)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
+        XCTAssertEqual(json["experimental"] as? [String: Bool], ["routes": true])
+        XCTAssertEqual((json["routes"] as? [[String: Any]])?.first?["outputs"] as? [String], spotify.outputs)
+        XCTAssertEqual(try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(config)), config)
+    }
+
+    func testTheTwoFlagsAreIndependent() throws {
+        var config = config([spotify])
+        config.setFollowsApps(true)
+        config.setFollowsRoutes(true)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
+        XCTAssertEqual(json["experimental"] as? [String: Bool], ["apps": true, "routes": true])
+        config.setFollowsApps(false)
+        XCTAssertTrue(config.followsRoutes, "turning apps off leaves routes on")
+        XCTAssertFalse(config.followsApps)
+        config.setFollowsRoutes(false)
+        XCTAssertNil(config.experimental)
+        XCTAssertEqual(config.routes, [spotify], "the flag off keeps the rules")
+    }
+
+    func testAHandWrittenBlockWithOnlyAppsLeavesRoutesOff() throws {
+        let text = #"{"version":1,"enabled":true,"default":{"preamp":0,"bands":[0,0,0,0,0,0,0,0,0,0]},"devices":{},"experimental":{"apps":true}}"#
+        let config = try JSONDecoder().decode(Config.self, from: Data(text.utf8))
+        XCTAssertTrue(config.followsApps)
+        XCTAssertFalse(config.followsRoutes)
+    }
+
+    func testValidRulesPass() {
+        XCTAssertNoThrow(try config([spotify, RouteRule(app: "com.google.Chrome", outputs: ["a", "b", "c", "d"])]).validate())
+    }
+
+    func testOneToFourDistinctOutputsAndOneRulePerApp() {
+        let bad: [(RouteRule, String)] = [
+            (RouteRule(app: "com.spotify.client", outputs: []), "has 0 outputs, expected 1–4"),
+            (RouteRule(app: "com.spotify.client", outputs: ["a", "b", "c", "d", "e"]), "has 5 outputs, expected 1–4"),
+            (RouteRule(app: "com.spotify.client", outputs: ["a", "b", "a"]), "lists an output twice"),
+            (RouteRule(app: "com.spotify.client", outputs: ["a", ""]), "has an empty output"),
+            (RouteRule(app: "", outputs: ["a"]), "names no app"),
+        ]
+        for (rule, why) in bad {
+            XCTAssertThrowsError(try config([rule]).validate()) {
+                XCTAssertEqual($0 as? ConfigError, .badRoute(rule.app, why))
+            }
+        }
+        XCTAssertThrowsError(try config([spotify, RouteRule(app: "COM.Spotify.Client", outputs: ["a"])]).validate()) {
+            XCTAssertEqual($0 as? ConfigError, .badRoute("COM.Spotify.Client", "repeats: one rule per app"))
+            XCTAssertEqual("\($0)", "route for \"COM.Spotify.Client\" repeats: one rule per app")
+        }
+    }
+
+    func testRulesMatchBundleIDsWithoutRegardToCase() {
+        XCTAssertTrue(spotify.matches("COM.SPOTIFY.CLIENT"))
+        XCTAssertFalse(spotify.matches("com.spotify.client.helper"))
+    }
+}
