@@ -73,8 +73,8 @@ coreaudiod's own, rewritten while it runs, and nothing reads the entry once the 
 | --- | --- |
 | `eq` | the curve in effect on the current output |
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
-| `eq watch [--zones]` | the live equalizer in the terminal; tune from the keyboard, `?` lists every key, `q` quits |
-| `eq tui [meter] [--zones]` | the terminal UI, opened on its meter view: today the same screen as `eq watch` |
+| `eq watch [--zones] [--look LOOK] …` | the live equalizer in the terminal; tune from the keyboard, `?` lists every key, `y` switches the look, `q` quits; the flags are under [Looks](#looks) |
+| `eq tui [meter] [--zones] [--look LOOK] …` | the terminal UI, opened on its meter view: today the same screen as `eq watch` |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
@@ -335,40 +335,80 @@ quitting, `eq undo` returns to the curve from before the session.
 ## Watch
 
 ```
-     BE-RCA · 44.1 kHz · preamp -4.8 dB · favourite* · peak -3.2 dB
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+   ╭─ meter ─────────────────────────────────────────────── dBFS · gain dB ╮
+   │  0 ┤        ▔▔▔                                                  ├+12 │
+   │ -6 ┤  ▔▔▔   ░░░   ▔▔▔                                                 │
+   │       ▅▅▅         ░░░                                                 │
+   │-12 ┤                    ▔▔▔   ▔▔▔   ▔▔▔                               │
+   │      ⢀⠔⠑⠢⢄⣀⠔⠊⠑⠢⣀⣀⠤⠒⠢⡀               ▄▄▄   ▔▔▔                    ├+6  │
+   │      ⠊              ⠈⠢⢄⣀⣀⡀    ███         ▂▂▂   ▔▔▔   ⢀⡀              │
+   │-24 ┤                     ⠈⠢⡀                    ░░░ ⢀⠔⠁⠈⠢⡀  ⡔⢢        │
+   │                            ⠈⠑⠤⣀               ⣀⣀⣀⠤⠔⠊⠁ ▃▃▃⠈⠉⠉ ⠈⢆⣀⣀     │
+   │      ┈   ┈┈┈   ┈┈┈   ┈┈┈   ┈┈┈ ⠉⠒⠤⡀┈   ┈⡠⠔⠒⠊⠉⠉┈┈   ┈┈┈   ┈┈┈▔▔▔┈┈├ 0  │
+   │-36 ┤                              ⠈⠢⣀⣀⠔⠉                    ▂▂▂       │
+   │                                                                       │
+   │                                                                  ├-6  │
+   │-48 ┤                                                                  │
+   │                                                                       │
+   │                                                                       │
+   │-60 ┤                                                             ├-12 │
+   ╰───────────────────────────────────────────────────────────────────────╯
+           -9    -8    -11   -15   -19   -17   -22   -26   -29   -37
+          32Hz  64Hz  125Hz 250Hz 500Hz 1kHz  2kHz  4kHz  8kHz  16kHz
+          +4.8  +4.0  +4.2  +2.3   0.0  -3.1   0.0   0.0  +3.1  +2.4
 
-         ▆▆▆    ▆▆▆
-         ███    ███    ▇▇▇
-         ███    ███    ███
-         ███    ███    ███    ███
-         ▬▬▬    ███    ███    ███           ░░░
-         ███    ▬▬▬    ▬▬▬    ███    ███    ▆▆▆    ▁▁▁
-         ███    ███    ███    ▬▬▬    ███    ███    ███           ▬▬▬    ▬▬▬
-         ███    ███    ███    ███    ███    ███    ███    ▄▄▄    ▂▂▂
-         ███    ███    ███    ███    ▬▬▬    ███    ▬▬▬    ▬▬▬    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ▬▬▬    ███    ███    ███    ▄▄▄
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-         ███    ███    ███    ███    ███    ███    ███    ███    ███    ███
-          -4     -4     -7    -13    -19    -20    -22    -27    -28    -37
-        32Hz   64Hz  125Hz  250Hz  500Hz   1kHz   2kHz   4kHz   8kHz  16kHz
-        +4.8   +4.0   +4.2   +2.3   +0.0   -3.1   +0.0   +0.0   +3.1   +2.4
+ 1…0  band   ⇧  down   z  zones off   i  instruments   ?  keys   q  quit
 ```
 
-`eq watch` draws all ten bands live at ~30 fps: `█`, in the gain's own colour, is the level
-after the EQ; `░` shows where the input reaches above it (a cut); `▬` marks the slider
-position from the curve. The row of numbers under the bars is each band's level in dBFS
-after the EQ, `·` when it is silent. A band louder than −6 dBFS turns to the bright shade of
-its colour, so the bands close to clipping stand out. It fits any terminal size: narrower
-bars and short labels first, then the highest bands drop off with a note to widen the
-window. Resizing the terminal redraws the whole frame for the new size. `eq stream` is the
-same numbers as JSON lines instead, for anyone who wants to draw their own. Both need a
-running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
+`eq watch` draws all ten bands live at ~30 fps, in one of two looks (above as text; the bars are
+painted cells, so `cat docs/design/tui/actual/studio-meter-120x40.ans` shows it in colour).
+**studio**, the default, puts the bands in a panel: each bar is painted by height, green below
+−18 dBFS, amber up to −6, red above, with `░` where the input reaches above the output (a cut)
+and a tick `▔` holding each band's peak for 1.5 s before it falls at the IEC Type I rate (20 dB
+in 1.7 s). Over the bars the EQ's response is drawn in braille from the band gains, as the daemon
+runs them (peaking filters, Q 1.41, at the device's rate), with the boost tinted green and the cut
+magenta against the 0 dB line; the dBFS scale is on the left and the gain scale on the right.
+Under the panel come each band's level in dBFS (`·` when silent), its label, and its gain as a
+chip. At 110 columns and wider a column of gauges sits beside it: output peak and limiter,
+compressor reduction and colour, bass, treble and tilt, and the eight instrument knobs.
+**console** draws a mixing desk instead: a channel strip per band with a paper label, an LED
+ladder whose unlit segments stay faintly lit, an amber readout and a fader whose cap sits at the
+band's gain; SOLO, BYPASS and LIMIT are lamps in the header rail, and at 110 columns a master
+section shows the compressor's gain reduction as a needle in a backlit window, with its lamps,
+the peak, the preamp and a knob for tone and each instrument. `y` switches the look, `Y` the
+palette, and both are remembered.
+
+Below 60 columns or 12 rows both looks fall back to compact rows in their own colours: narrower
+bars and short labels first, then the highest bands drop off with a note to widen the window.
+Resizing the terminal redraws the whole frame for the new size. `eq stream` is the same numbers as
+JSON lines instead, for anyone who wants to draw their own. Both need a running daemon; `watch`
+needs a TTY and exits on `q` or Ctrl-C.
+
+### Looks
+
+| Setting | Flag (`eq watch`, `eq tui`) | `eq.json` | Values | Default |
+| --- | --- | --- | --- | --- |
+| look | `--look LOOK` | `tui.look` | `studio`, `console` | `studio` |
+| palette | `--palette PALETTE` | `tui.palette` | `auto`, `ink`, `paper`, `brass` | `auto`: `ink` for studio, `brass` for console |
+| colours | `--colors DEPTH` | `tui.colors` | `auto`, `24bit`, `256`, `16`, `none` | `auto` |
+| meter | `--meter STYLE` | `tui.meter` | `auto`, `bars`, `leds` | the look's: bars in studio, LEDs in console |
+| response curve | `--curve`, `--no-curve` | `tui.curve` | `true`, `false` | on in studio, off in console |
+| scales | `--scale`, `--no-scale` | `tui.scale` | `true`, `false` | on |
+| peak hold | `--peaks`, `--no-peaks` | `tui.peaks` | `true`, `false` | on |
+| ground | `--background GROUND` | `tui.background` | `terminal`, `theme` | `terminal` |
+
+A flag holds for that run, `eq.json` holds until changed, and `y` (`н`) and `Y` (`Н`) write
+`tui.look` and `tui.palette` there as `m` writes `tui.mouse`. `auto` colours means: `NO_COLOR`
+or `TERM=dumb` give none, `COLORTERM=truecolor` (or `24bit`, which tmux sets in every pane and
+then converts itself for an older terminal) gives 24-bit, a `TERM` ending in `-direct` too, a
+`TERM` with `256color` gives 256, anything else the terminal's sixteen. Each palette colour has a
+hand-picked stand-in at sixteen colours rather than a conversion: green still means a boost,
+magenta a cut, yellow a warning, red a failure. With no colour at all the look stays and reverse
+video carries what colour did: the bars, the chips, the flags. `NO_COLOR` and `TERM=dumb` win over
+any flag. The default ground is the terminal's own, so a translucent terminal stays translucent
+and only panels, chips and tints are painted; `--background theme` paints the palette's ground
+under everything, which the light `paper` palette needs on a dark terminal.
 
 ### Keys
 
@@ -427,9 +467,9 @@ stand still cost no output at all.
 
 A step edits the current device's profile — the same one `eq set` would: the daemon's device,
 else the default output — clamps to ±12 dB (preamp −30…+12), and saves at once; the daemon
-picks it up and the slider marker moves on the next frame, while the band's label flashes
-bold. When the edit cannot be saved (no config yet, say), the reason shows dim in the message
-row for two seconds. Every letter key works from the same physical key on a Russian
+picks it up and the curve moves on the next frame, while the band's gain chip turns solid for
+half a second (the console's fader cap lights up). When the edit cannot be saved (no config yet,
+say), the reason shows in the message row behind a `✗` for two seconds. Every letter key works from the same physical key on a Russian
 layout, as the table's middle column shows. Three keys collide there, and the US meaning wins:
 Shift+7 types `?`, the key list, so band 7 (2 kHz) is lowered from a US layout; Shift+4 types
 `;`, the palette's key, so band 4 (250 Hz) is too; and the key that types `?` on a US layout
@@ -437,8 +477,11 @@ types `,`, which turns the knob down, so `h` (`р`) opens the key list there.
 
 The header names the device's preset after the preamp, with the yellow `*` once the curve has
 moved away from it. Bass, treble and tilt follow it when set: `bass +3 treble -2`, then the
-instrument knobs that are set, and the focused one even at 0: `voice +3.0`, then the
-compressor with its live reduction and the colour: `night comp -3.2 · tape 0.3`. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
+instrument knobs that are set, each behind a dot in its colour, and the focused one even at 0:
+`● voice +3.0`, then the compressor with its live reduction and the colour:
+`night comp -3.2 │ tape 0.3`. The peak sits at the right edge, and SOLO, BYPASS and LIMIT as solid
+flags after it; LIMIT stays lit a third of a second after the limiter lets go, so a one-frame
+limit is seen. `p` applies the presets in turn, as `eq preset use` would. `u` walks back
 through this session's steps, preset changes included, one per press, until the curve is as it
 was when the session started; it does not reach past the session — that is `eq undo`. `s`
 turns the message row into `save as: ▏`; while it is open every key types into it, digits
@@ -446,29 +489,35 @@ included, Backspace deletes, and a bad name shows its error in the same line for
 
 ### Instruments
 
-`z` (or `eq watch --zones`) opens a strip inside the meter, directly above the level row: one
-row per instrument — kick, bass, snare, guitar, piano, voice, cymbals, air — with each of its
+`z` (or `eq watch --zones`) opens a strip under the gain chips (in the compact rows, directly
+above the level row): one row per instrument — kick, bass, snare, guitar, piano, voice, cymbals, air — with each of its
 ranges drawn as a `━` span on the same frequency axis as the bars. A bar stands for the octave
 around its band, so a range that starts at 85 Hz begins between the 64 Hz and 125 Hz bars, not
 on either. Neighbouring ranges of one instrument are kept apart by a gap, and a range's name
-(`F1`, `thump`, `sibilance`) is written into its span when it fits. The spans are dim except
-near the instrument's loudest band, which lends them its bar's colour. The strip takes its rows
-from the meter, which keeps at least four; on a short terminal the lowest instruments drop.
+(`F1`, `thump`, `sibilance`) is written into its span when it fits. Each instrument has its own
+colour, warm to cool from kick to air, the same in the strip, the bracket, the knobs and the
+instrument table; a row is in full colour while any of its bands is above −20 dBFS and faded
+otherwise. The strip takes its rows from the meter; on a short terminal the lowest instruments
+drop.
 `eq zones` prints the same table in Hz with the bands each range touches.
 
 ```
-    BE-RCA · 44.1 kHz · preamp -1.5 dB · favourite* · peak -6.0 dB · focus: voice (85 Hz–9 kHz) SOLO
-                           ┌────────────┐ ┌─── F1 ────┐ ┌── F2 ──┐ ┌──────┐ ┌────┐
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ focus: voice (85 Hz–9 kHz)     peak -6.0 dB  SOLO
+╭─ meter ─────────────────────────────────────────────────────────────────── dBFS · gain dB ╮╭─ output ────────────────╮
+│                    ┌────────────┐ ┌─── F1 ────┐ ┌── F2 ──┐ ┌──────┐ ┌────┐                ││ peak ███████████·▏  -6.0│
                ...
-  voice                    ━━━━━━━━━━━━━━ ━━━━ F1 ━━━━━ ━━━ F2 ━━━ ━━━━━━━━ ━━━━━━
-               -24     -24     -24     -24     -24      -9     -24     -24     -24     -24
-              32Hz    64Hz   125Hz   250Hz   500Hz    1kHz    2kHz    4kHz    8kHz   16kHz
+         -9      -8      -11     -15     -19     -17     -22     -26     -29     -37
+        32Hz    64Hz    125Hz   250Hz   500Hz   1kHz    2kHz    4kHz    8kHz    16kHz
+        +4.8    +4.0    +4.2    +2.3     0.0    -3.1     0.0     0.0    +3.1    +2.4
+ vox                 ━━━━━━━━━━━━━━ ━━━━ F1 ━━━━━ ━━━ F2 ━━━ ━━━━━━━━ ━━━━━━
+ ! listening to voice alone: 85 Hz–9 kHz — l again or Esc to stop
 ```
 
 `]` or `Tab` focuses the next instrument, `[` the previous one, `Esc` lets go. While focused,
 the header says `focus: voice (85 Hz–9 kHz)`, a bracket row above the bars marks each of its
-ranges — the character range bright, the rest dim — the bars, labels and gains of bands it does not touch turn dim, and its level numbers
-turn bright. The strip, when open, shows only that instrument. Digit keys still name all ten
+ranges in the instrument's colour — the character range bright, the rest faded — the bars,
+labels and gains of bands it does not touch fade toward the ground, its level numbers turn bold,
+and the panel's border and the instrument's knob row light up. The strip, when open, shows only that instrument. Digit keys still name all ten
 bands, but a band outside the focus is refused with `outside voice — Esc to unfocus` in the
 message row, so tuning stays on the instrument. A band belongs to the focus when any of the
 instrument's ranges overlaps the octave around the band's centre, which is why voice reaches
@@ -476,7 +525,7 @@ down to the 64 Hz band.
 
 `l` listens to the focus alone: the daemon adds a steep high-pass and low-pass at the edges
 of the instrument's character range (voice is heard at 2–5 kHz, not across its whole
-85 Hz–9 kHz, which isolates little), and the header shows a yellow `SOLO` for as long as the daemon reports
+85 Hz–9 kHz, which isolates little), and the header shows a yellow `SOLO` flag for as long as the daemon reports
 it. Switching focus moves the solo to the new instrument. `l` again, `Esc` and `q` switch it
 off; so does the watch going away in any other way, since the daemon drops a solo the moment
 the client that asked for it disconnects. At a rate too low for the focus (air on a headset
@@ -572,7 +621,8 @@ yellow for a warning or a device on the default profile, red for a failure. `eq`
 other curve-printing commands add a spark row of block glyphs above the band labels, so the
 curve's shape reads at a glance. Piped or redirected output has no colour and no spark row,
 so it keeps the three-line shape above; `NO_COLOR` or `TERM=dumb` turn colour off on a
-terminal too.
+terminal too. `eq watch` and `eq tui` go further where the terminal can: 24-bit or 256 colours,
+with these sixteen as the fallback (see [Looks](#looks)).
 
 `eq --help` is grouped into look, tune and setup, with commands bold, flags cyan and
 placeholders such as `DEVICE` yellow; descriptions wrap inside their column at the terminal's

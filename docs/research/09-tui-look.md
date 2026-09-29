@@ -171,3 +171,105 @@ Reading it:
   41 KB — once, not per frame; its moving parts only switch LED colours.
 - 24-bit SGR is ~19 bytes (`ESC[38;2;255;64;99m`), 256 is ~11, 16 is 5. A per-style cache of
   ready byte strings (btop's precomputed gradient strings) keeps the CPU side flat.
+
+## 5. M2b as built: the renderer against the mocks [measured]
+
+The looks are drawn by `Sources/eq/TUI/` (`StudioView`, `ConsoleView`, `Overlay`, `ShellViews`)
+from the tokens in `Theme.swift`; `classic` is gone, its layout kept only as the compact rows
+both looks fall back to below 60 columns or 12 rows. Screens from the real renderer, at the same
+states as the mocks (`base_state`, `zones_state`, `focus_state`), are in
+`docs/design/tui/actual/` as `.ans` files and in `actual/preview.html`, the mocks' own viewer;
+`EQ_WRITE_SCREENSHOTS=1 swift test --filter TUILookTests` writes them again. Their text and
+styles are pinned by golden files in `Tests/eqTests/Fixtures/tui/` (`studio-*`, `console-*`,
+plus 256, 16 and monochrome variants of the meter at 120×40).
+
+Where the built screens differ from the mocks, and why:
+- **No tab row.** Tabs belong to M3; the meter takes that row, so the mocks' 120×36 screens are
+  one meter row taller when built.
+- **The status bar keeps `focus: voice (85 Hz–9 kHz)`**, today's header segment, after the
+  knobs; it drops last among the segments, after the peak and then the flags, as the old header
+  dropped its focus last. The device chip is followed by a blank, not a `│`, as in the mock.
+- **Key list**: the full description of each key from the key table, wrapped under itself,
+  instead of the mocks' shortened lines; the groups are split into two columns where their rows
+  balance. At 120×36 the list is 30 rows and fits once the box takes the whole body (the mock left
+  a blank row above). No `/ filter` yet (M3). `Look` lists `y Y` for two looks, not three.
+- **Instrument table** is the M1 overlay over the faded meter, not the M3 view: no "now"
+  mini-meter, the selected rows are the focused instrument's (none without a focus), and the
+  title counts 17 ranges (the mock said 15, a slip). The `▸` and the hue dot sit two columns
+  apart; in the mock the dot overwrote the marker.
+- **Compact rows** below 60×12 (both looks) and a console that does not fit (strips narrower
+  than 5 columns, fewer than 3 LED rows): the watch's old rows in the palette's colours, bars
+  painted by height; no `▬` slider marker, since the gain chips and the curve carry the gain.
+- **The flat part of the curve** is drawn on the top dots of the 0 dB row's cells (`⠉`) while the
+  guide `┈` is mid-cell; the mocks' dot arithmetic is the same, it only showed less flat curve.
+- **Console on `ink` and `paper`**: the spec gives the console-only tokens (tape, LCD, window,
+  cap, lamps) for `brass`; `Y` cycles every palette on either look, so `ink` and `paper` carry
+  those tokens too, taken from brass where they are the hardware's colours (tape, window, LCD) and
+  from their own palette otherwise.
+- **Not mocked, built**: `--meter leds` in studio (the LED ladder in the bar columns),
+  `--meter bars` and `--curve` in console, `--no-scale`, `--no-peaks`, `--background theme`.
+- **Messages** carry their kind: an edit that failed `✗`, a refusal or the reconnect `!`, a look
+  switch `✓`. The mocks' "saved: band 1 kHz −3.0 dB" and "listening to voice alone" are sample
+  text; the model says neither, and the goldens pass them in as the scene's message.
+- **`palette auto`** is the look's own palette. Picking `paper` from the terminal's answer to
+  OSC 11 needs a query and a reply read back through tmux, which was not verified on the user's
+  stack; left for later.
+
+### Bytes and CPU in process
+
+`MeterBenchmarkTests`, 300 frames at 120×40 through `update`, `view` and the renderer, after a
+first full frame; "music" is §4's random walk with a kick on the low bands, "stress" moves every
+band to a random level every frame; release build (`swift test -c release -Xswiftc
+-enable-testing`). The test fails any row above 4.5 KB a frame.
+
+| Look | Colours | Motion | Bytes a frame | Full frame | ms a frame |
+| --- | --- | --- | --- | --- | --- |
+| studio | 24-bit | music | 1 197 | 13 479 | 0.27 |
+| studio | 24-bit | stress | 3 394 | 12 917 | 0.28 |
+| studio | 256 | music | 908 | 10 457 | 0.26 |
+| studio | 256 | stress | 2 683 | 10 083 | 0.28 |
+| studio | 16 | music | 705 | 7 331 | 0.25 |
+| studio | 16 | stress | 2 131 | 7 054 | 0.27 |
+| studio | none | music | 609 | 7 011 | 0.24 |
+| studio | none | stress | 1 954 | 6 704 | 0.26 |
+| console | 24-bit | music | 399 | 29 034 | 0.29 |
+| console | 24-bit | stress | 1 985 | 28 959 | 0.31 |
+| console | 256 | music | 336 | 23 261 | 0.29 |
+| console | 256 | stress | 1 700 | 23 302 | 0.30 |
+| console | 16 | music | 262 | 12 670 | 0.29 |
+| console | 16 | stress | 1 451 | 12 526 | 0.30 |
+| console | none | music | 234 | 10 279 | 0.29 |
+| console | none | stress | 1 369 | 10 064 | 0.30 |
+
+The simulation's numbers held: studio at 24 bits writes 1.2 KB a frame with music (simulated
+1.3 KB) and 3.4 KB in the stress case (4.0 KB); the full frame is smaller than simulated because
+the default ground is the terminal's and only surfaces are painted. The same benchmark at M2
+(`269150a`, the classic frame) took 0.14 ms a frame for 1.2 KB. The first build of the looks
+took 4 ms a frame in a debug build: every glyph asked the Unicode tables for its width
+(`isEmojiPresentation`, then `wcwidth`), every access to the theme copied the palette, and every
+blended colour worked out its xterm-256 index whether or not a 256-colour terminal would ask.
+Box drawing, blocks, arrows, braille and dashes now count one column without asking, each view
+keeps its theme, and the index is worked out on demand.
+
+### CPU on a pty
+
+The harness of research 08 §8 (a release build on a 120×40 pty, a fake meter socket in a scratch
+directory at 30 frames a second, `ps -o time=` over the run; never the live daemon), 30 s a run,
+the builds interleaved, with §4's "music" levels. The Mac was busy with other work (load 3–12,
+and for a while so throttled that every build, M2's included, wrote only 14 of the 30 frames a
+second; those runs are left out), so runs of one build spread by several points; the medians are
+what compares.
+
+| Build | Look, colours | Runs, CPU | Median | Bytes a frame |
+| --- | --- | --- | --- | --- |
+| M2 (`269150a`) | classic, 16 | 3.4, 3.5, 2.5, 3.1, 4.1 % | 3.4 % | 962 |
+| M2b | studio, 24-bit | 5.4, 2.4, 1.6, 3.6, 5.4 % | 3.6 % | 1 201 |
+| M2b | studio, 256 | 6.1, 1.9 % | — | 911 |
+| M2b | console, 24-bit | 6.9, 1.9, 2.5, 5.5, 5.5 % | 5.5 % | 396 |
+| M2 | silent | 3.4, 1.3 % | — | 0 |
+| M2b | studio, silent | 3.6, 1.2 % | — | 0 |
+
+Both looks stay inside the M2 budget (≤ 5.7 % CPU, ≤ 4.5 KB a frame) by median; single console
+runs went above it on the loaded machine. With silent levels nothing is written, as at M2, but
+the view is still built 30 times a second; skipping an unchanged frame before the view would
+bring the silent case toward zero and is the next saving to take.

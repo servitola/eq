@@ -5,7 +5,28 @@ its entries under a dated version.
 
 ## Unreleased
 
+### Added
+
+- `eq watch` and `eq tui` come in two looks. `studio`, the default: a boxed meter with bars
+  painted by height (green, amber, red at −18 and −6 dBFS), peak ticks that hold 1.5 s, the EQ's
+  response drawn over the bars in braille with boost and cut tinted, a dBFS and a gain scale,
+  gain chips, and at 110 columns a column of gauges (output, compressor, colour, tone, knobs).
+  `console`: a mixing desk of channel strips with tape labels, LED ladders, readouts and faders,
+  lamps for SOLO, BYPASS and LIMIT, and at 110 columns a master section with a gain-reduction
+  needle. Each instrument has one colour everywhere: strip, bracket, knobs, instrument table.
+- `y` switches the look and `Y` the palette (`ink`, `paper`, `brass`), remembered in eq.json as
+  `tui.look` and `tui.palette`; Russian `н` and `Н` do the same.
+- `--look`, `--palette`, `--colors 24bit|256|16|none`, `--meter bars|leds`, `--curve`/`--no-curve`,
+  `--scale`/`--no-scale`, `--peaks`/`--no-peaks` and `--background terminal|theme` for one run, and
+  the same names under `tui` in eq.json. Colour depth is read from `COLORTERM` and `TERM`;
+  `NO_COLOR` and `TERM=dumb` keep the look in monochrome, carried by reverse video.
+
 ### Changed
+
+- The watch's screen is new: the `▬` slider marker is gone (the curve and the gain chips show the
+  gains), the header is a bar of segments with the peak and flags at its right, the keys on the
+  keybar are keycaps, and a note in the message row is marked `✓`, `!` or `✗`. The key list and
+  the instrument table open as rounded panels over a faded meter. The keys are unchanged.
 
 - `eq watch` and `eq tui` draw only the cells that changed, each frame in one write wrapped in
   synchronized-update brackets: about 1.2 KB a frame at 120×40 with music instead of 7 KB, and
