@@ -18,6 +18,10 @@
 	<string>__VERSION__</string>
 	<key>CFBundleVersion</key>
 	<string>__BUILD__</string>
+	<key>EQDriverProtocol</key>
+	<integer>__PROTOCOL__</integer>
+	<key>EQDriverRevision</key>
+	<integer>__REVISION__</integer>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.4</string>
 	<key>CFPlugInFactories</key>

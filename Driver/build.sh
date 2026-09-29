@@ -17,6 +17,11 @@ done
 version=${APP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}
 [[ -n $version ]] || version=0.0.0-dev
 build=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+# eq installs the driver it bundles when this is higher than the installed one's, so only commits
+# that change what goes into the bundle count: a release that leaves it alone asks for no password.
+revision=$(git -C .. rev-list --count HEAD -- Driver/Source Driver/Info.plist Driver/build.sh Sources/EQCore 2>/dev/null || echo 0)
+protocol=$(awk '$1 == "#define" && $2 == "EQC_BLOB_VERSION" { print $3 }' ../Sources/EQCore/include/EQDriverProtocol.h)
+[[ $protocol =~ ^[0-9]+$ ]] || { echo "no EQC_BLOB_VERSION in EQDriverProtocol.h" >&2; exit 1; }
 
 common=(-O2 -g -Wall -Wextra -Werror -fvisibility=hidden -arch arm64 -arch x86_64 -mmacosx-version-min=14.4
         -I../Sources/EQCore/include)
@@ -41,7 +46,7 @@ xcrun clang++ $flags -bundle Source/Driver.cpp build/obj/EQCore.o build/obj/EQDr
   -o "$bundle/Contents/MacOS/EQDriver" -framework CoreAudio -framework CoreFoundation -framework IOKit -framework Security
 rm -rf build/EQDriver.dSYM
 mv "$bundle/Contents/MacOS/EQDriver.dSYM" build/
-sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" Info.plist > "$bundle/Contents/Info.plist"
+sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" -e "s/__REVISION__/$revision/" -e "s/__PROTOCOL__/$protocol/" Info.plist > "$bundle/Contents/Info.plist"
 plutil -lint -s "$bundle/Contents/Info.plist"
 
 xcrun clang -std=c17 -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=14.4 \
@@ -52,4 +57,4 @@ sign=(codesign --force --sign "$identity")
 $sign --identifier com.servitola.eq.driver "$bundle"
 $sign --identifier com.servitola.eq.probe build/probe
 codesign --verify --strict "$bundle" build/probe
-echo "built $bundle and build/probe ($version, build $build, identity: $identity)"
+echo "built $bundle and build/probe ($version, build $build, driver revision $revision, protocol $protocol, identity: $identity)"
