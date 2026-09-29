@@ -375,6 +375,38 @@ final class AppFollowerTests: XCTestCase {
         broken.configure(config())
         XCTAssertEqual(broken.status?.listening, false)
     }
+
+    func testAnAppRoutedAwayChoosesNothingOnTheMainPathAndChoosesAgainWhenItComesBack() {
+        follower.configure(config())
+        source.play(1, "com.spotify.client")
+        settle()
+        XCTAssertEqual(follower.overlay, spotifyMatch)
+
+        follower.routed(["COM.SPOTIFY.CLIENT"])
+        XCTAssertNil(follower.overlay, "at once, not after the quiet second")
+        XCTAssertEqual(changes.last?.previous, spotifyMatch)
+
+        source.play(2, "com.google.Chrome.helper")
+        settle()
+        XCTAssertEqual(follower.overlay, chromeMatch)
+        XCTAssertEqual(asked, 0, "a routed app is no tie")
+
+        source.quit(2)
+        settle()
+        follower.routed([])
+        XCTAssertEqual(follower.overlay, spotifyMatch)
+        let count = changes.count
+        follower.routed([])
+        XCTAssertEqual(changes.count, count, "the same set evaluates nothing")
+    }
+
+    func testRoutedAppsAreKeptWhileOff() {
+        follower.routed(["com.spotify.client"])
+        follower.configure(config())
+        source.play(1, "com.spotify.client")
+        settle()
+        XCTAssertNil(follower.overlay)
+    }
 }
 
 final class NowPlayingTests: XCTestCase {

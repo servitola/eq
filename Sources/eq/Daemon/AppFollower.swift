@@ -112,6 +112,7 @@ final class AppFollower {
     private let schedule: Debouncer.Schedule
     private var rules: [AppRule] = []
     private var config: Config?
+    private var routedAway: Set<String> = []
     // Bumped by every evaluation and by `stop`, so a now-playing answer that arrives late is dropped.
     private var generation = 0
 
@@ -163,6 +164,15 @@ final class AppFollower {
         quiet.trigger()
     }
 
+    /// Apps on a route engine: the main path does not carry them, so their rules do not choose its curve.
+    /// Settled at once, not after the quiet second, since the app has already left the main path.
+    func routed(_ apps: Set<String>) {
+        let ids = Set(apps.map { $0.lowercased() })
+        guard ids != routedAway else { return }
+        routedAway = ids
+        if enabled { evaluate() }
+    }
+
     /// The overlay ends now, and stays off while the same app keeps playing.
     func hold() -> AppMatch? {
         guard let overlay else { return nil }
@@ -204,7 +214,7 @@ final class AppFollower {
         let armed = generation
         var playing: [PlayingApp] = []
         for process in source.snapshot() where process.playing && process.pid != excluding {
-            if let app = identify(process), !playing.contains(app) { playing.append(app) }
+            if let app = identify(process), !routedAway.contains(app.id.lowercased()), !playing.contains(app) { playing.append(app) }
         }
         let candidates = AppResolver.candidates(rules: rules, playing: playing, config: config)
         guard candidates.count > 1 else {
