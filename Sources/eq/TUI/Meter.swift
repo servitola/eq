@@ -88,6 +88,7 @@ struct MeterModel: Program {
     /// Frames LIMIT stays lit after the daemon last reported limiting.
     private var limitLeft = 0
     let curve = CurveCache()
+    let chainCurve = ChainCurve()
 
     var view = TUIView.meter
     /// Where Esc goes back to, most recent last.
@@ -105,6 +106,9 @@ struct MeterModel: Program {
     var history: [String]
     var child: ChildOutput?
     var filterField: TextField?
+    var tune = TuneState()
+    /// The Tune view's value typed in the message row.
+    var entry: TextField?
     /// Whether the last update changed what the screen shows.
     private(set) var needsRedraw = true
 
@@ -152,7 +156,7 @@ struct MeterModel: Program {
         case .edited(let action, let failure):
             if let failure {
                 show(failure.split(separator: "\n").first.map(String.init) ?? "", failure.hasPrefix("nothing left") ? .warn : .error)
-            } else if case .bandStep(let band, _) = action {
+            } else if let band = Self.band(action) {
                 flash = Countdown(value: band, left: Watch.flashFrames + MeterScene.flashBlendFrames)
             }
             return [.refreshHeader]
@@ -219,11 +223,21 @@ struct MeterModel: Program {
     }
 
     /// The note, error or prompt of the moment lasts `noteFrames`; under it a running command
-    /// says so, and while the daemon is gone the reconnect message stays.
+    /// says so, and while the daemon is gone the reconnect message stays. On the Tune view an
+    /// empty row says what the selected control is and how it moves.
     var message: MeterScene.Message? {
         if let note { return note.value }
         if let child, child.status == nil, !child.shown { return MeterScene.Message(text: "running eq \(child.command) …") }
-        return retry != nil && wantsMeter ? MeterScene.Message(text: Watch.reconnecting, kind: .warn) : nil
+        if retry != nil && wantsMeter { return MeterScene.Message(text: Watch.reconnecting, kind: .warn) }
+        return view == .tune ? MeterScene.Message(text: TuneView.hint(tune.selected, app: last?.app)) : nil
+    }
+
+    /// The band an edit changed, for its chip to flash.
+    static func band(_ action: WatchAction) -> Int? {
+        switch action {
+        case .bandStep(let band, _), .adjust(.band(let band), _), .assign(.band(let band), _): return band
+        default: return nil
+        }
     }
 
     /// Before the first frame a view without levels still has a status bar to draw.
@@ -251,6 +265,7 @@ struct MeterModel: Program {
         scene.limiting = scene.live && (f.limiting || limitLeft > 0)
         scene.settings = look
         scene.curve = curve
+        scene.chainCurve = chainCurve
         scene.view = view
         scene.selected = selected
         scene.events = events
@@ -260,6 +275,8 @@ struct MeterModel: Program {
         scene.paletteValues = paletteValues
         scene.child = child
         scene.filterField = filterField
+        scene.tune = tune
+        scene.entry = entry
         return scene
     }
 
@@ -520,6 +537,18 @@ struct MeterModel: Program {
     // MARK: Keys
 
     private mutating func input(_ event: InputEvent) -> [MeterCmd] {
+        if case .mouse(let mouse) = event, view == .tune, modal == nil, !goMenu, palette == nil, prompt == nil, entry == nil,
+           child?.shown != true, let control = TuneView.control(at: mouse.x, mouse.y, size: size, look: look.look) {
+            switch mouse.action {
+            case .press where mouse.button == .left:
+                tune.select(control)
+                return []
+            case .wheelUp, .wheelDown:
+                tune.select(control)
+                return apply(.adjust(control, control.delta(mouse.action == .wheelUp ? KeyTable.step : -KeyTable.step)))
+            default: break
+            }
+        }
         if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left {
             guard mouse.y == 1, size.rows >= TabRow.minRows, palette == nil, prompt == nil,
                   let target = TabRow.view(at: mouse.x, width: size.cols, current: view) else { return [] }
@@ -533,6 +562,22 @@ struct MeterModel: Program {
             case .submit(let name):
                 prompt = nil
                 return apply(.savePreset(name))
+            case .ignored: break
+            }
+            return []
+        }
+        if var field = entry {
+            switch field.handle(event) {
+            case .editing: entry = field
+            case .cancel: entry = nil
+            case .submit(let text):
+                entry = nil
+                guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+                guard let value = tune.selected.parse(text) else {
+                    show("not a value for \(tune.selected.name): \"\(text)\"", .error)
+                    return []
+                }
+                return apply(.assign(tune.selected, value))
             case .ignored: break
             }
             return []
@@ -553,8 +598,8 @@ struct MeterModel: Program {
             return []
         }
         guard let key = Key(event) else { return [] }
-        let context = MeterScene.context(prompt: prompt, filter: filterField, palette: palette, go: goMenu, pane: child?.shown == true,
-                                         modal: modal, view: view)
+        let context = MeterScene.context(prompt: prompt, entry: entry, filter: filterField, palette: palette, go: goMenu,
+                                         pane: child?.shown == true, modal: modal, view: view)
         let action = KeyTable.action(for: key, in: context)
         if goMenu {
             guard case .go? = action else {
@@ -639,8 +684,13 @@ struct MeterModel: Program {
             if view == .instruments { return apply(.boost(Instruments.all[selected].name, delta)) }
             guard let instrument = focused else { show(Watch.listenNeedsFocus); break }
             return apply(.boost(instrument.name, delta))
+        case .tuneSelect(let delta): tune.move(delta)
+        case .tuneGroup(let delta): tune.jump(delta)
+        case .nudge(let size): return apply(.adjust(tune.selected, tune.selected.delta(size)))
+        case .tuneReset: return apply(.assign(tune.selected, 0))
+        case .tuneEntry: entry = TextField()
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
-             .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette:
+             .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign:
             return apply(action)
         }
         return []

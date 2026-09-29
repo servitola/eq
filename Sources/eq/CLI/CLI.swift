@@ -763,7 +763,7 @@ enum CLI {
             guard let config = try? loadConfig(ctx), let target = try? currentDevice(ctx) else { return Watch.Header() }
             let profile = config.profile(forDeviceUID: target.uid).profile
             return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments,
-                                dynamics: profile.dynamics, mouse: config.tui?.mouse == true)
+                                dynamics: profile.dynamics, mouse: config.tui?.mouse == true, profile: profile)
         }
 
         func apply(_ action: WatchAction) throws {
@@ -845,10 +845,15 @@ enum CLI {
                 profile = config.presets![next]!
                 profile.name = before.name
                 profile.preset = next
+            case .adjust(let control, let delta):
+                try control.adjust(&profile, by: delta)
+            case .assign(let control, let value):
+                try control.assign(&profile, value)
             case .undo, .savePreset, .startSave, .zones, .help, .quit,
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
                  .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
-                 .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend:
+                 .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend,
+                 .tuneSelect, .tuneGroup, .nudge, .tuneReset, .tuneEntry:
                 return nil
             }
             return profile == before ? nil : profile

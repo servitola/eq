@@ -26,6 +26,11 @@ enum WatchAction: Equatable {
     case stop
     /// Ctrl-Z: the runtime suspends before the key reaches the table; listed for the help and README.
     case suspend
+    /// The Tune view's keys: move the selection, jump a group, step the selected control by a
+    /// band's ±0.1, ±0.5 or ±3 dB, set it to 0 or off, type its value.
+    case tuneSelect(Int), tuneGroup(Int), nudge(Double), tuneReset, tuneEntry
+    /// A control moved by a step in its own units, or set outright.
+    case adjust(TuneControl, Double), assign(TuneControl, Double)
 }
 
 enum WatchKeys {
@@ -48,19 +53,23 @@ enum WatchKeys {
 }
 
 extension Key {
-    /// Arrows match whatever modifier came with them, as they always have; an Alt-letter, a
-    /// function key or a mouse click matches nothing yet.
+    /// Shift and Alt on ↑ and ↓ are keys of their own where a context binds them, and plain
+    /// arrows elsewhere, as every modifier on an arrow always was; an Alt-letter, a function key
+    /// or a mouse click matches nothing yet.
     init?(_ event: InputEvent) {
         switch event {
         case .key(let press):
             switch press.code {
             case .char("\r") where press.modifiers.isEmpty: self = .char("\n")
+            case .char("\u{08}") where press.modifiers.isEmpty: self = .char("\u{7F}")
             case .char(let c) where press.modifiers.isEmpty: self = .char(c)
             case .esc: self = .esc
-            case .up: self = .up
-            case .down: self = .down
+            case .up: self = press.modifiers.contains(.shift) ? .shiftUp : (press.modifiers.contains(.alt) ? .altUp : .up)
+            case .down: self = press.modifiers.contains(.shift) ? .shiftDown : (press.modifiers.contains(.alt) ? .altDown : .down)
             case .left: self = .left
             case .right: self = .right
+            case .backTab: self = .backTab
+            case .delete: self = .delete
             case .pageUp: self = .pageUp
             case .pageDown: self = .pageDown
             case .home: self = .home

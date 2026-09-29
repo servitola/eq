@@ -110,7 +110,7 @@ final class KeyTableTests: XCTestCase {
         XCTAssertFalse(Keybar.line(.meter, state: KeyState(), width: 400).contains("listen"), "l needs a focus")
         XCTAssertEqual(Keybar.line(.help, state: KeyState(), width: 80), "↑↓ scroll  Esc close")
         XCTAssertEqual(Keybar.line(.prompt, state: KeyState(), width: 80), "Enter save  Esc cancel")
-        XCTAssertEqual(Keybar.line(.go, state: KeyState(), width: 80), "m meter  i instruments  e events  Esc cancel")
+        XCTAssertEqual(Keybar.line(.go, state: KeyState(), width: 80), "m meter  t tune  i instruments  e events  Esc cancel")
         XCTAssertEqual(Keybar.line(.palette, state: KeyState(), width: 80), "Tab complete  ↑↓ choose  Enter run  Esc close")
         XCTAssertEqual(Keybar.line(.instruments, state: KeyState(), width: 200),
                        "↑↓ move  Enter focus  ← → knob  l listen off  Esc back  u undo  y look  m mouse off  g go  ; cmd  ? keys  q quit")

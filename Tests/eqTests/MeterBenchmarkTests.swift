@@ -102,6 +102,16 @@ final class MeterBenchmarkTests: XCTestCase {
                 XCTAssertLessThan(m.perFrame, 4500, "the Instruments view's mini-meters too; \(look) \(motion)")
             }
         }
+        for look in Look.allCases {
+            for depth in ColorDepth.allCases {
+                for motion in Motion.allCases {
+                    let m = Self.measure(look: look, depth: depth, motion: motion, view: .tune)
+                    table.append(String(format: "| %@, tune view | %@ | %@ | %.0f | %d | %.2f |", look.rawValue, depth.rawValue, motion.rawValue,
+                                        m.perFrame, m.full, m.ms))
+                    XCTAssertLessThan(m.perFrame, 4500, "the Tune view's mini-meters and output; \(look) \(depth) \(motion)")
+                }
+            }
+        }
         print(table.joined(separator: "\n"))
     }
 }

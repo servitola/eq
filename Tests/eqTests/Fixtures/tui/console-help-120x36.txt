@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
-  METER   INSTRUMENTS   EVENTS                                                                              g go  ; cmd
+  METER   TUNE   INSTRUMENTS   EVENTS                                                                       g go  ; cmd
     ╭─ keys ─────────────────────────────────────────────────────────────────────────────────────────── meter view ╮──╮
    0│                                                                                                              │  │
   -6│  Tune ───────────────────────────────────────────────  Look ───────────────────────────────────────────────  │  │
@@ -9,28 +9,28 @@
  -18│             on a US layout                                                                                   │  │
     │   + -       preamp ±0.5 dB (= and _ work too, no       Go to ──────────────────────────────────────────────  │  │
     │             Shift needed)                               g m       the meter                                  │  │
-    │   b B t T   bass / treble shelf +0.5 dB, with Shift     g i       the instruments, their knobs and levels    │  │
- -30│             −0.5 dB                                     g e       the daemon's events as they happen         │  │
-    │   p ↓ ↑     next preset (p, ↓) / previous one (↑),      Esc       stay; any other key does too               │  │
-    │             alphabetically, wrapping round                                                                   │  │
-    │   c         compressor: off → gentle → night → off     Command palette ────────────────────────────────────  │LT│
- -42│   v V       colour: off → tape → tube → off, starting   Enter     run the chosen line: an eq command as a    │  │
-    │             at 0.3 / raise the amount by 0.1, from 1              child process, or a screen action          │  │
-    │             back to 0.1                                 Tab       take the chosen suggestion into the line   │  │
-    │   s         save the curve as a preset: type a name,    ↑ ↓       choose a suggestion; with the line empty,  │R │
-    │             Enter saves, Esc cancels                              the last commands run come first           │  │
- -60│                                                         Esc       close it                                   │  │
-    │  Instruments ────────────────────────────────────────                                                        │X │
-    │   z         the instrument strip, on and off           Command output ─────────────────────────────────────  │  │
-    │   i         the Instruments view: ranges in Hz, the     ↑ ↓ j k   scroll                                     │  │
-    │             bands each touches, knob gains, levels;     Ctrl-C    stop the command                           │  │
-    │             Esc comes back                              Esc q     close it; a command still running is       │  │
-    │   ] Tab [   focus the next / previous instrument                  stopped                                    │  │
-    │   → ←       the focused instrument's knob ±0.5 dB (.                                                         │  │
-    │             and , work too, no Shift needed)           Russian layout ─────────────────────────────────────  │  │
-    │   l         listen to the focused instrument alone,    the same physical keys: й quits, я is zones, х ъ      │  │
-    │             and back                                   focus, ж the palette                                  │  │
-    │   Esc       leave the focus (and stop listening);      ⇧7 types ?, which is the key list: lower 2 kHz from   │  │
-    ╰───────────────────────────────────────────────── 1–29 of 47 ─────────────────────────────────────────────────╯──╯
+    │   b B t T   bass / treble shelf +0.5 dB, with Shift     g t       the curve to edit: bands as sliders,       │  │
+ -30│             −0.5 dB                                               preamp, tone, dynamics                     │  │
+    │   p ↓ ↑     next preset (p, ↓) / previous one (↑),      g i       the instruments, their knobs and levels    │  │
+    │             alphabetically, wrapping round              g e       the daemon's events as they happen         │  │
+    │   c         compressor: off → gentle → night → off      Esc       stay; any other key does too               │LT│
+ -42│   v V       colour: off → tape → tube → off, starting                                                        │  │
+    │             at 0.3 / raise the amount by 0.1, from 1   Command palette ────────────────────────────────────  │  │
+    │             back to 0.1                                 Enter     run the chosen line: an eq command as a    │  │
+    │   s         save the curve as a preset: type a name,              child process, or a screen action          │R │
+    │             Enter saves, Esc cancels                    Tab       take the chosen suggestion into the line   │  │
+ -60│                                                         ↑ ↓       choose a suggestion; with the line empty,  │  │
+    │  Instruments ────────────────────────────────────────             the last commands run come first           │X │
+    │   z         the instrument strip, on and off            Esc       close it                                   │  │
+    │   i         the Instruments view: ranges in Hz, the                                                          │  │
+    │             bands each touches, knob gains, levels;    Command output ─────────────────────────────────────  │  │
+    │             Esc comes back                              ↑ ↓ j k   scroll                                     │  │
+    │   ] Tab [   focus the next / previous instrument        Ctrl-C    stop the command                           │  │
+    │   → ←       the focused instrument's knob ±0.5 dB (.    Esc q     close it; a command still running is       │  │
+    │             and , work too, no Shift needed)                      stopped                                    │  │
+    │   l         listen to the focused instrument alone,                                                          │  │
+    │             and back                                   Russian layout ─────────────────────────────────────  │  │
+    │   Esc       leave the focus (and stop listening);      the same physical keys: й quits, я is zones, х ъ      │  │
+    ╰───────────────────────────────────────────────── 1–29 of 49 ─────────────────────────────────────────────────╯──╯
 
  ↑↓  scroll   Esc  close

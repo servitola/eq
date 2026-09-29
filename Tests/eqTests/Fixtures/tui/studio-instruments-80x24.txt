@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
-  Meter   Instruments   Events                                      g go  ; cmd
+  Meter   Tune   Instruments   Events                               g go  ; cmd
  ╭─ instruments ─────────────────────────────────── 8 instruments · 17 ranges ╮
  │     instrument            knob  level      range         Hz                │
  │ ▸ ● kick     ┄┄┄┄┄┼┄┄┄┄┄   0.0         · ◆ thump         50–100            │

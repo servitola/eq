@@ -32,6 +32,7 @@ struct MeterScene {
     var limiting = false
     var settings = LookSettings()
     var curve = CurveCache()
+    var chainCurve = ChainCurve()
     /// Set while an overlay covers the meter.
     var fade = 0.0
     var view = TUIView.meter
@@ -48,6 +49,8 @@ struct MeterScene {
     var paletteValues: [Completions.Kind: [String]] = [:]
     var child: ChildOutput?
     var filterField: TextField?
+    var tune = TuneState()
+    var entry: TextField?
 
     static let fadeFrames = 15
     static let flashBlendFrames = 9
@@ -85,6 +88,7 @@ struct MeterScene {
             switch view {
             case .meter where settings.look == .console && !compact: ConsoleView(scene: self).draw(into: &screen)
             case .meter: StudioView(scene: self, compact: compact).draw(into: &screen)
+            case .tune: TuneView(scene: self).draw(into: &screen)
             case .instruments: InstrumentsView(scene: self).draw(into: &screen)
             case .events: EventsView(scene: self).draw(into: &screen)
             }
@@ -117,13 +121,15 @@ struct MeterScene {
     }
 
     var keyContext: KeyContext {
-        Self.context(prompt: prompt, filter: filterField, palette: palette, go: goMenu, pane: child?.shown == true, modal: modal, view: view)
+        Self.context(prompt: prompt, entry: entry, filter: filterField, palette: palette, go: goMenu, pane: child?.shown == true,
+                     modal: modal, view: view)
     }
 
     /// Searched top-down: the text field or menu of the moment, the output pane, the overlay, then the view.
-    static func context(prompt: TextField?, filter: TextField?, palette: CommandPalette?, go: Bool, pane: Bool, modal: WatchModal?,
-                        view: TUIView) -> KeyContext {
+    static func context(prompt: TextField?, entry: TextField? = nil, filter: TextField?, palette: CommandPalette?, go: Bool, pane: Bool,
+                        modal: WatchModal?, view: TUIView) -> KeyContext {
         if prompt != nil { return .prompt }
+        if entry != nil { return .entry }
         if filter != nil { return .filter }
         if palette != nil { return .palette }
         if go { return .go }

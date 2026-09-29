@@ -190,6 +190,7 @@ struct ShellRows {
     /// The text field the message row holds: save as, the palette's line, the events filter.
     private var field: (String, TextField)? {
         if let prompt = scene.prompt { return (Watch.promptLabel, prompt) }
+        if let entry = scene.entry { return (scene.tune.selected.prompt, entry) }
         if let palette = scene.palette { return (": ", palette.field) }
         if let filter = scene.filterField { return ("filter: ", filter) }
         return nil

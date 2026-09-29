@@ -5,8 +5,18 @@ import Foundation
 enum Key: Hashable {
     case char(Character)
     case up, down, right, left, esc
+    case shiftUp, shiftDown, altUp, altDown, backTab, delete
     case pageUp, pageDown, home, end
     case wheelUp, wheelDown
+
+    /// The key a context without a binding of its own for this one takes it as.
+    var plain: Key? {
+        switch self {
+        case .shiftUp, .altUp: return .up
+        case .shiftDown, .altDown: return .down
+        default: return nil
+        }
+    }
 
     var name: String {
         switch self {
@@ -16,12 +26,19 @@ enum Key: Hashable {
         case .char("\u{03}"): return "Ctrl-C"
         case .char("\u{10}"): return "Ctrl-P"
         case .char("\u{1A}"): return "Ctrl-Z"
+        case .char("\u{7F}"): return "Backspace"
         case .char(let c): return String(c)
         case .up: return "↑"
         case .down: return "↓"
         case .right: return "→"
         case .left: return "←"
         case .esc: return "Esc"
+        case .shiftUp: return "⇧↑"
+        case .shiftDown: return "⇧↓"
+        case .altUp: return "Alt↑"
+        case .altDown: return "Alt↓"
+        case .backTab: return "⇧Tab"
+        case .delete: return "Del"
         case .pageUp: return "PgUp"
         case .pageDown: return "PgDn"
         case .home: return "Home"
@@ -35,11 +52,11 @@ enum Key: Hashable {
 /// Where a key is looked up: a view, or the modal on top of it. `global` is searched after any
 /// of them, so a view's own key shadows it.
 enum KeyContext: CaseIterable {
-    case meter, instruments, events
-    case help, prompt, go, palette, pane, filter
+    case meter, tune, instruments, events
+    case help, prompt, entry, go, palette, pane, filter
     case global
 
-    var isView: Bool { [.meter, .instruments, .events].contains(self) }
+    var isView: Bool { [.meter, .tune, .instruments, .events].contains(self) }
 }
 
 /// What the keybar needs to know to show a key's state, or whether to show it at all.
@@ -89,6 +106,8 @@ enum PhysicalKeys {
 /// palette's named actions and the README's key table.
 enum KeyTable {
     static let step = 0.5
+    static let coarse = 3.0
+    static let fine = 0.1
     private static let digits = "1234567890".map { Key.char($0) }
     private static let shiftedDigits = "!@#$%^&*()".map { Key.char($0) }
     private static func chars(_ text: String) -> [Key] { text.map { Key.char($0) } }
@@ -138,6 +157,33 @@ enum KeyTable {
                    label: "Esc", help: "leave the focus (and stop listening); with no focus, back to the view before",
                    bar: ("Esc", "unfocus"), rank: 8, when: { $0.focused }),
 
+        KeyBinding(context: .tune, group: "Tune view", keys: [.left, .right], actions: [.tuneSelect(-1), .tuneSelect(1)],
+                   label: "← →", help: "select the band, or the preamp, bass, treble, tilt, compressor, colour and its amount after them",
+                   bar: ("← →", "select"), rank: 1),
+        KeyBinding(context: .tune, group: "Tune view", keys: up + down, actions: [.nudge(step), .nudge(step), .nudge(step), .nudge(-step), .nudge(-step), .nudge(-step)],
+                   label: "↑ ↓ k j", help: "the selected control ±0.5 dB (tilt ±0.1 dB/octave, amount ±0.1, a mode the next one); lowers a band on any layout",
+                   bar: ("↑ ↓", "±0.5"), rank: 2),
+        KeyBinding(context: .tune, group: "Tune view", keys: [.shiftUp, .pageUp, .shiftDown, .pageDown],
+                   actions: [.nudge(coarse), .nudge(coarse), .nudge(-coarse), .nudge(-coarse)],
+                   label: "⇧↑ ⇧↓ PgUp PgDn", help: "±3 dB (tilt ±0.5, amount ±0.3)", bar: ("⇧↑↓", "±3"), rank: 3),
+        KeyBinding(context: .tune, group: "Tune view", keys: [.altUp, .altDown], actions: [.nudge(fine), .nudge(-fine)],
+                   label: "Alt↑ Alt↓", help: "±0.1 dB (tilt ±0.05, amount ±0.05)", bar: ("Alt↑↓", "±0.1"), rank: 7),
+        KeyBinding(context: .tune, group: "Tune view", keys: [.char("\n")], actions: [.tuneEntry],
+                   label: "Enter", help: "type the selected control's value in the message row: -3, 2.5, night, tape", bar: ("Enter", "exact"), rank: 4),
+        KeyBinding(context: .tune, group: "Tune view", keys: [.char("0"), .char("\u{7F}"), .delete], actions: [.tuneReset],
+                   label: "0 Backspace Del", help: "the selected control back to 0, a mode or the colour off", bar: ("0 Del", "reset"), rank: 5),
+        KeyBinding(context: .tune, group: "Tune view", keys: [.char("\t"), .backTab], actions: [.tuneGroup(1), .tuneGroup(-1)],
+                   label: "Tab ⇧Tab", help: "the next / previous group: bands, chain (preamp, tone, tilt), dynamics; each keeps its selection",
+                   bar: ("Tab", "group"), rank: 6),
+        KeyBinding(context: .tune, group: "Tune view", keys: Array(digits.prefix(9)), actions: (0..<9).map { .bandStep($0, step) },
+                   label: "1 … 9", help: "raise band 32 Hz … 8 kHz by 0.5 dB, as on the meter; 0 resets here, so 16 kHz goes up with ↑"),
+        KeyBinding(context: .tune, group: "Tune view", keys: shiftedDigits, actions: (0..<10).map { .bandStep($0, -step) },
+                   label: "⇧1 … ⇧0", help: "lower band 32 Hz … 16 kHz by 0.5 dB, as on the meter"),
+        KeyBinding(context: .tune, group: "Tune view", keys: chars("sS"), actions: [.startSave],
+                   label: "s", help: "save the curve as a preset", bar: ("s", "save"), rank: 9),
+        KeyBinding(context: .tune, group: "Tune view", keys: [.esc], actions: [.back],
+                   label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 8),
+
         KeyBinding(context: .instruments, group: "Instruments view", keys: up + down, actions: scroll,
                    label: "↑ ↓ j k", help: "move between the instruments", bar: ("↑↓", "move"), rank: 1),
         KeyBinding(context: .instruments, group: "Instruments view", keys: [.home, .pageUp, .end, .pageDown],
@@ -167,14 +213,14 @@ enum KeyTable {
                    label: "Esc", help: "clear the filter, then back to the view before", bar: ("Esc", "back"), rank: 4),
 
         KeyBinding(context: .global, group: "Every view", keys: chars("gG"), actions: [.goMenu],
-                   label: "g", help: "go to a view: m meter, i instruments, e events; a menu lists them", bar: ("g", "go"), rank: 18),
+                   label: "g", help: "go to a view: m meter, t tune, i instruments, e events; a menu lists them", bar: ("g", "go"), rank: 18),
         KeyBinding(context: .global, group: "Every view", keys: chars(";") + [.char("\u{10}")], actions: [.palette],
                    label: "; Ctrl-P", help: "the command palette: any eq command, run beside the screen", bar: (";", "cmd"), rank: 19),
         KeyBinding(context: .global, group: "Every view", keys: chars("uU"), actions: [.undo],
                    label: "u", help: "undo the last change made in this session, back to how it started", bar: ("u", "undo"), rank: 11,
                    palette: "undo in this session"),
         KeyBinding(context: .global, group: "Every view", keys: chars("mM"), actions: [.mouse],
-                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it and the wheel scrolls",
+                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune selects it, and the wheel scrolls a list or steps what it is over",
                    bar: ("m", "mouse"), rank: 17, state: { $0.mouse ? "on" : "off" }, palette: "mouse"),
         KeyBinding(context: .global, group: "Every view", keys: chars("?hH"), actions: [.help],
                    label: "? h", help: "the list of every key; ?, Esc or q closes it", bar: ("?", "keys"), palette: "keys"),
@@ -190,10 +236,12 @@ enum KeyTable {
 
         KeyBinding(context: .go, group: "Go to", keys: chars("m"), actions: [.go(.meter)], label: "g m",
                    help: "the meter", bar: ("m", "meter"), rank: 1, palette: "go meter"),
+        KeyBinding(context: .go, group: "Go to", keys: chars("t"), actions: [.go(.tune)], label: "g t",
+                   help: "the curve to edit: bands as sliders, preamp, tone, dynamics", bar: ("t", "tune"), rank: 2, palette: "go tune"),
         KeyBinding(context: .go, group: "Go to", keys: chars("i"), actions: [.go(.instruments)], label: "g i",
-                   help: "the instruments, their knobs and levels", bar: ("i", "instruments"), rank: 2, palette: "go instruments"),
+                   help: "the instruments, their knobs and levels", bar: ("i", "instruments"), rank: 3, palette: "go instruments"),
         KeyBinding(context: .go, group: "Go to", keys: chars("e"), actions: [.go(.events)], label: "g e",
-                   help: "the daemon's events as they happen", bar: ("e", "events"), rank: 3, palette: "go events"),
+                   help: "the daemon's events as they happen", bar: ("e", "events"), rank: 4, palette: "go events"),
         KeyBinding(context: .go, group: "Go to", keys: [.esc], actions: [.closeModal], label: "Esc",
                    help: "stay; any other key does too", bar: ("Esc", "cancel")),
 
@@ -224,6 +272,11 @@ enum KeyTable {
         KeyBinding(context: .prompt, group: "Save as", keys: [.esc], actions: [nil],
                    label: "Esc", help: "cancel", bar: ("Esc", "cancel")),
 
+        KeyBinding(context: .entry, group: "Value", keys: [.char("\n")], actions: [nil],
+                   label: "Enter", help: "set it", bar: ("Enter", "set")),
+        KeyBinding(context: .entry, group: "Value", keys: [.esc], actions: [nil],
+                   label: "Esc", help: "cancel", bar: ("Esc", "cancel")),
+
         KeyBinding(context: .filter, group: "Filter", keys: [.char("\n")], actions: [nil],
                    label: "Enter", help: "keep the filter", bar: ("Enter", "keep")),
         KeyBinding(context: .filter, group: "Filter", keys: [.esc], actions: [nil],
@@ -237,6 +290,8 @@ enum KeyTable {
         (.meter, .char(";"), .char("$"), "⇧4 types ;, the palette: lower 250 Hz from a US layout"),
         (.meter, .char(","), .char("?"), "the ? key types , which turns the knob down: h (р) is the key list"),
         (.instruments, .char(","), .char("?"), "on the Instruments view that , turns the selected knob down too"),
+        (.tune, .char("?"), .char("&"), "on the Tune view too ⇧7 is the key list: select 2 kHz and press ↓"),
+        (.tune, .char(";"), .char("$"), "and ⇧4 the palette: select 250 Hz and press ↓"),
     ]
 
     private static let lookup: [KeyContext: [Key: WatchAction]] = {
@@ -261,7 +316,7 @@ enum KeyTable {
     }()
 
     static func action(for key: Key, in context: KeyContext) -> WatchAction? {
-        lookup[context]?[key] ?? lookup[.global]?[key]
+        lookup[context]?[key] ?? lookup[.global]?[key] ?? key.plain.flatMap { action(for: $0, in: context) }
     }
 
     static func bindings(in context: KeyContext) -> [KeyBinding] { bindings.filter { $0.context == context } }
@@ -325,7 +380,7 @@ enum Keybar {
 /// The key list the help overlay shows for a view, grouped, and the README's key table.
 enum KeyHelp {
     /// The README's order: every view first, then each view, then the menus.
-    static let contexts: [KeyContext] = [.global, .meter, .instruments, .events, .go, .palette, .pane]
+    static let contexts: [KeyContext] = [.global, .meter, .tune, .instruments, .events, .go, .palette, .pane]
 
     static func contexts(for view: KeyContext) -> [KeyContext] {
         [view, .global, .go, .palette, .pane]
@@ -354,6 +409,7 @@ enum KeyHelp {
         switch context {
         case .global: return "every view"
         case .meter: return "Meter"
+        case .tune: return "Tune"
         case .instruments: return "Instruments"
         case .events: return "Events"
         case .go: return "after g"

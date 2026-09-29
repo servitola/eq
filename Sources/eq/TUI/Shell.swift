@@ -4,11 +4,12 @@ import Foundation
 /// The views the TUI switches between; each is reached by `g` and its letter, a click on its
 /// tab, or `go …` in the palette.
 enum TUIView: String, CaseIterable {
-    case meter, instruments, events
+    case meter, tune, instruments, events
 
     var title: String {
         switch self {
         case .meter: return "Meter"
+        case .tune: return "Tune"
         case .instruments: return "Instruments"
         case .events: return "Events"
         }
@@ -18,6 +19,7 @@ enum TUIView: String, CaseIterable {
     var context: KeyContext {
         switch self {
         case .meter: return .meter
+        case .tune: return .tune
         case .instruments: return .instruments
         case .events: return .events
         }

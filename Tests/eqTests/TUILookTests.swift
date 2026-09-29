@@ -108,6 +108,8 @@ final class TUILookTests: XCTestCase {
          ("\(look)-zones-120x36", scene(cols: 120, rows: 36, look: look, zones: true, flash: 5, message: saved)),
          ("\(look)-focus-120x36", scene(cols: 120, rows: 36, look: look, zones: true, focus: "voice", flash: 5, message: listening,
                                         solo: true)),
+         ("\(look)-tune-120x36", tune(scene(cols: 120, rows: 36, look: look, flash: 5, view: .tune), .band(5))),
+         ("\(look)-tune-80x24", tune(scene(cols: 80, rows: 24, look: look, view: .tune), .comp)),
          ("\(look)-instruments-120x36", scene(cols: 120, rows: 36, look: look, focus: "voice", view: .instruments)),
          ("\(look)-instruments-80x24", scene(cols: 80, rows: 24, look: look, view: .instruments)),
          ("\(look)-events-120x36", scene(cols: 120, rows: 36, look: look, view: .events)),
@@ -115,6 +117,14 @@ final class TUILookTests: XCTestCase {
          ("\(look)-go-120x36", { var s = scene(cols: 120, rows: 36, look: look); s.goMenu = true; return s }()),
          ("\(look)-palette-120x36", { var s = scene(cols: 120, rows: 36, look: look); s.palette = palette; return s }()),
          ("\(look)-output-120x36", { var s = scene(cols: 120, rows: 36, look: look, view: .events); s.child = output; return s }())]
+    }
+
+    /// The Tune view with `control` selected and its hint in the message row, as the model says it.
+    static func tune(_ scene: MeterScene, _ control: TuneControl) -> MeterScene {
+        var scene = scene
+        scene.tune.select(control)
+        scene.message = scene.message ?? MeterScene.Message(text: TuneView.hint(control, app: nil))
+        return scene
     }
 
     static let palette = CommandPalette(field: TextField("pre"), chosen: 0, history: [])
@@ -184,7 +194,7 @@ final class TUILookTests: XCTestCase {
             .replacingOccurrences(of: #""paper-meter-120x36": "light palette 120×36" };"#,
                                   with: #""paper-meter-120x36": "light palette 120×36", "meter-120x40": "meter 120×40", "#
                                       + #""instruments-80x24": "instruments 80×24", "events-120x36": "events 120×36", "go-120x36": "g menu 120×36", "#
-                                      + #""palette-120x36": "palette 120×36", "output-120x36": "command output 120×36" };"#)
+                                      + #""palette-120x36": "palette 120×36", "output-120x36": "command output 120×36", "tune-80x24": "tune 80×24" };"#)
             .replacingOccurrences(of: "Mock screens from <code>docs/design/tui/mocks.py</code>",
                                   with: "Screens from the real renderer (<code>EQ_WRITE_SCREENSHOTS=1 swift test --filter TUILookTests</code>)")
         try page.write(to: Self.actual.appendingPathComponent("preview.html"), atomically: true, encoding: .utf8)

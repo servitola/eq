@@ -80,6 +80,8 @@ enum Watch {
         var knobs: [String: Double]?
         var dynamics: Dynamics?
         var mouse = false
+        /// The whole curve, for the Tune view to show and step exactly.
+        var profile: Profile?
     }
 }
 
