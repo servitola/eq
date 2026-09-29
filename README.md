@@ -413,6 +413,10 @@ drag-to-select away from the terminal, and for now the wheel scrolls the two lis
 else. The table above is generated from the same key table the watch reads its keys from, and a
 test keeps the two equal.
 
+Ctrl-Z hands the terminal back to the shell and `fg` brings the screen back as it was. The
+terminal is put back the same way when the watch is closed with `kill`, loses its terminal, or
+crashes, so the shell is left usable.
+
 A step edits the current device's profile — the same one `eq set` would: the daemon's device,
 else the default output — clamps to ±12 dB (preamp −30…+12), and saves at once; the daemon
 picks it up and the slider marker moves on the next frame, while the band's label flashes

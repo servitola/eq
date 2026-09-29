@@ -688,7 +688,7 @@ enum CLI {
         do { try client.connect() } catch { throw CLIError.noMeter }
         client.input = 0
         TerminalText.useUTF8Widths()
-        LiveTerminal.enterRaw()
+        TerminalSession.enter()
         let session = WatchSession(ctx)
         var keys = KeyBuffer()
         let exitCode = Watch.run(source: client, size: { let t = ctx.terminal(); return (t.cols, t.rows) },
@@ -696,8 +696,8 @@ enum CLI {
                                  emit: LiveTerminal.emit, readKey: { keys.feed(LiveTerminal.drainInput()) },
                                  edit: session.apply, header: session.header,
                                  send: client.send,
-                                 mouse: { LiveTerminal.emit($0 ? Watch.mouseOn : Watch.mouseOff) })
-        LiveTerminal.leaveRaw()
+                                 invalidated: TerminalSession.takeRedraw, mouse: TerminalSession.setMouse)
+        TerminalSession.leave()
         client.close()
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
         output.exitCode = exitCode

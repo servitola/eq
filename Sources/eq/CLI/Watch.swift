@@ -640,16 +640,6 @@ enum WatchOverlay {
     }
 }
 
-// The SIGINT handler is a C function pointer and cannot capture, so the saved state lives here.
-private var savedTermios = termios()
-private var termiosSaved = false
-
-private func restoreTerminalAndExit(_: Int32) {
-    if termiosSaved { tcsetattr(0, TCSANOW, &savedTermios) }
-    Watch.leave.utf8CString.withUnsafeBufferPointer { _ = write(1, $0.baseAddress, $0.count - 1) }
-    _exit(0)
-}
-
 enum LiveTerminal {
     static func width(fd: Int32) -> Int {
         var size = winsize()
@@ -661,22 +651,6 @@ enum LiveTerminal {
         var size = winsize()
         guard isatty(0) == 1, isatty(1) == 1, ioctl(1, TIOCGWINSZ, &size) == 0 else { return (false, 0, 0) }
         return (true, Int(size.ws_col), Int(size.ws_row))
-    }
-
-    /// Non-canonical and silent so `q` arrives without Enter and is not echoed over the meters;
-    /// ISIG stays on so Ctrl-C still reaches the handler that puts the terminal back.
-    static func enterRaw() {
-        termiosSaved = tcgetattr(0, &savedTermios) == 0
-        signal(SIGINT, restoreTerminalAndExit)
-        signal(SIGTERM, restoreTerminalAndExit)
-        guard termiosSaved else { return }
-        var raw = savedTermios
-        raw.c_lflag &= ~tcflag_t(ICANON | ECHO)
-        tcsetattr(0, TCSANOW, &raw)
-    }
-
-    static func leaveRaw() {
-        if termiosSaved { tcsetattr(0, TCSANOW, &savedTermios) }
     }
 
     static let maxRead = 4096

@@ -57,7 +57,8 @@ final class MeterClient {
                 var fds = [pollfd(fd: fd, events: Int16(POLLIN), revents: 0), pollfd(fd: watched, events: Int16(POLLIN), revents: 0)]
                 let ready = poll(&fds, 2, Int32(Self.idle * 1000))
                 if ready < 0 {
-                    if errno != EINTR { input = nil }
+                    // A signal (a resize, a resume) woke the wait: the caller redraws now, not at the next frame.
+                    if errno == EINTR { guard handle("") else { return false } } else { input = nil }
                     continue
                 }
                 // A hung-up terminal stays readable forever; stop waiting on it rather than spin.
