@@ -22,6 +22,7 @@ struct DoctorProbes {
     var smoke: Bool
     var driver: () -> DriverPort? = { nil }
     var defaultOutputUID: () -> String? = { nil }
+    var driverFiles: () -> DriverFiles = { DriverFiles() }
 
     static func live(store: ConfigStore, statusURL: URL) -> DoctorProbes {
         DoctorProbes(
@@ -46,7 +47,8 @@ struct DoctorProbes {
             sleep: { Thread.sleep(forTimeInterval: $0) },
             smoke: ProcessInfo.processInfo.environment["EQ_SMOKE"] == "1",
             driver: { DriverControl.find() },
-            defaultOutputUID: { AudioDeviceManager.defaultOutputDeviceID().flatMap(AudioDeviceManager.device)?.uid })
+            defaultOutputUID: { AudioDeviceManager.defaultOutputDeviceID().flatMap(AudioDeviceManager.device)?.uid },
+            driverFiles: { DriverFiles.live() })
     }
 }
 
@@ -408,7 +410,7 @@ enum Doctor {
         let driverMode = mode == .driver
         guard let port = probes.driver() else {
             guard driverMode else { return [] }
-            return [check("driver", false, "mode is driver but the EQ device is not installed — \(ModeSwitch.Failure.installHint), or: eq mode tap")]
+            return [check("driver", false, "mode is driver but \(ModeSwitch.Failure.notInstalled), or: eq mode tap")]
         }
         guard let values = try? port.health() else {
             return [check("driver", false, "the EQ device does not report its health", warning: !driverMode)]
@@ -418,7 +420,9 @@ enum Doctor {
             return [check("driver", false, "\(ModeSwitch.Failure.tooOld(first.settingsVersion))", warning: !driverMode)]
         }
         guard !first.killed else { return [check("driver", false, "\(ModeSwitch.Failure.disabled)", warning: !driverMode)] }
-        var checks = [check("driver", true, "installed, protocol \(version)")]
+        let files = probes.driverFiles()
+        var checks = [check("driver", true, "installed, protocol \(version)" + (files.installed.map { ", \($0.label)" } ?? ""))]
+        if let note = files.updateNote { checks.append(check("driver update", false, note, warning: true)) }
         let isDefault = probes.defaultOutputUID() == DriverControl.deviceUID
         guard driverMode else {
             checks.append(first.hidden ? check("driver hidden", true, "yes (tap mode)")

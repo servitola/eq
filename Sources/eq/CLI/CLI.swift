@@ -32,6 +32,16 @@ struct CLIContext {
     var audioSystem: AudioSystem = NoAudioSystem()
     var modeDeadline: TimeInterval = 2
     var modeWait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    /// The driver in /Library and the one this EQ.app carries; none in tests unless a fake is given.
+    var driverFiles: () -> DriverFiles = { DriverFiles() }
+    var driverElevation: () -> DriverInstall.Elevation = { .dialog }
+    /// The one step that runs as root; never the real one in tests.
+    var privileged: (DriverInstall.Action, DriverInstall.Elevation) throws -> Void = { _, _ in
+        throw DriverInstall.Failure.failed("this eq cannot install drivers here")
+    }
+    /// How long a freshly installed driver gets to show its device after coreaudiod restarts.
+    var driverAppearDeadline: TimeInterval = 15
+    var brewCommand: () -> String? = { nil }
 
     /// `~/.cache/eq` (or EQ_CACHE): eq's own markers live here, beside the downloads, and not in
     /// the config directory, which a fresh Mac does not have until a change needs it.
@@ -65,7 +75,11 @@ struct CLIContext {
             audioApps: CoreAudioProcesses.apps,
             findApp: { InstalledApps.find($0) },
             driver: { DriverControl.find() },
-            audioSystem: LiveAudioSystem())
+            audioSystem: LiveAudioSystem(),
+            driverFiles: { DriverFiles.live() },
+            driverElevation: DriverInstall.liveElevation,
+            privileged: DriverInstall.run,
+            brewCommand: BrewParent.live)
     }
 
 }
@@ -131,6 +145,8 @@ enum CLI {
         }
         let args = CommandHelp.canonical(args)
         if dryRun {
+            // Before the grammar check: the cask's --cask is not in the help.
+            if args.starts(with: ["driver", "uninstall"]) { return try driverUninstall(Array(args.dropFirst(2)), ctx, dryRun: true) }
             guard CommandHelp.form(matching: args)?.writes == true else {
                 throw CLIError.usage("--dry-run applies only to a command that changes something (eq \(args.first ?? "") does not)")
             }

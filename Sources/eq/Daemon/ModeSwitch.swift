@@ -12,14 +12,10 @@ struct ModeSwitch {
         case timedOut(String)
         case failed(String)
 
-        static let installHint = "install it with `sudo Driver/dev-install.sh` from the eq repository"
-
         var description: String {
             switch self {
-            case .notInstalled: return "the EQ device (\(DriverControl.deviceUID)) is not installed — \(Self.installHint)"
-            case .tooOld(let version):
-                return "the EQ driver speaks settings protocol \(version.map(String.init) ?? "0"), this eq needs \(DriverControl.requiredVersion) — "
-                    + "reinstall it with `sudo Driver/dev-install.sh`"
+            case .notInstalled: return "the EQ driver is not installed — run `eq mode driver` to install it"
+            case .tooOld(let version): return DriverInstall.tooOld(version) + " — run `eq mode driver` to update it"
             case .disabled: return "the EQ driver is disabled by its kill file (Contents/Resources/disabled) — remove it and restart coreaudiod"
             case .noTarget: return "no real output device for the EQ device to play on"
             case .timedOut(let what): return "\(what) did not answer within the deadline — the audio server may be wedged"

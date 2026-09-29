@@ -159,6 +159,8 @@ final class Daemon {
     private var session: DriverSession?
     // Why the tap runs while the config asks for the driver; nil otherwise.
     private var fallbackReason: String?
+    // The installed driver works but is older than the one EQ.app carries; eq status says so.
+    private var driverUpdate: String?
     private var driverGone: DispatchWorkItem?
     private var driverSeen = true
     private var tapModeTidied = false
@@ -570,9 +572,9 @@ final class Daemon {
         let present = driverPresent()
         if config.audioMode == .driver {
             lastDriverAttempt = Date()
-            if !present {
-                if fallbackReason == nil { Log.write("driver mode: the EQ device is missing — the tap plays until it is back") }
-                fallbackReason = "the EQ device is missing"
+            if !present, case .unavailable(let why) = DriverInstall.plan(.absent, installed: DriverFiles.live().installed, bundled: nil, role: .daemon) {
+                if fallbackReason != why { Log.write("driver mode: \(why) — the tap plays until it is back") }
+                fallbackReason = why
             }
         }
         let wanted = AudioPaths.wanted(config.audioMode, driverPresent: present)
@@ -626,6 +628,13 @@ final class Daemon {
         }
         self.session = session
         fallbackReason = nil
+        let files = DriverFiles.live()
+        if case .useOutdated(let note) = DriverInstall.plan(.ready, installed: files.installed, bundled: files.bundled, role: .daemon) {
+            if driverUpdate != note { Log.write("driver: \(note)") }
+            driverUpdate = note
+        } else {
+            driverUpdate = nil
+        }
         driverSeen = true
         tapModeTidied = false
         if let target = session.target { driverTarget(target) }
@@ -1075,7 +1084,7 @@ final class Daemon {
             version: Build.version,
             updatedAt: Date(),
             latencyMs: health?.latencyMs,
-            warnings: filterWarnings,
+            warnings: filterWarnings + [driverUpdate].compactMap { $0 },
             apps: apps.status,
             mode: .driver,
             driver: driver)

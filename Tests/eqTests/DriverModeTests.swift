@@ -36,7 +36,7 @@ final class ModeSwitchTests: XCTestCase {
         XCTAssertThrowsError(try switcher().ready()) { XCTAssertEqual($0 as? ModeSwitch.Failure, .disabled) }
         driver.state["killed"] = false
         XCTAssertEqual(try switcher().ready().health.settingsVersion, 1)
-        XCTAssertTrue("\(ModeSwitch.Failure.notInstalled)".contains("sudo Driver/dev-install.sh"))
+        XCTAssertTrue("\(ModeSwitch.Failure.notInstalled)".contains("run `eq mode driver` to install it"))
     }
 
     func testTheTargetIsTheRealDefaultElseTheDriversOwn() throws {

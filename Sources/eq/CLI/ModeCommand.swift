@@ -8,6 +8,16 @@ extension CLI {
         var version: Int?
         var target: DeviceRef?
         var hidden: Bool?
+        /// The bundle in /Library, and the one this EQ.app carries.
+        var build: DriverBuild? = nil
+        var bundled: DriverBuild? = nil
+    }
+
+    struct DriverInstallReport: Encodable {
+        var action: DriverInstall.Need
+        var from: DriverBuild?
+        var to: DriverBuild?
+        var elevation: DriverInstall.Elevation
     }
 
     struct ModeReport: Encodable {
@@ -20,6 +30,7 @@ extension CLI {
         var output: DeviceRef? = nil
         var dryRun: Bool? = nil
         var notes: [String]? = nil
+        var install: DriverInstallReport? = nil
     }
 
     static func mode(_ args: [String], _ ctx: CLIContext, dryRun: Bool = false) throws -> Output {
@@ -39,17 +50,19 @@ extension CLI {
         Status.read(from: ctx.statusURL).flatMap { $0.isAlive() ? $0 : nil }
     }
 
-    private static func driverReport(_ ctx: CLIContext) -> (ModeDriverReport, DriverHealth?) {
+    static func driverReport(_ ctx: CLIContext) -> (ModeDriverReport, DriverHealth?) {
         let switcher = switcher(ctx)
+        let files = ctx.driverFiles()
         guard let port = (try? switcher.within("finding the EQ device", ctx.driver)) ?? nil else {
-            return (ModeDriverReport(installed: false), nil)
+            return (ModeDriverReport(installed: false, build: files.installed, bundled: files.bundled), nil)
         }
         guard let values = try? switcher.within("the EQ device's health", { try port.health() }) else {
-            return (ModeDriverReport(installed: true), nil)
+            return (ModeDriverReport(installed: true, build: files.installed, bundled: files.bundled), nil)
         }
         let health = DriverHealth(values)
         let target = health.target.isEmpty ? nil : DeviceRef(uid: health.target, name: health.targetName.isEmpty ? health.target : health.targetName)
-        return (ModeDriverReport(installed: true, version: health.settingsVersion, target: target, hidden: health.hidden), health)
+        return (ModeDriverReport(installed: true, version: health.settingsVersion, target: target, hidden: health.hidden,
+                                 build: files.installed, bundled: files.bundled), health)
     }
 
     private static func showMode(_ ctx: CLIContext) -> Output {
@@ -74,17 +87,51 @@ extension CLI {
         if driver.installed {
             var parts = ["installed"]
             if let version = driver.version { parts.append("protocol \(version)") }
+            if let build = driver.build { parts.append(build.label) }
             if let target = driver.target { parts.append("plays on \(target.name)") }
             if driver.hidden == true { parts.append("hidden") }
             lines.append(Paint.ink(.dim, "driver:") + " " + parts.joined(separator: ", "))
+            if let note = DriverFiles(installed: driver.build, bundled: driver.bundled).updateNote { lines.append(Paint.ink(.yellow, "update:") + " " + note) }
         } else {
-            lines.append(Paint.ink(.dim, "driver:") + " not installed")
+            lines.append(Paint.ink(.dim, "driver:") + " not installed" + (driver.bundled.map { " — eq mode driver installs \($0.label)" } ?? ""))
         }
         return Output(lines.joined(separator: "\n"), ModeReport(mode: configured, running: live?.mode, driver: driver))
     }
 
+    /// Installs or updates the driver first when this eq carries a newer one than coreaudiod runs, with
+    /// one administrator prompt; a dry run only says so.
     private static func enterDriverMode(_ ctx: CLIContext, dryRun: Bool) throws -> Output {
         let switcher = switcher(ctx)
+        let files = ctx.driverFiles()
+        let runtime: DriverInstall.Runtime
+        do {
+            _ = try switcher.ready()
+            runtime = .ready
+        } catch ModeSwitch.Failure.notInstalled {
+            runtime = .absent
+        } catch ModeSwitch.Failure.tooOld(let version) {
+            runtime = .incompatible(version)
+        } catch ModeSwitch.Failure.disabled {
+            runtime = .disabled
+        } catch let failure as ModeSwitch.Failure {
+            throw CLIError.mode("cannot switch to driver: \(failure)")
+        }
+        var install: DriverInstallReport?
+        var installed: String?
+        switch DriverInstall.plan(runtime, installed: files.installed, bundled: files.bundled, role: .cli(ctx.driverElevation())) {
+        case .use, .useOutdated: break
+        case .unavailable(let why): throw CLIError.mode("cannot switch to driver: \(why)")
+        case .install(let need, let elevation):
+            install = DriverInstallReport(action: need, from: files.installed, to: files.bundled, elevation: elevation)
+            if dryRun {
+                return try driverDryRun(ctx, switcher, install: install, what: installText(need, files, done: false) + ": " + elevationText(elevation, uninstall: false))
+            }
+            ctx.warn(Paint.ink(.yellow, "driver:", on: Paint.enabled(fd: 2)) + " about to " + installText(need, files, done: false)
+                     + " — " + elevationText(elevation, uninstall: false))
+            try installDriver(files, elevation, ctx, switcher)
+            installed = installText(need, files, done: true)
+        }
+        if dryRun { return try driverDryRun(ctx, switcher, install: nil, what: nil) }
         let port: DriverPort, health: DriverHealth, target: AudioOutputDevice
         do {
             (port, health) = try switcher.ready()
@@ -96,16 +143,7 @@ extension CLI {
         let before = config.audioMode
         let resolved = config.profile(forDeviceUID: target.uid)
         let curve = resolved.source == .device ? "its own profile" : "the default profile"
-        let (driver, _) = driverReport(ctx)
         let ref = DeviceRef(uid: target.uid, name: target.name)
-        if dryRun {
-            let text = [
-                Paint.ink(.yellow, "dry run") + ": nothing changed",
-                "mode \(before.rawValue) → " + Paint.ink(.bold, "driver"),
-                "would show \(target.name) · EQ, point it at \(target.name), send it \(curve) and make it the default output",
-            ].joined(separator: "\n")
-            return Output(text, ModeReport(mode: .driver, running: liveStatus(ctx)?.mode, driver: driver, from: before, output: ref, dryRun: true))
-        }
         let live = liveStatus(ctx)
         var notes: [String] = []
         do {
@@ -131,12 +169,73 @@ extension CLI {
         if live == nil {
             notes.append("the daemon is not running: the EQ device plays, but picking another output in the Sound menu bypasses eq until it runs")
         }
-        var lines = ["mode: \(before.rawValue) → " + Paint.ink(.green, "driver"),
-                     Paint.ink(.bold, "\(target.name) · EQ") + " is the default output, playing on \(target.name) with \(curve)"]
+        var lines = installed.map { [Paint.ink(.green, $0)] } ?? []
+        lines += ["mode: \(before.rawValue) → " + Paint.ink(.green, "driver"),
+                  Paint.ink(.bold, "\(target.name) · EQ") + " is the default output, playing on \(target.name) with \(curve)"]
         lines += notes.map { Paint.ink(.yellow, "note:") + " " + $0 }
         let report = ModeReport(mode: .driver, running: live?.mode, driver: driverReport(ctx).0, from: before, output: ref,
-                                notes: notes.isEmpty ? nil : notes)
+                                notes: notes.isEmpty ? nil : notes, install: install)
         return Output(lines.joined(separator: "\n"), report)
+    }
+
+    private static func installText(_ need: DriverInstall.Need, _ files: DriverFiles, done: Bool) -> String {
+        let to = files.bundled?.label ?? "?"
+        switch need {
+        case .update: return (done ? "updated" : "update") + " the EQ driver from \(files.installed?.label ?? "?") to \(to)"
+        case .replace: return (done ? "replaced" : "replace") + " the EQ driver, too old for this eq, with \(to)"
+        default: return (done ? "installed" : "install") + " the EQ driver \(to) into /Library/Audio/Plug-Ins/HAL"
+        }
+    }
+
+    static func elevationText(_ elevation: DriverInstall.Elevation, uninstall: Bool) -> String {
+        let ask = elevation == .sudo ? "sudo asks for your password in this terminal" : "macOS asks for an administrator password in a dialog"
+        return ask + ", then coreaudiod restarts" + (uninstall ? "" : " and eq waits for the EQ device") + " (every app's sound drops for about a second)"
+    }
+
+    private static func driverDryRun(_ ctx: CLIContext, _ switcher: ModeSwitch, install: DriverInstallReport?, what: String?) throws -> Output {
+        let config = try loadConfig(ctx)
+        let before = config.audioMode
+        var lines = [Paint.ink(.yellow, "dry run") + ": nothing changed", "mode \(before.rawValue) → " + Paint.ink(.bold, "driver")]
+        if let what { lines.append("would " + what) }
+        var ref: DeviceRef?
+        do {
+            // Before an install there may be no plug-in to ask; an update still has the old one's target.
+            let health = install == nil ? try switcher.ready().health : (try? switcher.ready().health) ?? DriverHealth()
+            let target = try switcher.target(health)
+            ref = DeviceRef(uid: target.uid, name: target.name)
+            let curve = config.profile(forDeviceUID: target.uid).source == .device ? "its own profile" : "the default profile"
+            lines.append("would show \(target.name) · EQ, point it at \(target.name), send it \(curve) and make it the default output")
+        } catch let failure as ModeSwitch.Failure {
+            throw CLIError.mode("cannot switch to driver: \(failure)")
+        }
+        return Output(lines.joined(separator: "\n"), ModeReport(mode: .driver, running: liveStatus(ctx)?.mode, driver: driverReport(ctx).0,
+                                                                from: before, output: ref, dryRun: true, install: install))
+    }
+
+    /// The privileged step, then the wait for coreaudiod to come back with the new plug-in loaded.
+    private static func installDriver(_ files: DriverFiles, _ elevation: DriverInstall.Elevation, _ ctx: CLIContext, _ switcher: ModeSwitch) throws {
+        guard let source = files.bundledURL else { throw CLIError.mode("cannot switch to driver: this eq carries no driver") }
+        do {
+            try ctx.privileged(.install(source), elevation)
+        } catch {
+            throw CLIError.mode("cannot install the EQ driver: \(error)")
+        }
+        let deadline = Date().addingTimeInterval(ctx.driverAppearDeadline)
+        var last: Error?
+        // killall returns before coreaudiod is gone, and until this process hears it went, the old
+        // device still answers.
+        ctx.modeWait(1)
+        repeat {
+            do {
+                _ = try switcher.ready()
+                return
+            } catch {
+                last = error
+            }
+            ctx.modeWait(0.25)
+        } while Date() < deadline
+        throw CLIError.mode("installed the EQ driver, but its device did not come up within \(Int(ctx.driverAppearDeadline)) s (\(last.map { "\($0)" } ?? "no answer")) — "
+                            + "run eq mode driver again, or see eq doctor")
     }
 
     /// The escape hatch: it must restore sound even with a broken config or a wedged driver, so a

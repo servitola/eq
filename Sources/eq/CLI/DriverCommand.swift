@@ -1,7 +1,7 @@
 import Foundation
 
 /// `eq driver status|push`: hidden, for trying the HAL plug-in before `eq mode` switches to it.
-/// Neither starts the daemon.
+/// `eq driver uninstall` takes it out of /Library again. None starts the daemon.
 extension CLI {
     enum DriverValue: Encodable, Equatable {
         case text(String), number(Double), flag(Bool)
@@ -40,8 +40,18 @@ extension CLI {
         var playing: Bool
     }
 
+    struct DriverUninstallReport: Encodable {
+        var removed: Bool
+        var build: DriverBuild?
+        var brew: String?
+        var dryRun: Bool? = nil
+        var elevation: DriverInstall.Elevation? = nil
+        var tap: AnyEncodable? = nil
+    }
+
     static func driver(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        let usage = "eq driver status | eq driver push"
+        let usage = "eq driver status | eq driver push | eq driver uninstall"
+        if args.first == "uninstall" { return try driverUninstall(Array(args.dropFirst()), ctx, dryRun: false) }
         guard args == ["status"] || args == ["push"] else { throw CLIError.usage(usage) }
         guard let port = ctx.driver() else { throw CLIError.driver("not installed: no audio device \(DriverControl.deviceUID)") }
         let health = try driverCall { try port.health() }.compactMapValues(DriverValue.init)
@@ -81,6 +91,46 @@ extension CLI {
         let source = resolved.source == .device ? "own profile" : "default profile"
         let text = "pushed the \(source) of \(name) to the driver" + (playing ? "; playing" : "; stored, not playing yet")
         return Output(text, DriverPushReport(target: DeviceRef(uid: target, name: name), source: resolved.source, serial: serial, playing: playing))
+    }
+
+    /// Tap mode first, so the default output is back on a real device and no daemon takes it back, then
+    /// the bundle removed and coreaudiod restarted in one privileged step. `--cask` is the cask's
+    /// uninstall step, which Homebrew also runs on `brew upgrade` and `brew reinstall`: there the
+    /// driver stays, and the new eq keeps playing through it.
+    static func driverUninstall(_ args: [String], _ ctx: CLIContext, dryRun: Bool) throws -> Output {
+        guard args == [] || args == ["--cask"] else { throw CLIError.usage("eq driver uninstall") }
+        let files = ctx.driverFiles()
+        let (device, _) = driverReport(ctx)
+        var brew: String?
+        if args == ["--cask"] {
+            brew = ctx.brewCommand()
+            guard BrewParent.removes(brew) else {
+                let text = "brew \(brew ?? "(not found)") is not removing eq: the EQ driver stays installed"
+                return Output(text, DriverUninstallReport(removed: false, build: files.installed, brew: brew, dryRun: dryRun ? true : nil))
+            }
+        }
+        guard files.installed != nil || device.installed else {
+            return Output("the EQ driver is not installed", DriverUninstallReport(removed: false, build: nil, brew: brew, dryRun: dryRun ? true : nil))
+        }
+        let elevation = ctx.driverElevation()
+        if dryRun {
+            let lines = [Paint.ink(.yellow, "dry run") + ": nothing changed",
+                         "would switch to tap mode: the default output back on a real device, the EQ device hidden",
+                         "would remove \(DriverInstall.installedURL.path)"
+                             + (files.installed.map { ", \($0.label)" } ?? "") + ": " + elevationText(elevation, uninstall: true)]
+            return Output(lines.joined(separator: "\n"),
+                          DriverUninstallReport(removed: false, build: files.installed, brew: brew, dryRun: true, elevation: elevation))
+        }
+        let tap = try mode(["tap"], ctx)
+        ctx.warn(Paint.ink(.yellow, "driver:", on: Paint.enabled(fd: 2)) + " about to remove \(DriverInstall.installedURL.path) — "
+                 + elevationText(elevation, uninstall: true))
+        do {
+            try ctx.privileged(.uninstall, elevation)
+        } catch {
+            throw CLIError.driver("cannot remove the EQ driver: \(error) — by hand: sudo rm -rf \(DriverInstall.installedURL.path) && sudo killall coreaudiod")
+        }
+        let text = tap.text + "\n" + Paint.ink(.green, "removed") + " \(DriverInstall.installedURL.path); coreaudiod restarted"
+        return Output(text, DriverUninstallReport(removed: true, build: files.installed, brew: brew, elevation: elevation, tap: tap.json))
     }
 
     private static func driverCall<T>(_ body: () throws -> T) throws -> T {
