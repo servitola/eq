@@ -1,17 +1,10 @@
+import EQTerm
 import XCTest
 @testable import eq
 
 final class WatchLoopTests: XCTestCase {
     override func setUp() { Paint.forced = false }
     override func tearDown() { Paint.forced = nil }
-
-    private struct Source: MeterSource {
-        let lines: [String]
-        func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-            for line in lines { guard handle(line) else { return false } }
-            return true
-        }
-    }
 
     private func frameLine(rate: Double = 44100, solo: SoloRange? = nil) throws -> String {
         let f = MeterFrame(t: 0, device: "BE-RCA", rate: rate, in: Array(repeating: -60, count: 10),
@@ -24,8 +17,8 @@ final class WatchLoopTests: XCTestCase {
         var keys: [String?] = ["]", "l", nil, nil, "]", nil]
         var sent: [String] = []
         let settling = try frameLine(rate: 0), settled = try frameLine()
-        _ = Watch.run(source: Source(lines: [settling, settling, settling, settled, settled, settled, settled]),
-                      emit: { _ in }, readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
+        _ = MeterHarness.run(lines: [settling, settling, settling, settled, settled, settled, settled],
+                             readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
         let kick = #"{"solo":{"low":50,"high":100}}"#, bass = #"{"solo":{"low":700,"high":1200}}"#
         XCTAssertEqual(sent, [kick, bass], "held back at 0 Hz, sent once the rate settles, then follows the focus")
     }
@@ -35,11 +28,9 @@ final class WatchLoopTests: XCTestCase {
 
     private func soloRun(_ frames: [String], keys: [String?]) -> (sent: [String], drawn: [String]) {
         var keys = keys
-        var sent: [String] = [], drawn: [String] = []
-        _ = Watch.run(source: Source(lines: frames),
-                      emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
-                      readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
-        return (sent, drawn)
+        var sent: [String] = []
+        let run = MeterHarness.run(lines: frames, readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
+        return (sent, run.drawn)
     }
 
     func testADeviceSwitchKeepsTheDaemonsSoloWithoutAskingAgain() throws {
@@ -68,12 +59,10 @@ final class WatchLoopTests: XCTestCase {
 
     func testKeysBetweenFramesAreHandledAndRedrawn() throws {
         var keys: [String?] = [nil, "]", "q"]
-        var drawn: [String] = []
         let line = try frameLine()
-        let code = Watch.run(source: Source(lines: [line, "", "", ""]),
-                             emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
-                             readKey: { keys.isEmpty ? nil : keys.removeFirst() })
-        XCTAssertEqual(code, 0, "q quits with no frame after the first")
+        let run = MeterHarness.run(lines: [line, "", "", ""], readKey: { keys.isEmpty ? nil : keys.removeFirst() })
+        let drawn = run.drawn
+        XCTAssertEqual(run.code, 0, "q quits with no frame after the first")
         XCTAssertEqual(drawn.count, 2, "one frame, one redraw for the focus key")
         XCTAssertTrue(drawn[1].contains("focus: kick"), drawn[1])
     }
@@ -108,7 +97,8 @@ final class WatchLoopTests: XCTestCase {
         XCTAssertEqual(actions("\u{1B}[B\u{1B}[D"), [.cyclePreset, .knob(-0.5)], "whole arrows in one read are unchanged")
     }
 
-    func testTheClientWakesForInputWhileNoFramesArrive() throws {
+    /// The real loop: keys are read while the daemon sends no frames, with no idle wake-up.
+    func testKeysArriveWhileNoFramesDo() throws {
         let socketDir = URL(fileURLWithPath: "/tmp/eq-loop-\(getpid())-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: socketDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: socketDir) }
@@ -123,17 +113,44 @@ final class WatchLoopTests: XCTestCase {
         let client = MeterClient(socketURL: socketDir.appendingPathComponent("m.sock"))
         try client.connect()
         defer { client.close() }
-        client.input = pipeFDs[0]
-        _ = write(pipeFDs[1], "q", 1)
+        let effects = MeterEffects(edit: { _ in }, header: { Watch.Header() }, send: client.send, mouse: { _ in }, connect: { nil })
+        let runtime = Runtime(MeterModel(size: Size(cols: 80, rows: 24)), size: Size(cols: 80, rows: 24),
+                              translate: MeterEffects.translate, perform: effects.perform, output: { _ in })
+        runtime.inputFD = pipeFDs[0]
+        runtime.watch(fd: try XCTUnwrap(client.descriptor), id: MeterEffects.meterSource, latestOnly: true)
+        _ = write(pipeFDs[1], "]q", 2)
         let started = Date()
-        var woken: [String] = []
-        let eof = client.lines { line in
-            woken.append(line)
-            var byte: UInt8 = 0
-            return read(pipeFDs[0], &byte, 1) != 1
-        }
-        XCTAssertFalse(eof)
-        XCTAssertEqual(woken, [""])
+        XCTAssertEqual(runtime.run(), 0)
+        XCTAssertEqual(runtime.program.focus, 0, "the key before q was handled too")
         XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+    }
+
+    func testTheDaemonGoingEndsTheWatchButTheTUIReconnects() {
+        var watch = MeterModel(size: Size(cols: 80, rows: 24))
+        XCTAssertEqual(watch.update(.meterClosed), [.quit(1)], "eq watch keeps its exit 1")
+        var tui = MeterModel(size: Size(cols: 80, rows: 24), reconnects: true)
+        _ = tui.update(.frame(MeterFrameTests.sample))
+        XCTAssertEqual(tui.update(.meterClosed), [.retry(after: 0.5)])
+        XCTAssertTrue(tui.lines()![22].hasSuffix(Watch.reconnecting), "said in the message row, over the last frame")
+        XCTAssertEqual(tui.update(.retry), [.connect])
+        XCTAssertEqual(tui.update(.connectFailed), [.retry(after: 1)])
+        XCTAssertEqual(tui.update(.connectFailed), [.retry(after: 2)])
+        XCTAssertEqual(tui.update(.connectFailed), [.retry(after: 4)])
+        XCTAssertEqual(tui.update(.connectFailed), [.retry(after: 4)], "capped at 4 s")
+        XCTAssertEqual(tui.update(.connected), [])
+        XCTAssertFalse(tui.lines()![22].contains(Watch.reconnecting))
+    }
+
+    func testAListenGoesOutAgainAfterAReconnect() {
+        var tui = MeterModel(size: Size(cols: 80, rows: 24), reconnects: true)
+        _ = tui.update(.frame(MeterFrameTests.sample))
+        _ = tui.update(.input(.key(KeyPress(.char("]")))))
+        XCTAssertEqual(tui.update(.input(.key(KeyPress(.char("l"))))).count, 1)
+        _ = tui.update(.meterClosed)
+        _ = tui.update(.connected)
+        var frame = MeterFrameTests.sample
+        frame.solo = nil
+        XCTAssertEqual(tui.update(.frame(frame)).filter { if case .send = $0 { return true } else { return false } }.count, 1,
+                       "the daemon dropped the solo with the socket; the next frame asks again")
     }
 }

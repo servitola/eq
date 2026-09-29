@@ -5,14 +5,6 @@ final class FocusTests: XCTestCase {
     override func setUp() { Paint.forced = false }
     override func tearDown() { Paint.forced = nil }
 
-    private struct Source: MeterSource {
-        let lines: [String]
-        func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-            for line in lines { guard handle(line) else { return false } }
-            return true
-        }
-    }
-
     private static let voiceSolo = #"{"solo":{"low":2000,"high":5000}}"#
     private static let cymbalsSolo = #"{"solo":{"low":6000,"high":16000}}"#
     private static let soloOff = #"{"solo":null}"#
@@ -43,15 +35,15 @@ final class FocusTests: XCTestCase {
         var result = Run()
         var queue = keys
         let text = try line(frame(rate: rate))
-        result.code = Watch.run(source: Source(lines: Array(repeating: text, count: keys.count + 1)), size: { size },
-                                zones: zones,
-                                emit: { if $0.contains("\u{1B}[H") { result.frames.append($0) } },
-                                readKey: { queue.isEmpty ? nil : queue.removeFirst() },
-                                edit: { result.edits.append($0) },
-                                send: { line in
-                                    if failSend { throw MeterClient.Error.notServing }
-                                    result.sent.append(line)
-                                })
+        let run = MeterHarness.run(lines: Array(repeating: text, count: keys.count + 1), size: { size }, zones: zones,
+                                   readKey: { queue.isEmpty ? nil : queue.removeFirst() },
+                                   edit: { result.edits.append($0) },
+                                   send: { line in
+                                       if failSend { throw MeterClient.Error.notServing }
+                                       result.sent.append(line)
+                                   })
+        result.frames = run.drawn
+        result.code = run.code
         return result
     }
 
@@ -94,7 +86,7 @@ final class FocusTests: XCTestCase {
         XCTAssertEqual(focusName(r.frames[3]), "voice")
         XCTAssertEqual(r.edits, [.bandStep(5, 0.5), .bandStep(0, 0.5)], "32 Hz is refused while voice is focused, allowed after Esc")
         XCTAssertTrue(r.frames[4].contains("outside voice — Esc to unfocus"), r.frames[4])
-        XCTAssertTrue(r.frames[5].contains("\u{1B}[K"))
+        XCTAssertTrue(r.frames[5].contains("outside voice"), "the note outlasts the next key")
     }
 
     func testListenSendsTheSpanAndFocusChangeResends() throws {

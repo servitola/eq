@@ -1,3 +1,4 @@
+import EQTerm
 import Foundation
 
 /// A key once its escape sequence is decoded. Tab, Ctrl-C and Ctrl-P are characters.
@@ -192,26 +193,20 @@ enum KeyTable {
 }
 
 enum Keybar {
-    static let separator = "  "
+    static let separator = EQTerm.Keybar.separator
 
-    /// Entries most useful first; whole entries drop from the right, highest rank first, until
-    /// the line fits. The unranked ones (`? keys`, `q quit`, `Esc close`) stay; `compact` keeps
-    /// only them.
+    /// The bindings of `context` that are on the bar in this state, fitted by `EQTerm.Keybar`:
+    /// `? keys`, `q quit`, `Esc close` stay; `compact` keeps only them.
     static func line(_ context: KeyContext, state: KeyState, width: Int, compact: Bool = false) -> String {
-        var entries = KeyTable.bindings(in: context).filter { $0.bar != nil && ($0.when?(state) ?? true) && !(compact && $0.rank > 0) }
-        entries.sort { ($0.rank == 0 ? Int.max : $0.rank) < ($1.rank == 0 ? Int.max : $1.rank) }
-        func text(_ binding: KeyBinding, painted: Bool) -> String {
-            guard let bar = binding.bar else { return "" }
+        let entries = KeyTable.bindings(in: context).compactMap { binding -> EQTerm.Keybar.Entry? in
+            guard let bar = binding.bar, binding.when?(state) ?? true, !(compact && binding.rank > 0) else { return nil }
             let words = [bar.text] + (binding.state.map { [$0(state)] } ?? [])
-            return (painted ? Paint.ink(.bold, bar.key) : bar.key) + " " + words.joined(separator: " ")
+            return EQTerm.Keybar.Entry(key: bar.key, text: words.joined(separator: " "), rank: binding.rank)
         }
-        func plain() -> Int { TerminalText.width(entries.map { text($0, painted: false) }.joined(separator: separator)) }
-        while plain() > width, let drop = entries.indices.filter({ entries[$0].rank > 0 }).max(by: { entries[$0].rank < entries[$1].rank }) {
-            entries.remove(at: drop)
-        }
-        while plain() > width, entries.count > 1 { entries.removeFirst() }
-        let line = entries.map { text($0, painted: true) }.joined(separator: separator)
-        return plain() > width ? TerminalText.prefix(entries.map { text($0, painted: false) }.joined(separator: separator), columns: max(width, 0)) : line
+        let shown = EQTerm.Keybar.fit(entries, width: width)
+        let plain = shown.map(\.plain).joined(separator: separator)
+        guard TerminalText.width(plain) <= width else { return TerminalText.prefix(plain, columns: max(width, 0)) }
+        return shown.map { Paint.ink(.bold, $0.key) + " " + $0.text }.joined(separator: separator)
     }
 }
 

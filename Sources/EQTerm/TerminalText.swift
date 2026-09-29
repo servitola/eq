@@ -4,16 +4,16 @@ import Foundation
 /// Columns a string takes in a terminal, per grapheme cluster. Darwin's `wcwidth` answers −1 for
 /// everything outside ASCII until `setlocale(LC_CTYPE, "UTF-8")` ran (`useUTF8Widths`); it has
 /// no emoji sequences, so a cluster with U+FE0F or an emoji-presentation scalar counts 2.
-enum TerminalText {
-    static func useUTF8Widths() {
+public enum TerminalText {
+    public static func useUTF8Widths() {
         setlocale(LC_CTYPE, "UTF-8")
     }
 
-    static func width(_ text: String) -> Int {
+    public static func width(_ text: String) -> Int {
         text.reduce(0) { $0 + width(of: $1) }
     }
 
-    static func width(of c: Character) -> Int {
+    public static func width(of c: Character) -> Int {
         if let ascii = c.asciiValue { return ascii < 0x20 || ascii == 0x7F ? 0 : 1 }
         let scalars = c.unicodeScalars
         guard let first = scalars.first else { return 0 }
@@ -24,7 +24,7 @@ enum TerminalText {
 
     /// The longest start of `text` that fits `columns`; a wide glyph that would straddle the
     /// edge is left out and its column padded.
-    static func prefix(_ text: String, columns: Int) -> String {
+    public static func prefix(_ text: String, columns: Int) -> String {
         var result = ""
         var used = 0
         for c in text {
@@ -37,5 +37,12 @@ enum TerminalText {
             used += w
         }
         return result
+    }
+
+    /// `prefix`, with `…` in the last column when something was cut.
+    public static func truncated(_ text: String, columns: Int) -> String {
+        guard columns > 0 else { return "" }
+        guard width(text) > columns else { return text }
+        return prefix(text, columns: columns - 1) + "…"
     }
 }

@@ -248,14 +248,6 @@ final class KnobTests: XCTestCase {
         XCTAssertEqual(try knobs(), ["voice": 12])
     }
 
-    private struct Source: MeterSource {
-        let lines: [String]
-        func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-            for line in lines { guard handle(line) else { return false } }
-            return true
-        }
-    }
-
     private func frameLine(rate: Double = 44100) throws -> String {
         let f = MeterFrame(t: 0, device: "BE-RCA", rate: rate, in: Array(repeating: -60, count: 10),
                            out: Array(repeating: -30, count: 10), peak: -6, limiting: false,
@@ -266,17 +258,15 @@ final class KnobTests: XCTestCase {
     func testArrowsTurnTheFocusedKnobAndNeedAFocus() throws {
         var keys: [String?] = ["\u{1B}[C", "]", "\u{1B}[C", "\u{1B}[D", ","]
         var edits: [WatchAction] = []
-        var drawn: [String] = []
         var knob = 0.0
         let line = try frameLine()
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), size: { (120, 30) },
-                      emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
-                      readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                      edit: { action in
-                          edits.append(action)
-                          if case .boost(_, let delta) = action { knob += delta }
-                      },
-                      header: { Watch.Header(knobs: knob == 0 ? nil : ["kick": knob]) })
+        let drawn = MeterHarness.run(lines: Array(repeating: line, count: 6), size: { (120, 30) },
+                                     readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                                     edit: { action in
+                                         edits.append(action)
+                                         if case .boost(_, let delta) = action { knob += delta }
+                                     },
+                                     header: { Watch.Header(knobs: knob == 0 ? nil : ["kick": knob]) }).drawn
         XCTAssertEqual(edits, [.boost("kick", 0.5), .boost("kick", -0.5), .boost("kick", -0.5)])
         XCTAssertTrue(drawn[1].contains(Watch.listenNeedsFocus), drawn[1])
         XCTAssertTrue(drawn[2].contains("kick +0.0"), "the focused knob shows at 0: \(drawn[2])")
@@ -306,8 +296,8 @@ final class KnobTests: XCTestCase {
         var keys: [String?] = ["[", "[", "[", "l", "q"]
         var sent: [String] = []
         let line = try frameLine()
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 6)), emit: { _ in },
-                      readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
+        _ = MeterHarness.run(lines: Array(repeating: line, count: 6),
+                             readKey: { keys.isEmpty ? nil : keys.removeFirst() }, send: { sent.append($0) })
         XCTAssertEqual(sent, [#"{"solo":{"low":2000,"high":5000}}"#, #"{"solo":null}"#])
     }
 }

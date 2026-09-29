@@ -120,25 +120,14 @@ final class ZonesTests: XCTestCase {
     }
 
     func testRunTogglesTheStripOnZ() throws {
-        struct Source: MeterSource {
-            let lines: [String]
-            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-                for line in lines { guard handle(line) else { return false } }
-                return true
-            }
-        }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
-        var emitted: [String] = []
         var keys: [String?] = ["z", "z", nil]
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 3)), size: { (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { keys.isEmpty ? nil : keys.removeFirst() })
-        let frames = emitted.filter { $0.contains("\u{1B}[H") }
+        let frames = MeterHarness.run(lines: Array(repeating: line, count: 3), size: { (100, 30) },
+                                      readKey: { keys.isEmpty ? nil : keys.removeFirst() }).drawn
         XCTAssertEqual(frames.map { $0.contains("cymbals") }, [false, true, false])
 
-        emitted = []
-        _ = Watch.run(source: Source(lines: [line]), size: { (100, 30) }, zones: true,
-                      emit: { emitted.append($0) }, readKey: { nil })
-        XCTAssertTrue(emitted.contains { $0.contains("voice") })
+        let zoned = MeterHarness.run(lines: [line], size: { (100, 30) }, zones: true, readKey: { nil })
+        XCTAssertTrue(zoned.drawn.contains { $0.contains("voice") })
     }
 
     func testInstrumentsAllRangesAreValidAndWithinAudibleSpectrum() {

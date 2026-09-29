@@ -1,3 +1,4 @@
+import EQTerm
 import XCTest
 @testable import eq
 
@@ -6,14 +7,6 @@ import XCTest
 final class TUIFrameTests: XCTestCase {
     override func setUp() { Paint.forced = false }
     override func tearDown() { Paint.forced = nil }
-
-    private struct Source: MeterSource {
-        let lines: [String]
-        func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-            for line in lines { guard handle(line) else { return false } }
-            return true
-        }
-    }
 
     private func frame(solo: SoloRange? = nil) -> MeterFrame {
         let out: [Double] = [-14, -12, -16, -20, -24, -21, -26, -30, -33, -41]
@@ -47,7 +40,7 @@ final class TUIFrameTests: XCTestCase {
                                      zones: strip ? (instrument == nil ? Instruments.all.count : 1) : 0, bracket: instrument != nil)
         return Watch.frame(frame(solo: listening ? SoloRange(low: 2000, high: 5000) : nil), layout: layout, strip: strip,
                            focus: instrument, modal: modal, preset: ("favourite", true), knobs: ["voice": 3],
-                           prompt: prompt, listening: listening)
+                           prompt: prompt.map { TextField($0) }, listening: listening)
     }
 
     func testGoldenMeter() throws {
@@ -75,18 +68,16 @@ final class TUIFrameTests: XCTestCase {
                      invalidated: [Bool] = [], mouse: ((Bool) -> Void)? = nil) throws -> (drawn: [String], code: Int32) {
         var queue = keys
         var flags = invalidated
-        var drawn: [String] = []
         let text = try line(frame())
         let lines = Array(repeating: text, count: frames ?? keys.count + 1)
-        let code = Watch.run(source: Source(lines: lines), size: { size },
-                             emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
-                             readKey: { queue.isEmpty ? nil : queue.removeFirst() }, edit: edit, header: header,
-                             invalidated: { flags.isEmpty ? false : flags.removeFirst() }, mouse: mouse ?? { _ in })
-        return (drawn, code)
+        let run = MeterHarness.run(lines: lines, size: { size },
+                                   readKey: { queue.isEmpty ? nil : queue.removeFirst() }, edit: edit, header: header,
+                                   invalidated: { flags.isEmpty ? false : flags.removeFirst() }, mouse: mouse ?? { _ in })
+        return (run.drawn, run.code)
     }
 
     private func lastRow(_ drawn: String) -> String {
-        drawn.components(separatedBy: "\n").last!.replacingOccurrences(of: "\u{1B}[K\u{1B}[J", with: "")
+        drawn.components(separatedBy: "\n").last!
     }
 
     func testTheKeybarNeverLeaves() throws {
@@ -152,26 +143,18 @@ final class TUIFrameTests: XCTestCase {
     }
 
     func testAResumeRedrawsInFullWithoutAFrame() throws {
-        var queue: [String?] = []
         var flags = [false, true, false]
-        var drawn: [String] = []
-        _ = Watch.run(source: Source(lines: [try line(frame()), "", "", ""]), size: { (100, 30) },
-                      emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
-                      readKey: { queue.isEmpty ? nil : queue.removeFirst() },
-                      invalidated: { flags.isEmpty ? false : flags.removeFirst() })
-        XCTAssertEqual(drawn.count, 2, "the idle wake-up after the resume draws once more")
-        XCTAssertTrue(drawn[1].hasPrefix("\u{1B}[2J"), "the whole screen was lost, so it is cleared first")
+        let run = MeterHarness.run(lines: [try line(frame()), "", "", ""], size: { (100, 30) }, readKey: { nil },
+                                   invalidated: { flags.isEmpty ? false : flags.removeFirst() })
+        XCTAssertEqual(run.drawn.count, 2, "the resume draws once more with no frame")
+        XCTAssertTrue(run.whole[1], "the whole screen was lost, so it is cleared first")
     }
 
     func testAResizeWhileFramesStopRedraws() {
-        var queue: [String?] = []
         var sizes = [(80, 24), (80, 24), (80, 24), (100, 30)]
-        var drawn: [String] = []
         let text = try! line(frame())
-        _ = Watch.run(source: Source(lines: [text, "", ""]), size: { sizes.count > 1 ? sizes.removeFirst() : sizes[0] },
-                      emit: { if $0.contains("\u{1B}[H") { drawn.append($0) } },
-                      readKey: { queue.isEmpty ? nil : queue.removeFirst() })
-        XCTAssertEqual(drawn.count, 2)
-        XCTAssertTrue(drawn[1].hasPrefix("\u{1B}[2J"))
+        let run = MeterHarness.run(lines: [text, "", ""], size: { sizes.count > 1 ? sizes.removeFirst() : sizes[0] }, readKey: { nil })
+        XCTAssertEqual(run.drawn.count, 2)
+        XCTAssertEqual(run.whole, [true, true], "the first frame and the one after the resize are drawn whole")
     }
 }

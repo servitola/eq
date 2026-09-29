@@ -236,78 +236,37 @@ final class WatchTests: XCTestCase {
     }
 
     func testRunLoopExitsOnQ() throws {
-        struct Source: MeterSource {
-            let lines: [String]
-            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-                for line in lines { guard handle(line) else { return false } }
-                return true
-            }
-        }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
-        var emitted: [String] = []
-        var frames = 0
-        let code = Watch.run(source: Source(lines: Array(repeating: line, count: 5)),
-                             emit: { emitted.append($0); if $0.hasPrefix("\u{1B}[H") { frames += 1 } },
-                             readKey: { frames >= 2 ? "q" : nil })
-        XCTAssertEqual(code, 0)
-        XCTAssertEqual(frames, 2)
-        XCTAssertEqual(emitted.first, Watch.enter)
-        XCTAssertEqual(emitted.last, Watch.leave)
+        var keys: [String?] = [nil, "q"]
+        let run = MeterHarness.run(lines: Array(repeating: line, count: 5), readKey: { keys.isEmpty ? nil : keys.removeFirst() })
+        XCTAssertEqual(run.code, 0)
+        XCTAssertEqual(run.drawn.count, 2)
     }
 
     func testRunLoopExitsOneOnEOF() throws {
-        struct Source: MeterSource {
-            let lines: [String]
-            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-                for line in lines { guard handle(line) else { return false } }
-                return true
-            }
-        }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
-        var emitted: [String] = []
-        let code = Watch.run(source: Source(lines: [line, line]),
-                             emit: { emitted.append($0) },
-                             readKey: { nil })
-        XCTAssertEqual(code, 1)
-        XCTAssertEqual(emitted.first, Watch.enter)
-        XCTAssertEqual(emitted.last, Watch.leave)
+        let run = MeterHarness.run(lines: [line, line], readKey: { nil })
+        XCTAssertEqual(run.code, 1)
+        XCTAssertEqual(run.drawn.count, 2)
     }
 
     func testRunClearsOnceAfterResize() throws {
-        struct Source: MeterSource {
-            let lines: [String]
-            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-                for line in lines { guard handle(line) else { return false } }
-                return true
-            }
-        }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
-        var emitted: [String] = []
         var calls = 0
-        _ = Watch.run(source: Source(lines: Array(repeating: line, count: 5)),
-                      size: { calls += 1; return calls <= 3 ? (80, 24) : (100, 30) },
-                      emit: { emitted.append($0) }, readKey: { nil })
-        let frames = emitted.filter { $0.contains("\u{1B}[H") }
+        let run = MeterHarness.run(lines: Array(repeating: line, count: 5),
+                                   size: { calls += 1; return calls <= 3 ? (80, 24) : (100, 30) }, readKey: { nil })
+        let frames = run.drawn
         XCTAssertEqual(frames.count, 5)
-        XCTAssertEqual(frames.map { $0.components(separatedBy: "\u{1B}[2J").count - 1 }, [0, 0, 1, 0, 0])
+        XCTAssertEqual(run.whole, [true, false, true, false, false], "the first frame, then only after the resize")
         XCTAssertTrue(frames[2].contains("BE-RCA"))
         XCTAssertTrue(frames[4].contains(String(repeating: " ", count: 10) + "BE-RCA"), "the new layout is centred for 100 columns")
     }
 
     func testRunRendersTinyTerminal() throws {
-        struct Source: MeterSource {
-            let lines: [String]
-            func lines(maxLines: Int?, handle: (String) -> Bool) -> Bool {
-                for line in lines { guard handle(line) else { return false } }
-                return true
-            }
-        }
         let line = String(decoding: try MeterFrame.encodeLine(frame()).dropLast(), as: UTF8.self)
-        var emitted: [String] = []
-        let code = Watch.run(source: Source(lines: [line]), size: { (24, 10) },
-                             emit: { emitted.append($0) }, readKey: { nil })
-        XCTAssertEqual(code, 1)
-        let drawn = try XCTUnwrap(emitted.first { $0.contains("\u{1B}[H") })
+        let run = MeterHarness.run(lines: [line], size: { (24, 10) }, readKey: { nil })
+        XCTAssertEqual(run.code, 1)
+        let drawn = try XCTUnwrap(run.drawn.first)
         XCTAssertTrue(drawn.contains("… widen for all bands"), drawn)
     }
 }
