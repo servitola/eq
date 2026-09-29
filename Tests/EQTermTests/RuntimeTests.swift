@@ -101,6 +101,19 @@ final class RuntimeTests: XCTestCase {
         XCTAssertEqual(closing.program.log.last, .closed)
     }
 
+    func testALastLineWithoutItsNewlineStillArrives() {
+        let r = runtime()
+        let input = pipePair(), child = pipePair()
+        defer { close(input.read); close(input.write); close(child.read) }
+        r.inputFD = input.read
+        r.watch(fd: child.read, id: 3)
+        _ = write(child.write, "one\ntwo", 7)
+        close(child.write)
+        XCTAssertEqual(r.run(), 0)
+        XCTAssertEqual(r.program.lines, ["one", "two"])
+        XCTAssertEqual(r.program.log.last, .closed, "the line comes before the close")
+    }
+
     func testAnUnchangedModelIsNotDrawnAgain() {
         var written = 0
         let r = runtime { _ in written += 1 }
@@ -109,5 +122,23 @@ final class RuntimeTests: XCTestCase {
         r.input(Array("x".utf8))
         XCTAssertTrue(r.render())
         XCTAssertEqual(written, 1, "an update that changed no cell writes no bytes")
+    }
+
+    func testAProgramThatSaysNothingChangedIsNotBuiltAgain() {
+        struct Still: Program {
+            var builds = 0
+            var needsRedraw = true
+            mutating func update(_ msg: Int) -> [Int] {
+                needsRedraw = msg != 0
+                return []
+            }
+            func view(into screen: inout Screen) {}
+        }
+        let r = Runtime(Still(), size: Size(cols: 4, rows: 1), translate: { _ in 0 }, perform: { _, _ in [] }, output: { _ in })
+        XCTAssertTrue(r.render())
+        r.send(0)
+        XCTAssertFalse(r.render(), "nothing to draw for it")
+        r.send(1)
+        XCTAssertTrue(r.render())
     }
 }

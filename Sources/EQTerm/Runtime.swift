@@ -7,6 +7,13 @@ public protocol Program {
     associatedtype Cmd
     mutating func update(_ msg: Msg) -> [Cmd]
     func view(into screen: inout Screen)
+    /// Whether the last `update` changed anything `view` draws; a meter frame of levels that stand
+    /// still does not, and then no screen is built for it.
+    var needsRedraw: Bool { get }
+}
+
+public extension Program {
+    var needsRedraw: Bool { true }
 }
 
 /// What the runtime has to tell a program; `Runtime`'s `translate` turns it into the program's Msg.
@@ -95,11 +102,12 @@ public final class Runtime<P: Program> {
 
     /// Runs `update` and every command it returns, and the messages those bring back, in order.
     public func send(_ msg: P.Msg) {
-        dirty = true
         var queue = [msg]
         while !queue.isEmpty {
             let next = queue.removeFirst()
-            for cmd in program.update(next) { queue += perform(cmd, self) }
+            let cmds = program.update(next)
+            if program.needsRedraw { dirty = true }
+            for cmd in cmds { queue += perform(cmd, self) }
         }
     }
 
@@ -217,7 +225,10 @@ public final class Runtime<P: Program> {
         let n = read(sources[index].fd, &chunk, chunk.count)
         guard n > 0 else {
             if n < 0, errno == EINTR || errno == EAGAIN { return }
+            // A child's last line may lack its newline; it is still a line.
+            let rest = sources[index].pending
             sources.remove(at: index)
+            if !rest.isEmpty { handle(.line(source: id, String(decoding: rest, as: UTF8.self))) }
             handle(.closed(source: id))
             return
         }
