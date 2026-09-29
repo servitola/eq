@@ -98,27 +98,21 @@ final class WatchKeysTests: XCTestCase {
         XCTAssertTrue(ctx.store.exists())
     }
 
-    func testOverlayKeepsColourAroundTheBox() {
-        Paint.forced = true
-        let line = "\u{1B}[32m" + String(repeating: "█", count: 6) + "\u{1B}[0m"
-        XCTAssertEqual(Watch.overlay(line, "ab", at: 2, width: 2),
-                       "\u{1B}[32m██\u{1B}[0mab\u{1B}[32m██\u{1B}[0m")
-    }
-
     func testEditFlashesLabelAndErrorsShowInFooter() throws {
         Paint.forced = true
         let line = try frameLine()
         var keys: [String?] = ["6", "7"]
         var edits: [WatchAction] = []
-        let drawn = MeterHarness.run(lines: Array(repeating: line, count: 3), size: { (100, 30) },
-                                     readKey: { keys.isEmpty ? nil : keys.removeFirst() },
-                                     edit: { action in
-                                         edits.append(action)
-                                         if action == .bandStep(6, 0.5) { throw CLIError.usage("no config") }
-                                     }).drawn
+        let run = MeterHarness.run(lines: Array(repeating: line, count: 3), size: { (100, 30) },
+                                   readKey: { keys.isEmpty ? nil : keys.removeFirst() },
+                                   edit: { action in
+                                       edits.append(action)
+                                       if action == .bandStep(6, 0.5) { throw CLIError.usage("no config") }
+                                   })
         XCTAssertEqual(edits, [.bandStep(5, 0.5), .bandStep(6, 0.5)])
-        XCTAssertTrue(drawn[1].contains("\u{1B}[1m    1kHz"), drawn[1])
-        XCTAssertTrue(drawn[2].contains("no config"), drawn[2])
+        XCTAssertNotNil(run.styled[1].range(of: #"\[1;[0-9;]*\]1kHz"#, options: .regularExpression), "the edited band's label is bold")
+        XCTAssertNotNil(run.styled[1].range(of: #"\[1;[0-9;]*\] 0\.0 "#, options: .regularExpression), "and its gain a solid chip")
+        XCTAssertTrue(run.drawn[2].contains("no config"), run.drawn[2])
     }
 
     func testPresetUndoSaveKeysOnBothLayouts() {
@@ -272,8 +266,8 @@ final class WatchKeysTests: XCTestCase {
         let drawn = MeterHarness.run(lines: Array(repeating: line, count: 3), size: { (100, 30) },
                                      readKey: { keys.isEmpty ? nil : keys.removeFirst() },
                                      edit: { _ in modified = true }, header: { Watch.Header(preset: ("favourite", modified)) }).drawn
-        XCTAssertTrue(drawn[0].contains("preamp -1.5 dB · favourite · peak"), drawn[0])
-        XCTAssertTrue(drawn[2].contains("preamp -1.5 dB · favourite* · peak"), drawn[2])
+        XCTAssertTrue(drawn[0].contains("preamp -1.5 dB │ ◆ favourite "), drawn[0])
+        XCTAssertTrue(drawn[2].contains("preamp -1.5 dB │ ◆ favourite* "), drawn[2])
     }
 
     private func feed(_ reads: [String]) -> [WatchAction] {

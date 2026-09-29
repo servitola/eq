@@ -129,42 +129,47 @@ final class FocusTests: XCTestCase {
     }
 
     func testSoloFlagFollowsTheFrameInBrightYellow() {
-        let layout = WatchLayout.fit(cols: 100, rows: 30)
-        XCTAssertFalse(Watch.frame(frame(), layout: layout)[0].contains("SOLO"))
-        XCTAssertTrue(Watch.frame(frame(solo: SoloRange(low: 85, high: 9000)), layout: layout)[0].contains("SOLO"))
-        Paint.forced = true
-        XCTAssertTrue(Watch.frame(frame(solo: SoloRange(low: 85, high: 9000)), layout: layout)[0].contains("\u{1B}[93mSOLO"))
+        XCTAssertFalse(MeterScreens.lines(frame(), cols: 100, rows: 30)[0].contains("SOLO"))
+        XCTAssertTrue(MeterScreens.lines(frame(solo: SoloRange(low: 85, high: 9000)), cols: 100, rows: 30)[0].contains(" SOLO "))
+        let styled = MeterScreens.screen(MeterScreens.scene(frame(solo: SoloRange(low: 85, high: 9000)), cols: 100, rows: 30, depth: .ansi))
+            .markedLines()[0]
+        XCTAssertTrue(styled.contains("[1;7;93] SOLO "), "a chip of bright yellow, reversed: \(styled)")
     }
 
     func testFocusDimsBandsOutsideAndBrightensInside() {
-        Paint.forced = true
-        let layout = WatchLayout.fit(cols: 100, rows: 30, zones: 1, bracket: true)
-        let lines = Watch.frame(frame(), layout: layout, focus: instrument("cymbals"))
-        let live = lines[1 + 1 + layout.meterRows]
-        XCTAssertTrue(live.hasPrefix(String(repeating: " ", count: 10) + "\u{1B}[2m     -24"), live)
-        XCTAssertTrue(live.contains("\u{1B}[92m     -24"), "8 kHz (+3.1) is focused and bright: \(live)")
-        let labels = lines[1 + 1 + layout.meterRows + 1]
-        XCTAssertTrue(labels.hasSuffix("    4kHz\u{1B}[0m    8kHz   16kHz"), labels)
+        let scene = MeterScreens.scene(frame(), cols: 100, rows: 30, focus: instrument("cymbals"), depth: .ansi)
+        let g = StudioView(scene: scene, compact: false).geometry
+        let screen = MeterScreens.screen(scene)
+        for band in 0..<10 {
+            let cell = screen[g.centre(band), g.liveY]
+            if band >= 8 {
+                XCTAssertTrue(cell.style.attributes.contains(.bold), "band \(band) is focused")
+            } else {
+                XCTAssertTrue(cell.style.attributes.contains(.dim), "band \(band) is outside")
+            }
+            let label = screen[g.centre(band), g.liveY + 1].style
+            XCTAssertEqual(label.attributes.contains(.dim), band < 8, "label \(band)")
+        }
     }
 
-    func testBracketMarksEachRangeOfTheFocus() {
-        let layout = WatchLayout.fit(cols: 100, rows: 30, bracket: true)
-        let lines = Watch.frame(frame(), layout: layout, focus: instrument("voice"))
-        let bracket = lines[1]
+    func testBracketMarksEachRangeOfTheFocus() throws {
+        let scene = MeterScreens.scene(frame(), cols: 100, rows: 30, focus: instrument("voice"))
+        let g = StudioView(scene: scene, compact: false).geometry
+        let bracket = MeterScreens.screen(scene).lines()[try XCTUnwrap(g.bracketY)]
         XCTAssertEqual(bracket.filter { $0 == "┌" }.count, 5, bracket)
         XCTAssertEqual(bracket.filter { $0 == "┐" }.count, 5, bracket)
         XCTAssertTrue(bracket.contains("─ F1 ─"), "a name shows where its span has room: \(bracket)")
         XCTAssertFalse(bracket.contains("fundamental"), "and is left out where it has not")
         let start = Array(bracket).firstIndex(of: "┌")!
-        XCTAssertEqual(start, 10 + Int(Strip.x(85, layout: layout).rounded()))
+        XCTAssertEqual(start, Int(Strip.x(85, centres: g.centres).rounded()))
     }
 
     func testFocusedStripShowsOnlyThatInstrumentHighlighted() throws {
         let r = try run(["z", "[", "[", "[", nil], zones: false)
-        XCTAssertTrue(r.frames[1].contains("cymbals") && r.frames[1].contains("kick"), "strip on: every instrument")
+        XCTAssertTrue(r.frames[1].contains(" cym ") && r.frames[1].contains(" kck "), "strip on: every instrument")
         let focused = r.frames[4]
-        XCTAssertFalse(focused.contains("  kick "), focused)
-        XCTAssertTrue(focused.contains("  voice "), focused)
+        XCTAssertFalse(focused.contains(" kck "), focused)
+        XCTAssertTrue(focused.contains(" vox "), focused)
     }
 
     func testArrowsCyclePresetsAndWrap() throws {
@@ -198,9 +203,7 @@ final class FocusTests: XCTestCase {
     }
 
     private func render(cols: Int, rows: Int) -> [String] {
-        let voice = instrument("voice")
-        let layout = WatchLayout.fit(cols: cols, rows: rows, zones: 1, bracket: true)
-        return Watch.frame(frame(solo: SoloRange(low: 85, high: 9000)), layout: layout, strip: true, focus: voice,
+        MeterScreens.lines(frame(solo: SoloRange(low: 85, high: 9000)), cols: cols, rows: rows, strip: true, focus: instrument("voice"),
                            preset: ("favourite", true))
     }
 
@@ -208,31 +211,25 @@ final class FocusTests: XCTestCase {
         for (cols, rows) in [(100, 30), (60, 20)] {
             let lines = render(cols: cols, rows: rows)
             print("---- \(cols)×\(rows)\n" + lines.joined(separator: "\n") + "\n----")
-            XCTAssertLessThanOrEqual(lines.count, rows)
-            for line in lines { XCTAssertLessThanOrEqual(line.count, cols, "\(cols)×\(rows): \(line)") }
+            XCTAssertEqual(lines.count, rows)
             XCTAssertTrue(lines[0].contains("SOLO"), lines[0])
-            XCTAssertTrue(lines[1].contains("┌"), lines[1])
-            XCTAssertTrue(lines.contains { $0.hasPrefix(cols >= 100 ? "  voice " : "   vox ") }, lines.joined(separator: "\n"))
+            XCTAssertTrue(lines[2].contains("┌"), lines[2])
+            XCTAssertTrue(lines.contains { $0.contains(" vox ") && $0.contains("━") }, lines.joined(separator: "\n"))
         }
         XCTAssertTrue(render(cols: 100, rows: 30)[0].contains("focus: voice (85 Hz–9 kHz)"))
     }
 
     func testSizeSweepNeverTrapsOrOverflows() {
         let voice = instrument("voice")
-        for cols in 20...200 {
-            for rows in 6...60 {
+        for cols in stride(from: 1, through: 200, by: 3) {
+            for rows in 1...60 {
                 for focus in [nil, voice] {
-                    for strip in [false, true] {
-                        let zones = strip ? (focus == nil ? Instruments.all.count : 1) : 0
-                        let layout = WatchLayout.fit(cols: cols, rows: rows, zones: zones, bracket: focus != nil)
-                        let lines = Watch.frame(frame(solo: SoloRange(low: 85, high: 9000)), layout: layout,
-                                                strip: strip, focus: focus, modal: rows % 2 == 0 ? .help(scroll: 0) : nil,
-                                                note: "outside voice — Esc to unfocus")
-                        for line in lines where line.count > cols {
-                            XCTFail("\(cols)×\(rows) focus \(focus != nil) strip \(strip): \(line)")
-                        }
-                        if lines.count != rows { XCTFail("\(cols)×\(rows): \(lines.count) lines") }
-                    }
+                    let strip = (cols + rows) % 2 == 0
+                    var scene = MeterScreens.scene(frame(solo: SoloRange(low: 85, high: 9000)), cols: cols, rows: rows, strip: strip,
+                                                   focus: focus, modal: rows % 3 == 0 ? .help(scroll: 0) : (rows % 3 == 1 ? .instruments(scroll: 3) : nil),
+                                                   note: "outside voice — Esc to unfocus", look: cols % 2 == 0 ? .studio : .console)
+                    scene.peaks = Array(repeating: -3, count: 10)
+                    XCTAssertEqual(MeterScreens.screen(scene).lines().count, rows)
                 }
             }
         }

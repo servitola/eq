@@ -13,6 +13,9 @@ enum WatchAction: Equatable {
     case knob(Double), boost(String, Double)
     case cycleComp, cycleColour, colourAmount
     case mouse, palette
+    /// `y` and `Y`; saved as `setLook` and `setPalette` once the model has picked the next one.
+    case nextLook, nextPalette
+    case setLook(String), setPalette(String)
     case closeModal, scrollUp, scrollDown
 }
 

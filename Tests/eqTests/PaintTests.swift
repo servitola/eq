@@ -32,18 +32,6 @@ final class PaintTests: XCTestCase {
         XCTAssertFalse(plain.contains("\u{1B}"))
     }
 
-    func testHotLevelsUseBrightShades() {
-        Paint.forced = true
-        XCTAssertEqual(Paint.level(.green, hot: true), .brightGreen)
-        XCTAssertEqual(Paint.level(.magenta, hot: true), .brightMagenta)
-        XCTAssertEqual(Paint.level(.yellow, hot: true), .brightYellow)
-        XCTAssertEqual(Paint.level(.dim, hot: true), .dim)
-        XCTAssertEqual(Paint.level(.green, hot: false), .green)
-        XCTAssertEqual(Paint.ink(.brightGreen, "x"), "\u{1B}[92mx\u{1B}[0m")
-        XCTAssertEqual(Paint.ink(.brightMagenta, "x"), "\u{1B}[95mx\u{1B}[0m")
-        XCTAssertEqual(Paint.ink(.brightYellow, "x"), "\u{1B}[93mx\u{1B}[0m")
-    }
-
     func testTableRowsTakeWidthAndShortLabels() {
         Paint.forced = false
         XCTAssertEqual(Table.labelsRow(width: 3, short: true), " 32 64125250500 1k 2k 4k 8k16k")

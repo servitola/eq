@@ -131,7 +131,7 @@ final class WatchLoopTests: XCTestCase {
         var tui = MeterModel(size: Size(cols: 80, rows: 24), reconnects: true)
         _ = tui.update(.frame(MeterFrameTests.sample))
         XCTAssertEqual(tui.update(.meterClosed), [.retry(after: 0.5)])
-        XCTAssertTrue(tui.lines()![22].hasSuffix(Watch.reconnecting), "said in the message row, over the last frame")
+        XCTAssertTrue(tui.lines()![22].contains("! " + Watch.reconnecting), "said in the message row, over the last frame")
         XCTAssertEqual(tui.update(.retry), [.connect])
         XCTAssertEqual(tui.update(.connectFailed), [.retry(after: 1)])
         XCTAssertEqual(tui.update(.connectFailed), [.retry(after: 2)])

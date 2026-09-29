@@ -1,0 +1,36 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
+    ╭─ keys ───────────────────────────────────────────────────────────────────────────────────────────────────────╮──╮
+   0│                                                                                                              │  │
+  -6│  Tune ───────────────────────────────────────────────  Look ───────────────────────────────────────────────  │  │
+    │   1 … 9 0   raise band 32 Hz … 16 kHz by 0.5 dB (0 is   y Y       next look: studio → console / next         │  │
+    │             the tenth band, 16 kHz)                               palette: ink → paper → brass; saved as     │  │
+    │   ⇧1 … ⇧0   lower it by 0.5 dB: ! @ # $ % ^ & * ( )               tui.look and tui.palette                   │  │
+ -18│             on a US layout                                                                                   │  │
+    │   + -       preamp ±0.5 dB (= and _ work too, no       Screen ─────────────────────────────────────────────  │  │
+    │             Shift needed)                               m         mouse on and off, remembered as tui.mouse  │  │
+    │   b B t T   bass / treble shelf +0.5 dB, with Shift               in eq.json; on, the wheel scrolls these    │  │
+ -30│             −0.5 dB                                               lists                                      │  │
+    │   p ↓ ↑     next preset (p, ↓) / previous one (↑),      ; Ctrl-P  the command palette; the key is kept for   │  │
+    │             alphabetically, wrapping round                        it, the palette is not here yet            │  │
+    │   c         compressor: off → gentle → night → off      ? h       the list of every key, over the meter; ?,  │LT│
+ -42│   v V       colour: off → tape → tube → off, starting             Esc or q closes it                         │  │
+    │             at 0.3 / raise the amount by 0.1, from 1    q         quit                                       │  │
+    │             back to 0.1                                 Ctrl-C    quit, from the lists too                   │  │
+    │   u         undo the last change made in this                                                                │R │
+    │             session, back to how it started            Russian layout ─────────────────────────────────────  │  │
+    │   s         save the curve as a preset: type a name,   the same physical keys: й quits, я is zones, х ъ      │  │
+ -60│             Enter saves, Esc cancels                   focus                                                 │X │
+    │                                                        ⇧7 types ?, which is the key list: lower 2 kHz from   │  │
+    │  Instruments ────────────────────────────────────────  a US layout                                           │  │
+    │   z         the instrument strip, on and off           ⇧4 types ;, the palette: lower 250 Hz from a US       │  │
+    │   i         the instrument table: ranges in Hz, the    layout                                                │  │
+    │             bands each touches, knob gains             the ? key types , which turns the knob down: h (р)    │  │
+    │   ] Tab [   focus the next / previous instrument       is the key list                                       │  │
+    │   → ←       the focused instrument's knob ±0.5 dB (.                                                         │  │
+    │             and , work too, no Shift needed)                                                                 │  │
+    │   l         listen to the focused instrument alone,                                                          │  │
+    │             and back                                                                                         │  │
+    │   Esc       leave the focus (and stop listening)                                                             │  │
+    ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────╯──╯
+
+ ↑↓  scroll   Esc  close

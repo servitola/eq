@@ -8,7 +8,6 @@ import Foundation
 enum Paint {
     enum Ink: Int {
         case bold = 1, dim = 2, red = 31, green = 32, yellow = 33, blue = 34, magenta = 35, cyan = 36
-        case brightGreen = 92, brightYellow = 93, brightMagenta = 95
     }
 
     static var forced: Bool?
@@ -31,29 +30,8 @@ enum Paint {
         return "\u{1B}[\(ink.rawValue)m\(text)\u{1B}[0m"
     }
 
-    /// The cell style an ink paints, when colour is `on`.
-    static func style(_ ink: Ink?, on: Bool) -> Style {
-        guard on, let ink else { return .plain }
-        switch ink {
-        case .bold: return .bold
-        case .dim: return .dim
-        default: return Style(fg: .ansi(UInt8(ink.rawValue >= 90 ? ink.rawValue - 82 : ink.rawValue - 30)))
-        }
-    }
-
     static func gain(_ value: Double) -> Ink {
         value > 0 ? .green : (value < 0 ? .magenta : .dim)
-    }
-
-    /// The bright variant of the same meaning, for a signal running hot; still the terminal's palette.
-    static func level(_ ink: Ink, hot: Bool) -> Ink {
-        guard hot else { return ink }
-        switch ink {
-        case .green: return .brightGreen
-        case .magenta: return .brightMagenta
-        case .yellow: return .brightYellow
-        default: return ink
-        }
     }
 
     private static let glyphs = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]

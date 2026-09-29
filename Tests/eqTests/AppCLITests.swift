@@ -226,11 +226,10 @@ final class AppWatchHeaderTests: XCTestCase {
     func testTheHeaderNamesTheAppInsteadOfTheDevicePreset() {
         var frame = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: Array(repeating: -60, count: 10), out: Array(repeating: -6, count: 10),
                                peak: -6, limiting: false, gains: Array(repeating: 0, count: 10), preamp: 0, enabled: true)
-        let layout = WatchLayout.fit(cols: 120, rows: 24)
-        let plain = Watch.frame(frame, layout: layout, preset: ("night", false), preference: Preference(bass: 3))[0]
+        let plain = MeterScreens.lines(frame, cols: 120, rows: 24, preset: ("night", false), preference: Preference(bass: 3))[0]
         XCTAssertTrue(plain.contains("night") && plain.contains("bass +3"), plain)
         frame.app = AppMatch(app: "com.spotify.client", name: "Spotify", preset: "favourite")
-        let heard = Watch.frame(frame, layout: layout, preset: ("night", false), preference: Preference(bass: 3))[0]
+        let heard = MeterScreens.lines(frame, cols: 120, rows: 24, preset: ("night", false), preference: Preference(bass: 3))[0]
         XCTAssertTrue(heard.contains("app: Spotify → favourite"), heard)
         XCTAssertFalse(heard.contains("night") || heard.contains("bass"), heard)
     }

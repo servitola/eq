@@ -87,15 +87,15 @@ enum KeyTable {
         KeyBinding(context: .meter, group: "Tune", keys: chars("+=-_"), actions: [.preamp(step), .preamp(step), .preamp(-step), .preamp(-step)],
                    label: "+ -", help: "preamp ±0.5 dB (= and _ work too, no Shift needed)", bar: ("+−", "preamp"), rank: 9),
         KeyBinding(context: .meter, group: "Tune", keys: chars("bBtT"), actions: [.bass(step), .bass(-step), .treble(step), .treble(-step)],
-                   label: "b B t T", help: "bass / treble shelf +0.5 dB, with Shift −0.5 dB", bar: ("b t", "bass/treble"), rank: 13),
+                   label: "b B t T", help: "bass / treble shelf +0.5 dB, with Shift −0.5 dB", bar: ("b t", "bass/treble"), rank: 14),
         KeyBinding(context: .meter, group: "Tune", keys: chars("pP") + [.down, .up], actions: [.cyclePreset, .cyclePreset, .cyclePreset, .previousPreset],
                    label: "p ↓ ↑", help: "next preset (p, ↓) / previous one (↑), alphabetically, wrapping round",
                    bar: ("p", "preset"), rank: 10),
         KeyBinding(context: .meter, group: "Tune", keys: chars("cC"), actions: [.cycleComp],
-                   label: "c", help: "compressor: off → gentle → night → off", bar: ("c", "comp"), rank: 14),
+                   label: "c", help: "compressor: off → gentle → night → off", bar: ("c", "comp"), rank: 15),
         KeyBinding(context: .meter, group: "Tune", keys: chars("vV"), actions: [.cycleColour, .colourAmount],
                    label: "v V", help: "colour: off → tape → tube → off, starting at 0.3 / raise the amount by 0.1, from 1 back to 0.1",
-                   bar: ("v", "color"), rank: 15),
+                   bar: ("v", "color"), rank: 16),
         KeyBinding(context: .meter, group: "Tune", keys: chars("uU"), actions: [.undo],
                    label: "u", help: "undo the last change made in this session, back to how it started", bar: ("u", "undo"), rank: 11),
         KeyBinding(context: .meter, group: "Tune", keys: chars("sS"), actions: [.startSave],
@@ -119,9 +119,13 @@ enum KeyTable {
         KeyBinding(context: .meter, group: "Instruments", keys: [.esc], actions: [.unfocus],
                    label: "Esc", help: "leave the focus (and stop listening)", bar: ("Esc", "unfocus"), rank: 8, when: { $0.focused }),
 
+        KeyBinding(context: .meter, group: "Look", keys: chars("yY"), actions: [.nextLook, .nextPalette],
+                   label: "y Y", help: "next look: studio → console / next palette: ink → paper → brass; saved as tui.look and tui.palette",
+                   bar: ("y", "look"), rank: 13),
+
         KeyBinding(context: .meter, group: "Screen", keys: chars("mM"), actions: [.mouse],
                    label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, the wheel scrolls these lists",
-                   bar: ("m", "mouse"), rank: 16, state: { $0.mouse ? "on" : "off" }),
+                   bar: ("m", "mouse"), rank: 17, state: { $0.mouse ? "on" : "off" }),
         KeyBinding(context: .meter, group: "Screen", keys: chars(";") + [.char("\u{10}")], actions: [.palette],
                    label: "; Ctrl-P", help: "the command palette; the key is kept for it, the palette is not here yet"),
         KeyBinding(context: .meter, group: "Screen", keys: chars("?hH"), actions: [.help],
@@ -194,19 +198,25 @@ enum KeyTable {
 
 enum Keybar {
     static let separator = EQTerm.Keybar.separator
+    /// A key drawn as a keycap takes a blank on either side of it.
+    static let keycapPadding = 2
 
     /// The bindings of `context` that are on the bar in this state, fitted by `EQTerm.Keybar`:
     /// `? keys`, `q quit`, `Esc close` stay; `compact` keeps only them.
-    static func line(_ context: KeyContext, state: KeyState, width: Int, compact: Bool = false) -> String {
+    static func entries(_ context: KeyContext, state: KeyState, width: Int, compact: Bool = false, extra: Int = 0) -> [EQTerm.Keybar.Entry] {
         let entries = KeyTable.bindings(in: context).compactMap { binding -> EQTerm.Keybar.Entry? in
             guard let bar = binding.bar, binding.when?(state) ?? true, !(compact && binding.rank > 0) else { return nil }
             let words = [bar.text] + (binding.state.map { [$0(state)] } ?? [])
             return EQTerm.Keybar.Entry(key: bar.key, text: words.joined(separator: " "), rank: binding.rank)
         }
-        let shown = EQTerm.Keybar.fit(entries, width: width)
+        return EQTerm.Keybar.fit(entries, width: width, extra: extra)
+    }
+
+    static func line(_ context: KeyContext, state: KeyState, width: Int, compact: Bool = false) -> String {
+        let shown = entries(context, state: state, width: width, compact: compact)
         let plain = shown.map(\.plain).joined(separator: separator)
         guard TerminalText.width(plain) <= width else { return TerminalText.prefix(plain, columns: max(width, 0)) }
-        return shown.map { Paint.ink(.bold, $0.key) + " " + $0.text }.joined(separator: separator)
+        return plain
     }
 }
 

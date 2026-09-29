@@ -389,6 +389,7 @@ running daemon; `watch` needs a TTY and exits on `q` or Ctrl-C.
 | `→` `←` | `ю` `Ю` `б` `Б` | the focused instrument's knob ±0.5 dB (. and , work too, no Shift needed) |
 | `l` | `д` `Д` | listen to the focused instrument alone, and back |
 | `Esc` |  | leave the focus (and stop listening) |
+| `y` `Y` | `н` `Н` | next look: studio → console / next palette: ink → paper → brass; saved as tui.look and tui.palette |
 | `m` | `ь` `Ь` | mouse on and off, remembered as tui.mouse in eq.json; on, the wheel scrolls these lists |
 | `;` `Ctrl-P` | `ж` | the command palette; the key is kept for it, the palette is not here yet |
 | `?` `h` | `р` `Р` | the list of every key, over the meter; ?, Esc or q closes it |

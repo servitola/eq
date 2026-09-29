@@ -3,23 +3,50 @@ import EQTerm
 import XCTest
 @testable import eq
 
-/// 300 meter frames with moving levels at 120×40 through update, view and the renderer: the
-/// bytes a terminal gets and the CPU it takes, beside the line-per-frame writes the watch made
-/// before the renderer. Printed for the record; asserted only against the byte budget, since CPU
-/// time in a debug build under a busy test run says little.
+/// 300 meter frames at 120×40 through update, view and the renderer, for each look at each
+/// colour depth: the bytes a terminal gets and the CPU it takes. Printed for the record; asserted
+/// against the byte budget only, since CPU time in a debug build under a busy test run says little.
 final class MeterBenchmarkTests: XCTestCase {
-    override func setUp() { Paint.forced = true }
-    override func tearDown() { Paint.forced = nil }
+    enum Motion: String, CaseIterable {
+        /// research 09 §4: a random walk around a mix, a kick on the low bands, a 20 dB/s fall.
+        case music
+        /// Every band jumps to a random level every frame.
+        case stress
+    }
 
-    static func frames(_ count: Int) -> [MeterFrame] {
-        (0..<count).map { n in
-            let t = Double(n) / 30
-            let out = (0..<10).map { i -> Double in
-                let speed: Double = 0.3 + 0.17 * Double(i)
-                return -30.5 + 29.5 * sin(t * 2 * Double.pi * speed + Double(i))
+    /// A fixed-seed generator, so every run measures the same frames.
+    private struct Random {
+        var state: UInt64
+        mutating func next() -> Double {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Double(state >> 11) / Double(1 << 53)
+        }
+
+        mutating func gauss() -> Double {
+            let u = max(next(), 1e-12), v = next()
+            return (-2 * log(u)).squareRoot() * cos(2 * Double.pi * v)
+        }
+    }
+
+    static func frames(_ count: Int, motion: Motion = .music) -> [MeterFrame] {
+        var random = Random(state: 7)
+        let base: [Double] = [-10, -8, -12, -16, -20, -18, -23, -27, -30, -38]
+        var shown = base
+        return (0..<count).map { n in
+            for i in 0..<10 {
+                switch motion {
+                case .stress:
+                    shown[i] = -60 + 59 * random.next()
+                case .music:
+                    let beat = i < 3 ? 6 * pow(max(0, sin(Double(n) / 30 * 2 * Double.pi * 2)), 4) : 0
+                    let target = base[i] + beat + random.gauss() * 3
+                    shown[i] = target > shown[i] ? target : max(target, shown[i] - 20.0 / 30 * 3)
+                }
             }
-            return MeterFrame(t: t, device: "BE-RCA", rate: 44100, in: out.map { min($0 + 2, 0) }, out: out, peak: -6,
-                              limiting: false, gains: [3, 2, 0, -1, -2, 0, 1, 2, 3, 1], preamp: -1.5, enabled: true)
+            let out = shown.map { min(max($0, -60), 0) }
+            return MeterFrame(t: Double(n) / 30, device: "BE-RCA", rate: 44100, in: out.map { min($0 + 1.5, -0.5) }, out: out,
+                              peak: (out.max()! * 10).rounded() / 10, limiting: false, gains: Config.screenshotCurve, preamp: -4.8,
+                              enabled: true, comp: -2.1)
         }
     }
 
@@ -29,35 +56,43 @@ final class MeterBenchmarkTests: XCTestCase {
         return Double(t.tv_sec) + Double(t.tv_nsec) / 1e9
     }
 
-    func testThreeHundredFramesStayInTheByteBudget() {
+    /// Bytes a frame after the first, bytes of the first (a whole screen), and CPU a frame.
+    static func measure(look: Look, depth: ColorDepth, motion: Motion, frames count: Int = 300) -> (perFrame: Double, full: Int, ms: Double) {
         let size = Size(cols: 120, rows: 40)
-        let frames = Self.frames(300)
-
-        var model = MeterModel(size: size)
+        var settings = LookSettings()
+        settings.look = look
+        settings.depth = depth
+        let header = Watch.Header(preset: ("favourite", true), preference: Preference(bass: 1, treble: -0.5), knobs: ["voice": 3],
+                                  dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
+        var model = MeterModel(size: size, header: header, look: settings)
         var renderer = Renderer()
         var screen = Screen(size)
         var bytes = 0
-        let start = Self.cpu()
-        for f in frames {
+        var full = 0
+        let frames = Self.frames(count + 1, motion: motion)
+        let start = cpu()
+        for (n, f) in frames.enumerated() {
             _ = model.update(.frame(f))
             screen.clear()
             model.view(into: &screen)
-            bytes += renderer.render(screen).count
+            let written = renderer.render(screen).count
+            if n == 0 { full = written } else { bytes += written }
         }
-        let spent = Self.cpu() - start
+        return (Double(bytes) / Double(count), full, (cpu() - start) / Double(count + 1) * 1000)
+    }
 
-        var old = MeterModel(size: size)
-        var oldBytes = 0
-        let oldStart = Self.cpu()
-        for f in frames {
-            _ = old.update(.frame(f))
-            let lines = old.lines() ?? []
-            oldBytes += Array(("\u{1B}[H" + lines.map { $0 + "\u{1B}[K" }.joined(separator: "\n") + "\u{1B}[J").utf8).count
+    func testEveryLookAndDepthStaysInTheByteBudget() {
+        var table = ["| Look | Colours | Motion | Bytes a frame | Full frame | ms a frame |", "| --- | --- | --- | --- | --- | --- |"]
+        for look in Look.allCases {
+            for depth in ColorDepth.allCases {
+                for motion in Motion.allCases {
+                    let m = Self.measure(look: look, depth: depth, motion: motion)
+                    table.append(String(format: "| %@ | %@ | %@ | %.0f | %d | %.2f |", look.rawValue, depth.rawValue, motion.rawValue,
+                                        m.perFrame, m.full, m.ms))
+                    XCTAssertLessThan(m.perFrame, 4500, "research 08 §8: at most 60 % of the 7.6 KB a frame took before M2; \(look) \(depth) \(motion)")
+                }
+            }
         }
-        let oldSpent = Self.cpu() - oldStart
-
-        print(String(format: "renderer: %.0f bytes/frame, %.2f ms/frame; whole lines: %.0f bytes/frame, %.2f ms/frame",
-                     Double(bytes) / 300, spent / 300 * 1000, Double(oldBytes) / 300, oldSpent / 300 * 1000))
-        XCTAssertLessThan(Double(bytes) / 300, 4500, "research §8: at most 60 % of the 7.6 KB a frame took before")
+        print(table.joined(separator: "\n"))
     }
 }

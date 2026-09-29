@@ -79,7 +79,7 @@ final class KeyTableTests: XCTestCase {
     func testKeybarKeepsKeysAndQuitAndDropsWholeEntries() {
         let full = Keybar.line(.meter, state: KeyState(), width: 400)
         XCTAssertEqual(full, "1…0 band  ⇧ down  z zones off  i instruments  [ ] focus  +− preamp  p preset  u undo  s save  "
-                       + "b t bass/treble  c comp  v color  m mouse off  ? keys  q quit")
+                       + "y look  b t bass/treble  c comp  v color  m mouse off  ? keys  q quit")
         let entries = full.components(separatedBy: "  ")
         for width in 14..<TerminalText.width(full) {
             let line = Keybar.line(.meter, state: KeyState(), width: width)

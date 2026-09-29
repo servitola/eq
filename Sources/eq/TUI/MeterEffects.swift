@@ -30,6 +30,9 @@ struct MeterEffects {
             } catch {
                 return [.sendFailed]
             }
+        case .redraw:
+            runtime.renderer.invalidate()
+            return []
         case .refreshHeader:
             return [.header(header())]
         case .mouse(let on):

@@ -288,12 +288,12 @@ final class DynamicsWatchTests: XCTestCase {
     func testHeaderShowsTheLiveReductionAndTheColour() {
         var f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
                            gains: [], preamp: 0, enabled: true, comp: -3.24)
-        let layout = WatchLayout.fit(cols: 140, rows: 30)
         let dynamics = Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3))
-        XCTAssertTrue(Watch.frame(f, layout: layout, dynamics: dynamics)[0].contains("preamp +0.0 dB · night comp -3.2 · tape 0.3 · peak"))
+        func header(_ dynamics: Dynamics?) -> String { MeterScreens.lines(f, cols: 140, rows: 30, dynamics: dynamics)[0] }
+        XCTAssertTrue(header(dynamics).contains("preamp +0.0 dB │ night comp -3.2 │ tape 0.3 "), header(dynamics))
         f.comp = nil
-        XCTAssertTrue(Watch.frame(f, layout: layout, dynamics: dynamics)[0].contains("· night comp · tape 0.3 ·"))
-        XCTAssertFalse(Watch.frame(f, layout: layout)[0].contains("comp"))
+        XCTAssertTrue(header(dynamics).contains("│ night comp │ tape 0.3 "), header(dynamics))
+        XCTAssertFalse(header(nil).contains("comp"))
     }
 
     func testKeybarAndHelpNameTheKeys() {

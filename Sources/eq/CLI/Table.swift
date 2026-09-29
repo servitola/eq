@@ -9,25 +9,16 @@ enum Table {
 
     static let shortLabels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
 
-    /// With a `focus`, labels inside it drop the dim so the focused bands read first.
-    static func labelsRow(width: Int = width, short: Bool = false, columns: Int = Config.bandLabels.count,
-                          bold: Int? = nil, focus: Set<Int>? = nil) -> String {
+    static func labelsRow(width: Int = width, short: Bool = false, columns: Int = Config.bandLabels.count) -> String {
         let labels = (short ? shortLabels : Config.bandLabels).prefix(max(columns, 0)).map { $0.leftPadded(to: width) }
-        var line = "", run = "", ink: Paint.Ink?
-        for (i, label) in labels.enumerated() {
-            let next: Paint.Ink? = i == bold ? .bold : (focus?.contains(i) == true ? nil : .dim)
-            if next != ink, !run.isEmpty { line += Paint.ink(ink, run, on: Paint.enabled); run = "" }
-            ink = next
-            run += label
-        }
-        return line + (run.isEmpty ? "" : Paint.ink(ink, run, on: Paint.enabled))
+        return Paint.ink(.dim, labels.joined())
     }
 
     /// Below six columns "+12.0" plus a gap no longer fits, so the cell shows whole decibels.
-    static func gainsRow(_ bands: [Double], width: Int = width, dimmed: Set<Int> = []) -> String {
-        bands.enumerated().map { i, value -> String in
+    static func gainsRow(_ bands: [Double], width: Int = width) -> String {
+        bands.map { value -> String in
             let text = width >= self.width ? gain(value) : wholeGain(value)
-            return Paint.ink(dimmed.contains(i) ? .dim : Paint.gain(value), text.leftPadded(to: width))
+            return Paint.ink(Paint.gain(value), text.leftPadded(to: width))
         }.joined()
     }
 
@@ -36,7 +27,7 @@ enum Table {
         value.isFinite ? String(format: "%.0f", value.rounded(.towardZero)) : "?"
     }
 
-    private static func wholeGain(_ value: Double) -> String {
+    static func wholeGain(_ value: Double) -> String {
         guard value.isFinite else { return "0" }
         let whole = Int(min(max(value, -99), 99).rounded())
         return whole > 0 ? "+\(whole)" : "\(whole)"

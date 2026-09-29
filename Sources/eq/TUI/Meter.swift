@@ -21,6 +21,8 @@ enum MeterMsg {
 
 enum MeterCmd: Equatable {
     case edit(WatchAction)
+    /// The next frame is written whole: a new look or palette changes nearly every cell.
+    case redraw
     case send(String)
     case refreshHeader
     case mouse(Bool)
@@ -44,7 +46,7 @@ struct MeterModel: Program {
     var listening = false
     var modal: WatchModal?
     var flash: Countdown<Int>?
-    var note: Countdown<String>?
+    var note: Countdown<MeterScene.Message>?
     var prompt: TextField?
     var header: Watch.Header
     /// What the terminal was last told about mouse reporting.
@@ -57,19 +59,31 @@ struct MeterModel: Program {
     var reconnects: Bool
     /// The wait before the next attempt while the daemon is gone.
     var retry: Double?
+    var look: LookSettings
+    /// Each band's peak tick and the frames it still holds before it falls.
+    var peaks: [Double] = []
+    private var holds: [Int] = []
+    var outputPeak = Watch.floorDB
+    private var outputHold = 0
+    /// Frames LIMIT stays lit after the daemon last reported limiting.
+    private var limitLeft = 0
+    let curve = CurveCache()
 
-    init(size: Size, zones: Bool = false, header: Watch.Header = Watch.Header(), reconnects: Bool = false) {
+    init(size: Size, zones: Bool = false, header: Watch.Header = Watch.Header(), reconnects: Bool = false,
+         look: LookSettings = LookSettings()) {
         self.size = size
         strip = zones
         self.header = header
         self.reconnects = reconnects
+        self.look = look
     }
+
+    /// IEC 60268-10 Type I return: 20 dB in 1.7 s. No standard names a hold; 1.5 s is the convention.
+    static let peakHoldFrames = 45
+    static let peakFall = 20 / 1.7 / 30
+    static let limitFrames = 10
 
     var focused: Instrument? { focus.map { Instruments.all[$0] } }
-
-    var layout: WatchLayout {
-        .fit(cols: size.cols, rows: size.rows, zones: strip ? (focus == nil ? Instruments.all.count : 1) : 0, bracket: focus != nil)
-    }
 
     static let firstRetry = 0.5
     static let lastRetry = 4.0
@@ -91,14 +105,14 @@ struct MeterModel: Program {
             return syncMouse()
         case .edited(let action, let failure):
             if let failure {
-                show(failure.split(separator: "\n").first.map(String.init) ?? "")
+                show(failure.split(separator: "\n").first.map(String.init) ?? "", failure.hasPrefix("nothing left") ? .warn : .error)
             } else if case .bandStep(let band, _) = action {
-                flash = Countdown(value: band, left: Watch.flashFrames)
+                flash = Countdown(value: band, left: Watch.flashFrames + MeterScene.flashBlendFrames)
             }
             return [.refreshHeader]
         case .sendFailed:
             // A failed send most likely means the socket is gone, and the daemon clears the solo then.
-            show(Watch.listenFailed)
+            show(Watch.listenFailed, .error)
             listening = false
             return []
         case .meterClosed:
@@ -126,24 +140,58 @@ struct MeterModel: Program {
 
     /// The note, error or prompt of the moment lasts `noteFrames`; while the daemon is gone
     /// the reconnect message stays under it.
-    var message: String? { note?.value ?? (retry != nil ? Watch.reconnecting : nil) }
+    var message: MeterScene.Message? { note?.value ?? (retry != nil ? MeterScene.Message(text: Watch.reconnecting, kind: .warn) : nil) }
 
-    func picture() -> MeterPicture? {
+    func scene() -> MeterScene? {
         guard let f = last else { return nil }
-        return Watch.picture(f, layout: layout, strip: strip, focus: focused, modal: modal, flash: flash?.value,
-                             note: message, preset: header.preset, preference: header.preference, knobs: header.knobs,
-                             dynamics: header.dynamics, prompt: prompt, listening: listening, mouse: mouseOn)
+        var scene = MeterScene(frame: f, size: size)
+        scene.strip = strip
+        scene.focus = focused
+        scene.modal = modal
+        scene.flash = flash.map { ($0.value, $0.left) }
+        scene.message = message
+        scene.messageLeft = note?.left ?? Watch.noteFrames
+        var header = self.header
+        header.mouse = mouseOn
+        scene.header = header
+        scene.prompt = prompt
+        scene.listening = listening
+        scene.peaks = look.peaks && peaks.count == scene.bands ? peaks : nil
+        scene.outputPeak = look.peaks ? outputPeak : nil
+        scene.limiting = f.limiting || limitLeft > 0
+        scene.settings = look
+        scene.curve = curve
+        return scene
     }
 
-    /// The screen as painted lines: what the golden files hold.
-    func lines() -> [String]? { picture()?.lines() }
+    /// The screen as text: what the golden files hold.
+    func lines() -> [String]? { scene()?.lines() }
 
     func view(into screen: inout Screen) {
-        picture()?.draw(into: &screen)
+        scene()?.draw(into: &screen)
     }
 
-    private mutating func show(_ text: String) {
-        note = Countdown(value: text, left: Watch.noteFrames)
+    private mutating func show(_ text: String, _ kind: MeterScene.Message.Kind = .warn) {
+        note = Countdown(value: MeterScene.Message(text: text, kind: kind), left: Watch.noteFrames)
+    }
+
+    private mutating func hold(_ f: MeterFrame) {
+        let out = Watch.padded(f.out, to: Config.bandLabels.count, with: Watch.floorDB).map(MeterScene.clampLevel)
+        if peaks.count != out.count {
+            peaks = out
+            holds = Array(repeating: Self.peakHoldFrames, count: out.count)
+        }
+        for i in out.indices {
+            (peaks[i], holds[i]) = Self.held(peaks[i], hold: holds[i], level: out[i])
+        }
+        (outputPeak, outputHold) = Self.held(outputPeak, hold: outputHold, level: MeterScene.clampLevel(f.peak.isFinite ? f.peak : Watch.floorDB))
+        limitLeft = f.limiting ? Self.limitFrames : max(limitLeft - 1, 0)
+    }
+
+    static func held(_ peak: Double, hold: Int, level: Double) -> (Double, Int) {
+        if level >= peak { return (level, peakHoldFrames) }
+        if hold > 0 { return (peak, hold - 1) }
+        return (max(peak - peakFall, level), 0)
     }
 
     private mutating func syncMouse() -> [MeterCmd] {
@@ -163,6 +211,7 @@ struct MeterModel: Program {
         note = note.flatMap { $0.left > 0 ? Countdown(value: $0.value, left: $0.left - 1) : nil }
         let hadSolo = last?.solo != nil
         last = f
+        hold(f)
         var cmds: [MeterCmd] = []
         // The daemon keeps a solo across a device switch, so only a frame without one asks again:
         // once per rate, or once when it vanished at a rate the range can play (refused at a 0 Hz
@@ -233,8 +282,18 @@ struct MeterModel: Program {
         case .instruments: modal = .instruments(scroll: 0)
         case .closeModal: modal = nil
         case .scrollUp, .scrollDown:
-            modal = modal.map { $0.scrolled(by: action == .scrollUp ? -1 : 1, layout: layout) }
-        case .palette: show(Watch.paletteNote)
+            modal = modal.map { $0.scrolled(by: action == .scrollUp ? -1 : 1, size: size) }
+        case .palette: show(Watch.paletteNote, .plain)
+        case .nextLook:
+            let all = Look.allCases
+            look.look = all[((all.firstIndex(of: look.look) ?? 0) + 1) % all.count]
+            show("look: \(look.look.rawValue) · palette \(look.paletteName.rawValue)", .ok)
+            return [.redraw, .edit(.setLook(look.look.rawValue))]
+        case .nextPalette:
+            let all = PaletteName.allCases
+            look.palette = all[((all.firstIndex(of: look.paletteName) ?? 0) + 1) % all.count]
+            show("palette: \(look.paletteName.rawValue)", .ok)
+            return [.redraw, .edit(.setPalette(look.paletteName.rawValue))]
         case .startSave: prompt = TextField()
         case .focusNext: return refocus(focus.map { ($0 + 1) % count } ?? 0)
         case .focusPrevious: return refocus(focus.map { ($0 + count - 1) % count } ?? count - 1)
@@ -247,7 +306,7 @@ struct MeterModel: Program {
             guard let instrument = focused else { show(Watch.listenNeedsFocus); break }
             return apply(.boost(instrument.name, delta))
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
-             .cycleComp, .cycleColour, .colourAmount, .mouse:
+             .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette:
             return apply(action)
         }
         return []

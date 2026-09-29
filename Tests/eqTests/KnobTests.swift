@@ -270,26 +270,29 @@ final class KnobTests: XCTestCase {
         XCTAssertEqual(edits, [.boost("kick", 0.5), .boost("kick", -0.5), .boost("kick", -0.5)])
         XCTAssertTrue(drawn[1].contains(Watch.listenNeedsFocus), drawn[1])
         XCTAssertTrue(drawn[2].contains("kick +0.0"), "the focused knob shows at 0: \(drawn[2])")
-        XCTAssertTrue(drawn[3].contains("kick +0.5 · peak"), drawn[3])
+        XCTAssertTrue(drawn[3].contains("● kick +0.5 │"), drawn[3])
         XCTAssertTrue(drawn[5].contains("kick -0.5"), drawn[5])
     }
 
     func testHeaderListsSetKnobsWithoutAFocus() {
         let f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
                            gains: [], preamp: 0, enabled: true)
-        let header = Watch.frame(f, layout: .fit(cols: 140, rows: 30), preference: Preference(bass: 1),
-                                 knobs: ["voice": 3, "kick": -2])[0]
-        XCTAssertTrue(header.contains("bass +1 · kick -2.0 voice +3.0 · peak"), header)
+        let header = MeterScreens.lines(f, cols: 140, rows: 30, preference: Preference(bass: 1), knobs: ["voice": 3, "kick": -2])[0]
+        XCTAssertTrue(header.contains("● kick -2.0 ● voice +3.0 │ bass +1 "), header)
     }
 
     func testBracketBrightensTheCharacterRange() {
-        Paint.forced = true
-        let layout = WatchLayout.fit(cols: 120, rows: 30, bracket: true)
-        let bracket = Strip.bracket(instrument("voice"), layout: layout)
-        XCTAssertEqual(bracket.components(separatedBy: "\u{1B}[2m┌").count - 1, 4, "four of five ranges dim: \(bracket)")
-        XCTAssertTrue(bracket.contains("\u{1B}[2mF1"), bracket)
-        let wide = Strip.bracket(instrument("cymbals"), layout: layout)
-        XCTAssertTrue(wide.contains("\u{1B}[1mshimmer") && !wide.contains("\u{1B}[2m┌"), wide)
+        let f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
+                           gains: [], preamp: 0, enabled: true)
+        func bracket(_ name: String) -> String {
+            let scene = MeterScreens.scene(f, cols: 120, rows: 30, focus: instrument(name), depth: .ansi)
+            return MeterScreens.screen(scene).markedLines()[2]
+        }
+        let voice = bracket("voice")
+        XCTAssertEqual(voice.components(separatedBy: "[2]┌").count - 1, 4, "four of five ranges dim: \(voice)")
+        XCTAssertTrue(voice.contains("[2]F1"), voice)
+        let wide = bracket("cymbals")
+        XCTAssertTrue(wide.contains("[1]shimmer") && !wide.contains("[2]┌"), wide)
     }
 
     func testListenSolosTheCharacterRange() throws {

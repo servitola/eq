@@ -237,6 +237,16 @@ enum AudioMode: String, Codable, CaseIterable {
 struct TUIOptions: Codable, Equatable {
     /// Off by default: mouse reporting takes plain drag-to-select away from the terminal.
     var mouse: Bool?
+    var look: String?
+    var palette: String?
+    var colors: String?
+    var meter: String?
+    var curve: Bool?
+    var scale: Bool?
+    var peaks: Bool?
+    var background: String?
+
+    var isEmpty: Bool { self == TUIOptions() }
 }
 
 struct DriverOptions: Codable, Equatable {

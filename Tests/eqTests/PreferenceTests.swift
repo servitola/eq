@@ -185,9 +185,8 @@ final class PreferenceTests: XCTestCase {
     func testWatchHeaderShowsTheLayer() {
         let f = MeterFrame(t: 0, device: "BE-RCA", rate: 44100, in: [], out: [], peak: -6, limiting: false,
                            gains: [], preamp: 0, enabled: true)
-        let layout = WatchLayout.fit(cols: 120, rows: 30)
-        XCTAssertTrue(Watch.frame(f, layout: layout, preference: Preference(bass: 3, treble: -2))[0]
-            .contains("preamp +0.0 dB · bass +3 treble -2 · peak"))
-        XCTAssertFalse(Watch.frame(f, layout: layout)[0].contains("bass"))
+        XCTAssertTrue(MeterScreens.lines(f, cols: 120, rows: 30, preference: Preference(bass: 3, treble: -2))[0]
+            .contains("preamp +0.0 dB │ bass +3 treble -2 "))
+        XCTAssertFalse(MeterScreens.lines(f, cols: 120, rows: 30)[0].contains("bass"))
     }
 }

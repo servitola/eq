@@ -666,23 +666,25 @@ enum CLI {
     }
 
     private static func watch(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        guard args.allSatisfy({ $0 == "--zones" }) else { throw CLIError.usage("eq watch [--zones]") }
-        return try meter(zones: !args.isEmpty, command: "watch", ctx)
+        let usage = "eq watch [--zones] " + LookSettings.flagsUsage
+        let (look, rest) = try LookSettings.parseFlags(args)
+        guard rest.allSatisfy({ $0 == "--zones" }) else { throw CLIError.usage(usage) }
+        return try meter(zones: !rest.isEmpty, look: look, command: "watch", ctx)
     }
 
     /// Only the meter view exists so far; `eq tui` opens on it, as `eq watch` does.
     private static func tui(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        let flags = args.first == "meter" ? Array(args.dropFirst()) : args
-        guard flags.allSatisfy({ $0 == "--zones" }) else {
-            if let view = flags.first(where: { !$0.hasPrefix("-") }) {
+        let (look, rest) = try LookSettings.parseFlags(args.first == "meter" ? Array(args.dropFirst()) : args)
+        guard rest.allSatisfy({ $0 == "--zones" }) else {
+            if let view = rest.first(where: { !$0.hasPrefix("-") }) {
                 throw CLIError.usage("eq tui has no view \"\(view)\" yet; meter is the one there is")
             }
-            throw CLIError.usage("eq tui [meter] [--zones]")
+            throw CLIError.usage("eq tui [meter] [--zones] " + LookSettings.flagsUsage)
         }
-        return try meter(zones: !flags.isEmpty, command: "tui", ctx)
+        return try meter(zones: !rest.isEmpty, look: look, command: "tui", ctx)
     }
 
-    private static func meter(zones: Bool, command: String, _ ctx: CLIContext) throws -> Output {
+    private static func meter(zones: Bool, look flags: TUIOptions, command: String, _ ctx: CLIContext) throws -> Output {
         let terminal = ctx.terminal()
         try Watch.requireTerminal(isTTY: terminal.isTTY, command: command)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
@@ -696,7 +698,8 @@ enum CLI {
                                    })
         Terminal.enter()
         let size = Terminal.size() ?? Size(cols: terminal.cols, rows: terminal.rows)
-        let model = MeterModel(size: size, zones: zones, header: session.header(), reconnects: command == "tui")
+        let look = LookSettings.resolve(flags: flags, saved: (try? loadConfig(ctx))?.tui, env: ProcessInfo.processInfo.environment)
+        let model = MeterModel(size: size, zones: zones, header: session.header(), reconnects: command == "tui", look: look)
         let runtime = Runtime(model, size: size, translate: MeterEffects.translate, perform: effects.perform)
         if let fd = client.descriptor { runtime.watch(fd: fd, id: MeterEffects.meterSource, latestOnly: true) }
         runtime.send(.start)
@@ -743,9 +746,11 @@ enum CLI {
                 try save(config, over: original)
                 return
             }
-            if case .mouse = action {
-                config.tui = config.tui?.mouse == true ? nil : TUIOptions(mouse: true)
-                try save(config, over: original)
+            if let edit = Self.tuiEdit(action) {
+                var options = config.tui ?? TUIOptions()
+                edit(&options)
+                config.tui = options.isEmpty ? nil : options
+                if config != original { try save(config, over: original) }
                 return
             }
             let target = try currentDevice(ctx)
@@ -759,6 +764,16 @@ enum CLI {
             guard config != original else { return }
             try save(config, over: original)
             if config.devices[target.uid] != before { history.append((target.uid, before)) }
+        }
+
+        /// The settings of the screen itself, which no undo walks back.
+        private static func tuiEdit(_ action: WatchAction) -> ((inout TUIOptions) -> Void)? {
+            switch action {
+            case .mouse: return { $0.mouse = $0.mouse == true ? nil : true }
+            case .setLook(let look): return { $0.look = look }
+            case .setPalette(let palette): return { $0.palette = palette }
+            default: return nil
+            }
         }
 
         /// Rounded to hundredths so an imported 3.7 stepped up saves as 4.2, not 4.2000000000000002.
@@ -803,7 +818,7 @@ enum CLI {
                 profile.preset = next
             case .undo, .savePreset, .startSave, .zones, .instruments, .help, .quit,
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
-                 .closeModal, .scrollUp, .scrollDown:
+                 .closeModal, .scrollUp, .scrollDown, .nextLook, .nextPalette, .setLook, .setPalette:
                 return nil
             }
             return profile == before ? nil : profile
