@@ -4,3 +4,4 @@ build/
 .DS_Store
 .superpowers/
 .vscode/
+__pycache__/
