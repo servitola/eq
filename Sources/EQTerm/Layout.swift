@@ -21,6 +21,8 @@ public struct Rect: Equatable {
         Rect(x: x + n, y: y + n, width: width - 2 * n, height: height - 2 * n)
     }
 
+    public func contains(x px: Int, y py: Int) -> Bool { (x..<right).contains(px) && (y..<bottom).contains(py) }
+
     public func row(_ i: Int) -> Rect { Rect(x: x, y: y + i, width: width, height: i < height ? 1 : 0) }
 
     /// A `width`×`height` box in the middle, shrunk to fit.
