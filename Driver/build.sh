@@ -19,7 +19,11 @@ version=${APP_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v/
 build=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 # eq installs the driver it bundles when this is higher than the installed one's, so only commits
 # that change what goes into the bundle count: a release that leaves it alone asks for no password.
-revision=$(git -C .. rev-list --count HEAD -- Driver/Source Driver/Info.plist Driver/build.sh Sources/EQCore 2>/dev/null || echo 0)
+# The files are the ones compiled in below, not all of Sources/EQCore (the resampler is the
+# daemon's); + 1 keeps the count above revision 14, shipped when the whole folder still counted.
+core=(../Sources/EQCore/EQCore.c ../Sources/EQCore/EQDriverProtocol.c
+      ../Sources/EQCore/include/EQCore.h ../Sources/EQCore/include/EQDriverProtocol.h)
+revision=$(( $(git rev-list --count HEAD -- Source Info.plist build.sh $core 2>/dev/null || echo 0) + 1 ))
 protocol=$(awk '$1 == "#define" && $2 == "EQC_BLOB_VERSION" { print $3 }' ../Sources/EQCore/include/EQDriverProtocol.h)
 [[ $protocol =~ ^[0-9]+$ ]] || { echo "no EQC_BLOB_VERSION in EQDriverProtocol.h" >&2; exit 1; }
 

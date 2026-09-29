@@ -38,7 +38,7 @@ coreaudiod. Two keys in `Info.plist` say which driver it is:
 | Key | |
 | --- | --- |
 | `EQDriverProtocol` | `EQC_BLOB_VERSION`, the settings record it reads; eq falls back to the tap below its own |
-| `EQDriverRevision` | commits that touched `Driver/Source`, `Info.plist`, `build.sh` or `Sources/EQCore`; eq offers an update when its own is higher, so a release that leaves the driver alone asks for no password |
+| `EQDriverRevision` | commits that touched `Driver/Source`, `Info.plist`, `build.sh` or the EQCore files compiled into the driver (not the resampler), plus one; eq offers an update when its own is higher, so a release that leaves the driver alone asks for no password |
 
 A driver installed before these keys reads as revision 0.
 
