@@ -15,10 +15,10 @@ enum Paint {
     static var enabled: Bool { enabled(fd: 1) }
 
     /// stderr can be a terminal while stdout is piped, so errors decide on fd 2 separately.
+    /// `getenv`, not `ProcessInfo.environment`: that copies the whole environment into a
+    /// dictionary on every call, and the watch asks hundreds of times a frame.
     static func enabled(fd: Int32) -> Bool {
-        forced ?? (isatty(fd) == 1
-            && ProcessInfo.processInfo.environment["NO_COLOR"] == nil
-            && ProcessInfo.processInfo.environment["TERM"] != "dumb")
+        forced ?? (isatty(fd) == 1 && getenv("NO_COLOR") == nil && getenv("TERM").map { strcmp($0, "dumb") != 0 } ?? true)
     }
 
     static func ink(_ ink: Ink, _ text: String) -> String {
