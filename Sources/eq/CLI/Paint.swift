@@ -17,8 +17,10 @@ enum Paint {
     /// stderr can be a terminal while stdout is piped, so errors decide on fd 2 separately.
     /// `getenv`, not `ProcessInfo.environment`: that copies the whole environment into a
     /// dictionary on every call, and the watch asks hundreds of times a frame.
+    /// `CLICOLOR_FORCE` paints a pipe too: the TUI's command palette reads a child eq that way.
     static func enabled(fd: Int32) -> Bool {
-        forced ?? (isatty(fd) == 1 && getenv("NO_COLOR") == nil && getenv("TERM").map { strcmp($0, "dumb") != 0 } ?? true)
+        forced ?? ((isatty(fd) == 1 || getenv("CLICOLOR_FORCE").map { $0.pointee != 0 && strcmp($0, "0") != 0 } ?? false)
+            && getenv("NO_COLOR") == nil && getenv("TERM").map { strcmp($0, "dumb") != 0 } ?? true)
     }
 
     static func ink(_ ink: Ink, _ text: String) -> String {

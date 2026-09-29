@@ -1,3 +1,4 @@
+import EQTerm
 import XCTest
 @testable import eq
 
@@ -54,5 +55,25 @@ final class PaintTests: XCTestCase {
         Paint.forced = nil
         setenv("NO_COLOR", "1", 1); defer { unsetenv("NO_COLOR") }
         XCTAssertFalse(Paint.enabled)
+    }
+
+    /// A child of the TUI's palette writes to a pipe; these two say it may paint and how wide the pane is.
+    func testCLIColorForcePaintsAPipeAndColumnsSetsItsWidth() {
+        Paint.forced = nil
+        let saved = ["NO_COLOR", "CLICOLOR_FORCE", "COLUMNS"].map { (name: String) in (name, getenv(name).map { String(cString: $0) }) }
+        defer { for (name, value) in saved { if let value { setenv(name, value, 1) } else { unsetenv(name) } } }
+        unsetenv("NO_COLOR")
+        let pipe = Pipe()
+        let fd = pipe.fileHandleForWriting.fileDescriptor
+        XCTAssertFalse(Paint.enabled(fd: fd))
+        setenv("CLICOLOR_FORCE", "1", 1)
+        XCTAssertTrue(Paint.enabled(fd: fd))
+        setenv("NO_COLOR", "1", 1)
+        XCTAssertFalse(Paint.enabled(fd: fd), "NO_COLOR still wins")
+        unsetenv("NO_COLOR")
+        setenv("CLICOLOR_FORCE", "0", 1)
+        XCTAssertFalse(Paint.enabled(fd: fd))
+        setenv("COLUMNS", "57", 1)
+        XCTAssertEqual(Terminal.width(fd: fd), 57)
     }
 }

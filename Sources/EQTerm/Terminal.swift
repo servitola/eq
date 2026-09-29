@@ -68,9 +68,13 @@ public enum Terminal {
         return (true, Int(size.ws_col), Int(size.ws_row))
     }
 
+    /// The terminal's columns; on a pipe, `COLUMNS` when set, which is how a program running
+    /// this one in a pane of its own says how wide the pane is.
     public static func width(fd: Int32) -> Int {
         var size = winsize()
-        guard isatty(fd) == 1, ioctl(fd, TIOCGWINSZ, &size) == 0, size.ws_col > 0 else { return 80 }
+        guard isatty(fd) == 1, ioctl(fd, TIOCGWINSZ, &size) == 0, size.ws_col > 0 else {
+            return getenv("COLUMNS").flatMap { Int(String(cString: $0)) }.flatMap { $0 > 0 ? $0 : nil } ?? 80
+        }
         return Int(size.ws_col)
     }
 
