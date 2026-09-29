@@ -345,9 +345,31 @@ and terminal probing, which eq skips.
 before eq sees it. Synchronized output, SGR mouse and focus events through tmux into Zap are
 unverified; M2 checks them on this stack.
 
-## 8. Baseline to measure in M1 [inferred until measured]
+## 8. Baseline, measured in M1 [measured]
 
-`eq watch` at 120×40: CPU from `ps -o %cpu` each second for 60 s with music playing; bytes per
-frame from a tee of stdout. Estimate from `Watch.frame`: 40 lines × ~10 bars × (SGR open + 3
-glyphs × 3 bytes + reset) ≈ 25–30 bytes per bar → ~10 KB a frame, ~300 KB/s. The diff should
-leave the bar cells that changed plus nothing else.
+Method: a release build (`swift build -c release`) of `eq watch` on a pseudo-terminal of 120×40
+(Python `pty.fork`, `TIOCSWINSZ`, `TERM=xterm-256color`, so colour is on), 2 s of warm-up, then
+60 s. CPU is the process's own CPU time from `ps -o time=` at the start and end of the 60 s,
+divided by wall time, cross-checked by `ps -o %cpu` once a second; bytes are everything read
+from the pty master, frames the count of `ESC [H` in it. Two sources: the live daemon (driver
+mode, BE-RCA, 44.1 kHz; nothing was playing, so every level sat at the −60 floor) and a fake
+meter socket (`EQ_STATUS` in a scratch directory) sending 30 frames a second of levels moving
+between −60 and −1 dBFS, which draws what music draws without touching audio. The harness is
+not in the repo; it is 50 lines around `ps` and `select`.
+
+| Build | Source | CPU | Frames/s | Bytes/frame | KiB/s |
+| --- | --- | --- | --- | --- | --- |
+| before M1 (`350cfd6`) | live, silent | 99.5 % | 23.7 | 6 384 | 148 |
+| before M1 (`350cfd6`) | fake, moving | 99.8 % | 16.2 | 7 703 | 122 |
+| `Paint` fix only | live, silent | 3.4 % | 30.0 | 4 446 | 130 |
+| `Paint` fix only | fake, moving | 5.2 % | 30.0 | 7 631 | 224 |
+| M1 (keybar, overlays) | live, silent | 3.7 % | 30.0 | 4 553 | 134 |
+| M1 (keybar, overlays) | fake, moving | 5.7 % | 30.0 | 7 597 | 223 |
+
+The first measurement found the watch taking a whole core and falling behind the daemon's 30
+frames. `sample` put most of it in `Paint.enabled`: every `Paint.ink` call read
+`ProcessInfo.processInfo.environment`, which builds a dictionary of the whole environment, and a
+120×40 frame paints several hundred spans. Reading `NO_COLOR` and `TERM` with `getenv` took it to
+3–6 %; the byte counts before the fix are lower only because frames were dropped. The keybar
+costs about 0.3 % and ~100 bytes a frame. The M2 budget is set against the M1 rows: CPU no higher
+than 5.7 % with moving levels, and at most 60 % of 7.6 KB, ~4.5 KB, a frame.

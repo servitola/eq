@@ -15,15 +15,11 @@
 - Pipes and `NO_COLOR` stay plain.
 
 ## Follow-ups from the v4 review
-- The one-line hint drops whole segments instead of being cut mid-word.
 - Hide zones with no visible band at narrow widths.
 - `eq zones` without a config/device; fit it to the terminal width.
-- ≤ 8 rows: shrink the meter below 4 rows or drop the footer so nothing scrolls.
 - Option C of watch was done as keyboard tuning; arrows for band select + fine steps later.
-- Ctrl‑Z in `eq watch` leaves the alternate screen up.
 
 ## Follow-ups from the v7 review
-- A stray UTF-8 lead byte delays the next ASCII key until enough bytes arrive.
 - A same-user connect flood keeps the accept loop busy (accept-and-close until EAGAIN).
 
 ## Follow-ups from the Round D release

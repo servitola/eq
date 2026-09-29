@@ -3,6 +3,32 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- `eq watch` keeps a keybar on its bottom row that never hides: the keys of what is on screen,
+  `? keys` and `q quit` always there, `z zones on/off` with its state, and the focused
+  instrument's keys while one is focused. The 8-second key box and `x` are gone.
+- `?` or `h` opens the list of every key over the meter until `?`, `Esc` or `q` closes it; `i`
+  opens the instrument table (ranges, bands, knob gains) the same way.
+- `eq tui [meter] [--zones]`: the terminal UI, opened on the meter view, today the same screen as
+  `eq watch`.
+- `m` turns mouse reporting on and off and remembers it as `tui.mouse` in eq.json; off by default.
+  For now the wheel scrolls the two lists. `;` (`ж`) and Ctrl-P are kept for the command palette.
+
+### Fixed
+
+- `eq watch` took a whole CPU core and fell behind the daemon's 30 frames a second; it now takes
+  about 5 %.
+- Ctrl-Z in `eq watch` left the alternate screen up; now the shell gets its screen back and `fg`
+  redraws the watch. `kill`, a lost terminal and a crash put the terminal back too.
+- A resize while no frames arrive redraws at once, not on the next key.
+- Below ten rows nothing scrolls the screen any more: the notes and the keybar share one row.
+- A stray UTF-8 lead byte no longer holds back the key typed after it.
+- On a Russian layout Shift+4 types `;`, now the palette's key, so 250 Hz is lowered from a US
+  layout, as 2 kHz already was.
+
 ## 2026.09.29.1 — 2026-09-29
 
 ### Added
