@@ -1,0 +1,24 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
+  METER   INSTRUMENTS   EVENTS                                      g go  ; cmd
+ ╭─ INSTRUMENTS ─────────────────────────────────── 8 instruments · 17 ranges ╮
+ │     INSTRUMENT            KNOB  LEVEL      RANGE         HZ                │
+ │ ▸ ● kick     ┄┄┄┄┄┼┄┄┄┄┄   0.0  ▆▆▆▆▆▆▆▆ ◆ thump         50–100            │
+ │                                            beater click  2k–5k             │
+ │   ● bass     ┄┄┄┄┄┼┄┄┄┄┄   0.0  ▆▆▆▆▆▆▆▆   fundamental   40–250            │
+ │                                          ◆ growl/attack  700–1.2k          │
+ │   ● snare    ┄┄┄┄┄┼┄┄┄┄┄   0.0  ▆▆▆▆▆▆▆▆   body          150–250           │
+ │                                          ◆ crack         4k–6k             │
+ │   ● guitar   ┄┄┄┄┄┼┄┄┄┄┄   0.0  ▆▆▆▆▆▆▆▆   body          80–1.2k           │
+ │                                          ◆ bite          2k–5k             │
+ │   ● piano    ┄┄┄┄┄┼┄┄┄┄┄   0.0  ▆▆▆▆▆▆▆▆   fundamental   27–4.2k           │
+ │                                          ◆ brightness    4k–8k             │
+ │   ● voice    ┄┄┄┄┄┼●┄┄┄┄  +3.0  ▆▆▆▆▆▆▆▆   fundamental   85–255            │
+ │                                            F1            300–1k            │
+ │                                            F2            900–2.8k          │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ NOW ──────────────────────────────────────────────────────────────────────╮
+ │  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆  ▆▆▆▆▆      │
+ │  32Hz   64Hz   125Hz  250Hz  500Hz  1kHz   2kHz   4kHz   8kHz   16kHz      │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+
+ ↑↓  move   Enter  focus   ← →  knob   l  listen off   ?  keys   q  quit

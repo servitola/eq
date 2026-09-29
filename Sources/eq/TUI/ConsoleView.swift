@@ -41,29 +41,31 @@ struct ConsoleView {
     }
 
     /// nil when the desk does not fit; the studio's compact rows draw instead.
-    static func layout(_ size: Size, zones: Int, focus: Bool) -> Layout? {
+    static func layout(_ full: Size, zones: Int, focus: Bool, tabs: Int = 0) -> Layout? {
+        let size = Size(cols: full.cols, rows: full.rows - tabs)
         let master = size.cols >= 110 ? 30 : 0
         let stripWidth = min(8, (size.cols - master - 5) / 10)
         guard stripWidth >= 5 else { return nil }
         let bracket = focus ? 1 : 0
-        let zoneRows = zones == 0 ? 0 : min(zones, max(size.rows - 26, 1))
+        let zoneRows = zones == 0 ? 0 : min(zones, max(full.rows - 26, 1))
         var faderRows = size.rows >= 30 ? 9 : 5
         func leds() -> Int { size.rows - 1 - 1 - 1 - faderRows - 1 - zoneRows - 2 - bracket - 1 }
         if leds() < 6 { faderRows = 3 }
         guard leds() >= 3 else { return nil }
-        return Layout(stripWidth: stripWidth, ledWidth: stripWidth >= 7 ? 3 : 2, bracket: bracket, ledRows: leds(),
+        return Layout(stripWidth: stripWidth, ledWidth: stripWidth >= 7 ? 3 : 2, top: 1 + tabs, bracket: bracket, ledRows: leds(),
                       faderRows: faderRows, zoneRows: zoneRows, master: master)
     }
 
     func draw(into screen: inout Screen) {
         let zones = scene.strip ? (scene.focus == nil ? Instruments.all.count : 1) : 0
-        guard let l = Self.layout(scene.size, zones: zones, focus: scene.focus != nil) else {
+        guard let l = Self.layout(scene.size, zones: zones, focus: scene.focus != nil, tabs: scene.tabRows) else {
             StudioView(scene: scene, compact: true).draw(into: &screen)
             return
         }
         let size = scene.size
         screen.fill(screen.area, with: Cell(" ", style: t.style(nil, p.surface)))
         StatusBar(scene: scene).console(into: &screen, width: size.cols)
+        if scene.tabRows > 0 { TabRow.draw(scene, into: &screen) }
         if let focus = scene.focus {
             Zones.bracket(focus, y: l.top, centres: l.centres, table: l.table, scene: scene, into: &screen)
         }

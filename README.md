@@ -74,7 +74,7 @@ coreaudiod's own, rewritten while it runs, and nothing reads the entry once the 
 | `eq` | the curve in effect on the current output |
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
 | `eq watch [--zones] [--look LOOK] …` | the live equalizer in the terminal; tune from the keyboard, `?` lists every key, `y` switches the look, `q` quits; the flags are under [Looks](#looks) |
-| `eq tui [meter] [--zones] [--look LOOK] …` | the terminal UI, opened on its meter view: today the same screen as `eq watch` |
+| `eq tui [meter\|instruments\|events] [--zones] [--look LOOK] …` | the terminal UI, opened on the meter (the same screen as `eq watch`), the instruments or the daemon's events; `;` opens a palette of every command |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
@@ -336,20 +336,20 @@ quitting, `eq undo` returns to the curve from before the session.
 
 ```
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+  Meter   Instruments   Events                                      g go  ; cmd
    ╭─ meter ─────────────────────────────────────────────── dBFS · gain dB ╮
    │  0 ┤        ▔▔▔                                                  ├+12 │
-   │ -6 ┤  ▔▔▔   ░░░   ▔▔▔                                                 │
-   │       ▅▅▅         ░░░                                                 │
-   │-12 ┤                    ▔▔▔   ▔▔▔   ▔▔▔                               │
-   │      ⢀⠔⠑⠢⢄⣀⠔⠊⠑⠢⣀⣀⠤⠒⠢⡀               ▄▄▄   ▔▔▔                    ├+6  │
-   │      ⠊              ⠈⠢⢄⣀⣀⡀    ███         ▂▂▂   ▔▔▔   ⢀⡀              │
-   │-24 ┤                     ⠈⠢⡀                    ░░░ ⢀⠔⠁⠈⠢⡀  ⡔⢢        │
-   │                            ⠈⠑⠤⣀               ⣀⣀⣀⠤⠔⠊⠁ ▃▃▃⠈⠉⠉ ⠈⢆⣀⣀     │
-   │      ┈   ┈┈┈   ┈┈┈   ┈┈┈   ┈┈┈ ⠉⠒⠤⡀┈   ┈⡠⠔⠒⠊⠉⠉┈┈   ┈┈┈   ┈┈┈▔▔▔┈┈├ 0  │
-   │-36 ┤                              ⠈⠢⣀⣀⠔⠉                    ▂▂▂       │
+   │ -6 ┤  ▔▔▔   ▂▂▂   ▔▔▔                                                 │
+   │-12 ┤  ▇▇▇         ▃▃▃   ▔▔▔                                           │
+   │        ⡀    ⢀⡀          ▃▃▃   ▔▔▔   ▔▔▔                               │
+   │      ⡠⠊⠈⠑⠢⠔⠊⠁⠈⠑⠢⠔⠊⠉⠑⢄         ▃▃▃   ▇▇▇   ▔▔▔                    ├+6  │
+   │-24 ┤                 ⠉⠒⠒⠢⢄⡀               ▅▅▅   ▔▔▔  ⢀⠤⠤⡀   ⢀         │
+   │                           ⠈⠢⣀                   ▅▅▅⣀⠔⠁▔▔⠈⠢⠤⠤⠊⠱⡀       │
+   │      ┈   ┈┈┈   ┈┈┈   ┈┈┈   ┈┈⠉⠒⠤⣀┈┈┈   ┈┈⢀⣀⠤⠤⠤⠒⠒⠒⠉⠉┈┈┈▇▇▇┈┈┈▔▔⠑⠒⠒├ 0  │
+   │-36 ┤                             ⠉⠢⡀  ⢀⠔⠊⠁                            │
+   │                                    ⠈⠑⠊⠁                     ▇▇▇       │
    │                                                                       │
-   │                                                                  ├-6  │
-   │-48 ┤                                                                  │
+   │-48 ┤                                                             ├-6  │
    │                                                                       │
    │                                                                       │
    │-60 ┤                                                             ├-12 │
@@ -410,52 +410,113 @@ any flag. The default ground is the terminal's own, so a translucent terminal st
 and only panels, chips and tints are painted; `--background theme` paints the palette's ground
 under everything, which the light `paper` palette needs on a dark terminal.
 
+### Views
+
+Under the status bar a row of tabs names the views, the current one a solid chip and each other
+one with its letter underlined; `g` and that letter goes there, and a small menu over the keybar
+lists the letters after `g` (`п`, then `ь`, `ш` or `у` on a Russian layout). `Esc` with nothing
+left to cancel goes back to the view before. `eq tui VIEW` opens on one (`eq tui events`); `eq
+watch` is the meter. Below 14 rows the tabs give their row to the meter, and below 60 columns only
+the current one shows.
+
+- **Meter** (`g m`): the screen above.
+- **Instruments** (`g i`, or `i` on the meter): `eq zones` and `eq boost` as one table, each
+  instrument in its colour with its knob as a centre-zero gauge, a live mini-meter of its loudest
+  band, its ranges in Hz, where each sits on a 20 Hz–20 kHz map and the bands each touches, and
+  the ten bands as they sound now under it. `↑`/`↓` choose, `←`/`→` turn the chosen knob,
+  `l` listens to it alone, `Enter` focuses it on the meter.
+- **Events** (`g e`): the daemon's `eq events` as a log, newest at the bottom, each kind in its
+  colour: device, rate, preset, bypass, solo, app, mode. `Space` pauses it while events keep
+  arriving (the panel counts them), `/` filters by kind or text, `PgUp`/`PgDn`/`Home`/`End`
+  scroll. The status bar follows these events on every view.
+
+The meter connection is held only while a view that draws levels is on screen, or a solo sounds:
+on the Events view the daemon stops its meter work, and the status bar leaves out the peak and
+LIMIT, which only meter frames carry. The events connection stays open from start to end.
+
+`;` (`ж` on a Russian layout, the same key) or Ctrl-P opens the command palette in the message
+row: every `eq` command form from the help, and the screen's own actions by name (`go events`,
+`zones`, `look`, `listen`), fuzzy-matched as you type, with the best match marked. Once a command's
+words are typed its operand completes from the same values the shell completions use: presets,
+devices, instruments, bands, formats, apps. `Tab` takes a suggestion into the line, `↑`/`↓`
+choose, `Enter` runs it; with the line empty the last commands run come first (the last 100 are
+kept in `~/.cache/eq/tui-history`). An `eq` command runs as a child process beside the screen,
+which keeps drawing; a one-line answer shows in the message row, a longer one in a panel over the
+view with its colours kept, laid out for the panel's width, where `Ctrl-C` stops it and `Esc`
+closes it. The status bar is read again when it ends, so `: preset use favourite` shows the preset
+at once. Commands that stream (`watch`, `stream`, `events`, `tui`) point at the view that does
+the same instead. `eq …` in front names the command when a screen action has the same name
+(`eq zones`).
+
 ### Keys
 
-| Key | Russian | Action |
-| --- | --- | --- |
-| `1` … `9` `0` |  | raise band 32 Hz … 16 kHz by 0.5 dB (0 is the tenth band, 16 kHz) |
-| `⇧1` … `⇧0` | `"` `№` `:` | lower it by 0.5 dB: ! @ # $ % ^ & * ( ) on a US layout |
-| `+` `-` |  | preamp ±0.5 dB (= and _ work too, no Shift needed) |
-| `b` `B` `t` `T` | `и` `И` `е` `Е` | bass / treble shelf +0.5 dB, with Shift −0.5 dB |
-| `p` `↓` `↑` | `з` `З` | next preset (p, ↓) / previous one (↑), alphabetically, wrapping round |
-| `c` | `с` `С` | compressor: off → gentle → night → off |
-| `v` `V` | `м` `М` | colour: off → tape → tube → off, starting at 0.3 / raise the amount by 0.1, from 1 back to 0.1 |
-| `u` | `г` `Г` | undo the last change made in this session, back to how it started |
-| `s` | `ы` `Ы` | save the curve as a preset: type a name, Enter saves, Esc cancels |
-| `z` | `я` `Я` | the instrument strip, on and off |
-| `i` | `ш` `Ш` | the instrument table: ranges in Hz, the bands each touches, knob gains |
-| `]` `Tab` `[` | `ъ` `Ъ` `х` `Х` | focus the next / previous instrument |
-| `→` `←` | `ю` `Ю` `б` `Б` | the focused instrument's knob ±0.5 dB (. and , work too, no Shift needed) |
-| `l` | `д` `Д` | listen to the focused instrument alone, and back |
-| `Esc` |  | leave the focus (and stop listening) |
-| `y` `Y` | `н` `Н` | next look: studio → console / next palette: ink → paper → brass; saved as tui.look and tui.palette |
-| `m` | `ь` `Ь` | mouse on and off, remembered as tui.mouse in eq.json; on, the wheel scrolls these lists |
-| `;` `Ctrl-P` | `ж` | the command palette; the key is kept for it, the palette is not here yet |
-| `?` `h` | `р` `Р` | the list of every key, over the meter; ?, Esc or q closes it |
-| `q` | `й` `Й` | quit |
-| `Ctrl-C` |  | quit, from the lists too |
+| Key | Russian | Where | Action |
+| --- | --- | --- | --- |
+| `g` | `п` `П` | every view | go to a view: m meter, i instruments, e events; a menu lists them |
+| `;` `Ctrl-P` | `ж` | every view | the command palette: any eq command, run beside the screen |
+| `u` | `г` `Г` | every view | undo the last change made in this session, back to how it started |
+| `m` | `ь` `Ь` | every view | mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it and the wheel scrolls |
+| `?` `h` | `р` `Р` | every view | the list of every key; ?, Esc or q closes it |
+| `q` | `й` `Й` | every view | quit |
+| `Ctrl-C` |  | every view | quit, from the lists too |
+| `Ctrl-Z` |  | every view | suspend to the shell; fg brings the screen back as it was |
+| `y` `Y` | `н` `Н` | every view | next look: studio → console / next palette: ink → paper → brass; saved as tui.look and tui.palette |
+| `1` … `9` `0` |  | Meter | raise band 32 Hz … 16 kHz by 0.5 dB (0 is the tenth band, 16 kHz) |
+| `⇧1` … `⇧0` | `"` `№` `:` | Meter | lower it by 0.5 dB: ! @ # $ % ^ & * ( ) on a US layout |
+| `+` `-` |  | Meter | preamp ±0.5 dB (= and _ work too, no Shift needed) |
+| `b` `B` `t` `T` | `и` `И` `е` `Е` | Meter | bass / treble shelf +0.5 dB, with Shift −0.5 dB |
+| `p` `↓` `↑` | `з` `З` | Meter | next preset (p, ↓) / previous one (↑), alphabetically, wrapping round |
+| `c` | `с` `С` | Meter | compressor: off → gentle → night → off |
+| `v` `V` | `м` `М` | Meter | colour: off → tape → tube → off, starting at 0.3 / raise the amount by 0.1, from 1 back to 0.1 |
+| `s` | `ы` `Ы` | Meter | save the curve as a preset: type a name, Enter saves, Esc cancels |
+| `z` | `я` `Я` | Meter | the instrument strip, on and off |
+| `i` | `ш` `Ш` | Meter | the Instruments view: ranges in Hz, the bands each touches, knob gains, levels; Esc comes back |
+| `]` `Tab` `[` | `ъ` `Ъ` `х` `Х` | Meter | focus the next / previous instrument |
+| `→` `←` | `ю` `Ю` `б` `Б` | Meter | the focused instrument's knob ±0.5 dB (. and , work too, no Shift needed) |
+| `l` | `д` `Д` | Meter | listen to the focused instrument alone, and back |
+| `Esc` |  | Meter | leave the focus (and stop listening); with no focus, back to the view before |
+| `↑` `↓` `j` `k` | `л` `о` | Instruments | move between the instruments |
+| `Home` `End` |  | Instruments | the first / the last instrument |
+| `Enter` |  | Instruments | focus the instrument on the meter |
+| `→` `←` | `ю` `Ю` `б` `Б` | Instruments | its knob ±0.5 dB (. and , work too) |
+| `l` | `д` `Д` | Instruments | listen to it alone, and back; it becomes the meter's focus |
+| `Esc` |  | Instruments | back to the view before |
+| `↑` `↓` `j` `k` | `л` `о` | Events | scroll the log |
+| `PgUp` `PgDn` `Home` `End` |  | Events | a page up / down, the oldest / the newest |
+| `Space` |  | Events | pause the log and go on; events keep arriving underneath, the panel counts them |
+| `/` | `.` | Events | show only events whose kind or text has what you type |
+| `Esc` |  | Events | clear the filter, then back to the view before |
+| `g` `m` | `ь` | after g | the meter |
+| `g` `i` | `ш` | after g | the instruments, their knobs and levels |
+| `g` `e` | `у` | after g | the daemon's events as they happen |
+| `Esc` |  | after g | stay; any other key does too |
+| `Enter` |  | palette | run the chosen line: an eq command as a child process, or a screen action |
+| `Tab` |  | palette | take the chosen suggestion into the line |
+| `↑` `↓` |  | palette | choose a suggestion; with the line empty, the last commands run come first |
+| `Esc` |  | palette | close it |
+| `↑` `↓` `j` `k` | `л` `о` | command output | scroll |
+| `Ctrl-C` |  | command output | stop the command |
+| `Esc` `q` | `й` `Й` | command output | close it; a command still running is stopped |
 
-The bottom row is the keybar: the keys of what is on screen, most useful first, whole entries
-dropped from the right when the terminal is narrow, `? keys` and `q quit` always kept. It never
-hides. The row above it holds the save-as prompt and the notes that last two seconds, and stays
-reserved when empty, so a note never moves the meter. Below ten rows the two share one row and
-the keybar is only `? keys  q quit`. `z` shows its state on the keybar (`z zones on`), and while
-an instrument is focused its knob, `l listen` and `Esc unfocus` join it.
+The bottom row is the keybar: the keys of the view on screen, then those every view shares,
+most useful first, whole entries dropped from the right when the terminal is narrow, `? keys` and
+`q quit` always kept. It never hides. The row above it holds the save-as prompt, the palette's
+line and the notes that last two seconds, and stays reserved when empty, so a note never moves the
+meter. Below ten rows the two share one row and the keybar is only `? keys  q quit`. `z` shows its
+state on the keybar (`z zones on`), and while an instrument is focused its knob, `l listen` and
+`Esc unfocus` join it.
 
-`?` or `h` opens the list of every key over the meter, grouped, and it stays until `?`, `Esc` or
-`q` closes it; `↑`/`↓` (`j`/`k`) scroll it when it is taller than the terminal. Keys under it do
-nothing to the curve. `i` opens the instrument table the same way: each instrument's ranges in Hz,
-the bands each range touches, its knob gain, the character range in bold and the focus marked
-`▸`. `eq tui` runs this same screen; its other views are still to come. `;` (`ж`) and Ctrl-P are
-kept for the command palette and only say so for now. `m` turns mouse reporting on and remembers
-it as `"tui": {"mouse": true}` in eq.json; it is off by default because it takes plain
-drag-to-select away from the terminal, and for now the wheel scrolls the two lists and nothing
-else. The table above is generated from the same key table the watch reads its keys from, and a
-test keeps the two equal.
+`?` or `h` opens the list of every key over the view, grouped: the view's own keys first, then
+those of every view, `g`'s letters, the palette's and the command output's. It stays until `?`,
+`Esc` or `q` closes it; `↑`/`↓` (`j`/`k`) scroll it when it is taller than the terminal. Keys under
+it do nothing to the curve. `m` turns mouse reporting on and remembers it as
+`"tui": {"mouse": true}` in eq.json; it is off by default because it takes plain drag-to-select
+away from the terminal; on, a click on a tab opens that view and the wheel scrolls the lists. The
+table above is generated from the same key table the TUI reads its keys from, and a test keeps the
+two equal.
 
 Ctrl-Z hands the terminal back to the shell and `fg` brings the screen back as it was. The
-terminal is put back the same way when the watch is closed with `kill`, loses its terminal, or
+terminal is put back the same way when the TUI is closed with `kill`, loses its terminal, or
 crashes, so the shell is left usable. When the daemon goes away `eq watch` ends with exit 1;
 `eq tui` says "daemon gone — reconnecting" in the message row and picks the meter up again once
 the daemon is back.

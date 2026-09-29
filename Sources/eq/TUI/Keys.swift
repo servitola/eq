@@ -1,33 +1,45 @@
 import EQTerm
 import Foundation
 
-/// A key once its escape sequence is decoded. Tab, Ctrl-C and Ctrl-P are characters.
+/// A key once its escape sequence is decoded. Tab, Enter, Ctrl-C, Ctrl-P and Ctrl-Z are characters.
 enum Key: Hashable {
     case char(Character)
     case up, down, right, left, esc
+    case pageUp, pageDown, home, end
     case wheelUp, wheelDown
 
     var name: String {
         switch self {
         case .char("\t"): return "Tab"
+        case .char("\n"): return "Enter"
+        case .char(" "): return "Space"
         case .char("\u{03}"): return "Ctrl-C"
         case .char("\u{10}"): return "Ctrl-P"
+        case .char("\u{1A}"): return "Ctrl-Z"
         case .char(let c): return String(c)
         case .up: return "↑"
         case .down: return "↓"
         case .right: return "→"
         case .left: return "←"
         case .esc: return "Esc"
+        case .pageUp: return "PgUp"
+        case .pageDown: return "PgDn"
+        case .home: return "Home"
+        case .end: return "End"
         case .wheelUp: return "wheel up"
         case .wheelDown: return "wheel down"
         }
     }
 }
 
-/// Where a key is looked up: the meter, or the overlay or prompt on top of it. `global` is
-/// searched after any of them.
+/// Where a key is looked up: a view, or the modal on top of it. `global` is searched after any
+/// of them, so a view's own key shadows it.
 enum KeyContext: CaseIterable {
-    case meter, help, instruments, prompt, global
+    case meter, instruments, events
+    case help, prompt, go, palette, pane, filter
+    case global
+
+    var isView: Bool { [.meter, .instruments, .events].contains(self) }
 }
 
 /// What the keybar needs to know to show a key's state, or whether to show it at all.
@@ -36,6 +48,8 @@ struct KeyState: Equatable {
     var focused = false
     var listening = false
     var mouse = false
+    var paused = false
+    var running = false
 }
 
 struct KeyBinding {
@@ -54,6 +68,8 @@ struct KeyBinding {
     var rank = 0
     var state: ((KeyState) -> String)? = nil
     var when: ((KeyState) -> Bool)? = nil
+    /// The name the command palette offers the first action under.
+    var palette: String? = nil
 
     func action(at index: Int) -> WatchAction? { actions.count == 1 ? actions[0] : actions[index] }
 }
@@ -69,13 +85,16 @@ enum PhysicalKeys {
     }
 }
 
-/// The one table of keys: it drives what a key does, the keybar, the help overlay and the
-/// README's key table.
+/// The one table of keys: it drives what a key does, the keybar, the help overlay, the command
+/// palette's named actions and the README's key table.
 enum KeyTable {
     static let step = 0.5
     private static let digits = "1234567890".map { Key.char($0) }
     private static let shiftedDigits = "!@#$%^&*()".map { Key.char($0) }
     private static func chars(_ text: String) -> [Key] { text.map { Key.char($0) } }
+    private static let up: [Key] = [.up, .char("k"), .wheelUp]
+    private static let down: [Key] = [.down, .char("j"), .wheelDown]
+    private static let scroll = Array(repeating: WatchAction.scrollUp, count: 3) + Array(repeating: WatchAction.scrollDown, count: 3)
 
     static let bindings: [KeyBinding] = [
         KeyBinding(context: .meter, group: "Tune", keys: digits, actions: (0..<10).map { .bandStep($0, step) },
@@ -96,16 +115,15 @@ enum KeyTable {
         KeyBinding(context: .meter, group: "Tune", keys: chars("vV"), actions: [.cycleColour, .colourAmount],
                    label: "v V", help: "colour: off → tape → tube → off, starting at 0.3 / raise the amount by 0.1, from 1 back to 0.1",
                    bar: ("v", "color"), rank: 16),
-        KeyBinding(context: .meter, group: "Tune", keys: chars("uU"), actions: [.undo],
-                   label: "u", help: "undo the last change made in this session, back to how it started", bar: ("u", "undo"), rank: 11),
         KeyBinding(context: .meter, group: "Tune", keys: chars("sS"), actions: [.startSave],
                    label: "s", help: "save the curve as a preset: type a name, Enter saves, Esc cancels", bar: ("s", "save"), rank: 12),
 
         KeyBinding(context: .meter, group: "Instruments", keys: chars("zZ"), actions: [.zones],
                    label: "z", help: "the instrument strip, on and off", bar: ("z", "zones"), rank: 3,
-                   state: { $0.strip ? "on" : "off" }),
-        KeyBinding(context: .meter, group: "Instruments", keys: chars("iI"), actions: [.instruments],
-                   label: "i", help: "the instrument table: ranges in Hz, the bands each touches, knob gains", bar: ("i", "instruments"), rank: 4),
+                   state: { $0.strip ? "on" : "off" }, palette: "zones"),
+        KeyBinding(context: .meter, group: "Instruments", keys: chars("iI"), actions: [.go(.instruments)],
+                   label: "i", help: "the Instruments view: ranges in Hz, the bands each touches, knob gains, levels; Esc comes back",
+                   bar: ("i", "instruments"), rank: 4),
         KeyBinding(context: .meter, group: "Instruments", keys: chars("]\t}[{"),
                    actions: [.focusNext, .focusNext, .focusNext, .focusPrevious, .focusPrevious],
                    label: "] Tab [", help: "focus the next / previous instrument", bar: ("[ ]", "focus"), rank: 5),
@@ -115,65 +133,127 @@ enum KeyTable {
                    bar: ("← →", "knob"), rank: 6, when: { $0.focused }),
         KeyBinding(context: .meter, group: "Instruments", keys: chars("lL"), actions: [.listen],
                    label: "l", help: "listen to the focused instrument alone, and back", bar: ("l", "listen"), rank: 7,
-                   state: { $0.listening ? "on" : "off" }, when: { $0.focused }),
+                   state: { $0.listening ? "on" : "off" }, when: { $0.focused }, palette: "listen"),
         KeyBinding(context: .meter, group: "Instruments", keys: [.esc], actions: [.unfocus],
-                   label: "Esc", help: "leave the focus (and stop listening)", bar: ("Esc", "unfocus"), rank: 8, when: { $0.focused }),
+                   label: "Esc", help: "leave the focus (and stop listening); with no focus, back to the view before",
+                   bar: ("Esc", "unfocus"), rank: 8, when: { $0.focused }),
 
-        KeyBinding(context: .meter, group: "Look", keys: chars("yY"), actions: [.nextLook, .nextPalette],
+        KeyBinding(context: .instruments, group: "Instruments view", keys: up + down, actions: scroll,
+                   label: "↑ ↓ j k", help: "move between the instruments", bar: ("↑↓", "move"), rank: 1),
+        KeyBinding(context: .instruments, group: "Instruments view", keys: [.home, .pageUp, .end, .pageDown],
+                   actions: [.top, .top, .bottom, .bottom], label: "Home End", help: "the first / the last instrument"),
+        KeyBinding(context: .instruments, group: "Instruments view", keys: [.char("\n")], actions: [.focusInMeter],
+                   label: "Enter", help: "focus the instrument on the meter", bar: ("Enter", "focus"), rank: 2),
+        KeyBinding(context: .instruments, group: "Instruments view", keys: [.right] + chars(".>") + [.left] + chars(",<"),
+                   actions: [.knob(step), .knob(step), .knob(step), .knob(-step), .knob(-step), .knob(-step)],
+                   label: "→ ←", help: "its knob ±0.5 dB (. and , work too)", bar: ("← →", "knob"), rank: 3),
+        KeyBinding(context: .instruments, group: "Instruments view", keys: chars("lL"), actions: [.listen],
+                   label: "l", help: "listen to it alone, and back; it becomes the meter's focus", bar: ("l", "listen"), rank: 4,
+                   state: { $0.listening ? "on" : "off" }),
+        KeyBinding(context: .instruments, group: "Instruments view", keys: [.esc], actions: [.back],
+                   label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 5),
+
+        KeyBinding(context: .events, group: "Events view", keys: up + down, actions: scroll,
+                   label: "↑ ↓ j k", help: "scroll the log", bar: ("↑↓", "scroll"), rank: 1),
+        KeyBinding(context: .events, group: "Events view", keys: [.pageUp, .pageDown, .home, .end],
+                   actions: [.pageUp, .pageDown, .top, .bottom], label: "PgUp PgDn Home End",
+                   help: "a page up / down, the oldest / the newest"),
+        KeyBinding(context: .events, group: "Events view", keys: [.char(" ")], actions: [.pause],
+                   label: "Space", help: "pause the log and go on; events keep arriving underneath, the panel counts them",
+                   bar: ("Space", "pause"), rank: 2),
+        KeyBinding(context: .events, group: "Events view", keys: chars("/"), actions: [.filter],
+                   label: "/", help: "show only events whose kind or text has what you type", bar: ("/", "filter"), rank: 3),
+        KeyBinding(context: .events, group: "Events view", keys: [.esc], actions: [.back],
+                   label: "Esc", help: "clear the filter, then back to the view before", bar: ("Esc", "back"), rank: 4),
+
+        KeyBinding(context: .global, group: "Every view", keys: chars("gG"), actions: [.goMenu],
+                   label: "g", help: "go to a view: m meter, i instruments, e events; a menu lists them", bar: ("g", "go"), rank: 18),
+        KeyBinding(context: .global, group: "Every view", keys: chars(";") + [.char("\u{10}")], actions: [.palette],
+                   label: "; Ctrl-P", help: "the command palette: any eq command, run beside the screen", bar: (";", "cmd"), rank: 19),
+        KeyBinding(context: .global, group: "Every view", keys: chars("uU"), actions: [.undo],
+                   label: "u", help: "undo the last change made in this session, back to how it started", bar: ("u", "undo"), rank: 11,
+                   palette: "undo in this session"),
+        KeyBinding(context: .global, group: "Every view", keys: chars("mM"), actions: [.mouse],
+                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it and the wheel scrolls",
+                   bar: ("m", "mouse"), rank: 17, state: { $0.mouse ? "on" : "off" }, palette: "mouse"),
+        KeyBinding(context: .global, group: "Every view", keys: chars("?hH"), actions: [.help],
+                   label: "? h", help: "the list of every key; ?, Esc or q closes it", bar: ("?", "keys"), palette: "keys"),
+        KeyBinding(context: .global, group: "Every view", keys: chars("qQ"), actions: [.quit],
+                   label: "q", help: "quit", bar: ("q", "quit"), palette: "quit"),
+        KeyBinding(context: .global, group: "Every view", keys: [.char("\u{03}")], actions: [.quit],
+                   label: "Ctrl-C", help: "quit, from the lists too"),
+        KeyBinding(context: .global, group: "Every view", keys: [.char("\u{1A}")], actions: [.suspend],
+                   label: "Ctrl-Z", help: "suspend to the shell; fg brings the screen back as it was"),
+        KeyBinding(context: .global, group: "Look", keys: chars("yY"), actions: [.nextLook, .nextPalette],
                    label: "y Y", help: "next look: studio → console / next palette: ink → paper → brass; saved as tui.look and tui.palette",
-                   bar: ("y", "look"), rank: 13),
+                   bar: ("y", "look"), rank: 13, palette: "look"),
 
-        KeyBinding(context: .meter, group: "Screen", keys: chars("mM"), actions: [.mouse],
-                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, the wheel scrolls these lists",
-                   bar: ("m", "mouse"), rank: 17, state: { $0.mouse ? "on" : "off" }),
-        KeyBinding(context: .meter, group: "Screen", keys: chars(";") + [.char("\u{10}")], actions: [.palette],
-                   label: "; Ctrl-P", help: "the command palette; the key is kept for it, the palette is not here yet"),
-        KeyBinding(context: .meter, group: "Screen", keys: chars("?hH"), actions: [.help],
-                   label: "? h", help: "the list of every key, over the meter; ?, Esc or q closes it", bar: ("?", "keys")),
-        KeyBinding(context: .meter, group: "Screen", keys: chars("qQ"), actions: [.quit],
-                   label: "q", help: "quit", bar: ("q", "quit")),
+        KeyBinding(context: .go, group: "Go to", keys: chars("m"), actions: [.go(.meter)], label: "g m",
+                   help: "the meter", bar: ("m", "meter"), rank: 1, palette: "go meter"),
+        KeyBinding(context: .go, group: "Go to", keys: chars("i"), actions: [.go(.instruments)], label: "g i",
+                   help: "the instruments, their knobs and levels", bar: ("i", "instruments"), rank: 2, palette: "go instruments"),
+        KeyBinding(context: .go, group: "Go to", keys: chars("e"), actions: [.go(.events)], label: "g e",
+                   help: "the daemon's events as they happen", bar: ("e", "events"), rank: 3, palette: "go events"),
+        KeyBinding(context: .go, group: "Go to", keys: [.esc], actions: [.closeModal], label: "Esc",
+                   help: "stay; any other key does too", bar: ("Esc", "cancel")),
 
-        KeyBinding(context: .help, group: "Keys", keys: [.up, .char("k"), .wheelUp, .down, .char("j"), .wheelDown],
-                   actions: [.scrollUp, .scrollUp, .scrollUp, .scrollDown, .scrollDown, .scrollDown],
+        KeyBinding(context: .palette, group: "Command palette", keys: [.char("\n")], actions: [nil],
+                   label: "Enter", help: "run the chosen line: an eq command as a child process, or a screen action", bar: ("Enter", "run")),
+        KeyBinding(context: .palette, group: "Command palette", keys: [.char("\t")], actions: [nil],
+                   label: "Tab", help: "take the chosen suggestion into the line", bar: ("Tab", "complete"), rank: 1),
+        KeyBinding(context: .palette, group: "Command palette", keys: [.up, .down], actions: [nil],
+                   label: "↑ ↓", help: "choose a suggestion; with the line empty, the last commands run come first",
+                   bar: ("↑↓", "choose"), rank: 2),
+        KeyBinding(context: .palette, group: "Command palette", keys: [.esc], actions: [nil],
+                   label: "Esc", help: "close it", bar: ("Esc", "close")),
+
+        KeyBinding(context: .pane, group: "Command output", keys: up + down, actions: scroll,
+                   label: "↑ ↓ j k", help: "scroll", bar: ("↑↓", "scroll"), rank: 1),
+        KeyBinding(context: .pane, group: "Command output", keys: [.char("\u{03}")], actions: [.stop],
+                   label: "Ctrl-C", help: "stop the command", bar: ("Ctrl-C", "stop"), rank: 2, when: { $0.running }),
+        KeyBinding(context: .pane, group: "Command output", keys: chars("qQ") + [.esc], actions: [.closeModal],
+                   label: "Esc q", help: "close it; a command still running is stopped", bar: ("Esc", "close")),
+
+        KeyBinding(context: .help, group: "Keys", keys: up + down, actions: scroll,
                    label: "↑ ↓ j k", help: "scroll", bar: ("↑↓", "scroll"), rank: 1),
         KeyBinding(context: .help, group: "Keys", keys: chars("?hHqQ") + [.esc], actions: [.closeModal],
                    label: "? Esc q", help: "close", bar: ("Esc", "close")),
-
-        KeyBinding(context: .instruments, group: "Instruments", keys: [.up, .char("k"), .wheelUp, .down, .char("j"), .wheelDown],
-                   actions: [.scrollUp, .scrollUp, .scrollUp, .scrollDown, .scrollDown, .scrollDown],
-                   label: "↑ ↓ j k", help: "scroll", bar: ("↑↓", "scroll"), rank: 1),
-        KeyBinding(context: .instruments, group: "Instruments", keys: chars("iIqQ") + [.esc], actions: [.closeModal],
-                   label: "i Esc q", help: "close", bar: ("Esc", "close")),
 
         KeyBinding(context: .prompt, group: "Save as", keys: [.char("\n")], actions: [nil],
                    label: "Enter", help: "save", bar: ("Enter", "save")),
         KeyBinding(context: .prompt, group: "Save as", keys: [.esc], actions: [nil],
                    label: "Esc", help: "cancel", bar: ("Esc", "cancel")),
 
-        KeyBinding(context: .global, group: "Screen", keys: [.char("\u{03}")], actions: [.quit],
-                   label: "Ctrl-C", help: "quit, from the lists too"),
+        KeyBinding(context: .filter, group: "Filter", keys: [.char("\n")], actions: [nil],
+                   label: "Enter", help: "keep the filter", bar: ("Enter", "keep")),
+        KeyBinding(context: .filter, group: "Filter", keys: [.esc], actions: [nil],
+                   label: "Esc", help: "drop it", bar: ("Esc", "clear")),
     ]
 
-    /// Where a Russian twin lands on a key another binding of the same context has on a US
-    /// layout, the US meaning wins, on purpose; the test fails on any landing not listed here.
+    /// Where a Russian twin lands on a key another binding of the same view (or of every view)
+    /// has on a US layout, the US meaning wins, on purpose; the test fails on any landing not listed.
     static let collisions: [(context: KeyContext, key: Key, twinOf: Key, note: String)] = [
         (.meter, .char("?"), .char("&"), "⇧7 types ?, which is the key list: lower 2 kHz from a US layout"),
         (.meter, .char(";"), .char("$"), "⇧4 types ;, the palette: lower 250 Hz from a US layout"),
         (.meter, .char(","), .char("?"), "the ? key types , which turns the knob down: h (р) is the key list"),
+        (.instruments, .char(","), .char("?"), "on the Instruments view that , turns the selected knob down too"),
     ]
 
     private static let lookup: [KeyContext: [Key: WatchAction]] = {
-        var table: [KeyContext: [Key: WatchAction]] = [:]
+        var direct: [KeyContext: [Key: WatchAction]] = [:]
         for binding in bindings {
             for (index, key) in binding.keys.enumerated() {
                 guard let action = binding.action(at: index) else { continue }
-                table[binding.context, default: [:]][key] = action
+                direct[binding.context, default: [:]][key] = action
             }
         }
+        // A twin never takes a key its own context or every view has on a US layout.
+        var table = direct
         for binding in bindings {
             for (index, key) in binding.keys.enumerated() {
                 guard let action = binding.action(at: index), let twin = PhysicalKeys.twin(key),
-                      table[binding.context]?[twin] == nil else { continue }
+                      table[binding.context]?[twin] == nil,
+                      binding.context == .global || direct[.global]?[twin] == nil else { continue }
                 table[binding.context, default: [:]][twin] = action
             }
         }
@@ -186,12 +266,33 @@ enum KeyTable {
 
     static func bindings(in context: KeyContext) -> [KeyBinding] { bindings.filter { $0.context == context } }
 
+    /// A view's own bindings, then those of every view whose keys it does not all take; worked
+    /// out once, since the keybar asks every frame.
+    static func effective(_ context: KeyContext) -> [KeyBinding] { effectiveTable[context] ?? [] }
+
+    private static let effectiveTable: [KeyContext: [KeyBinding]] = Dictionary(uniqueKeysWithValues: KeyContext.allCases.map { context in
+        let own = bindings(in: context)
+        guard context.isView else { return (context, own) }
+        let taken = Set(own.flatMap(\.keys))
+        return (context, own + bindings(in: .global).filter { !Set($0.keys).isSubset(of: taken) })
+    })
+
     /// The keys a Russian layout reaches this binding with, where they differ from the US ones.
     static func twins(_ binding: KeyBinding) -> [Key] {
         binding.keys.enumerated().compactMap { index, key in
             guard let twin = PhysicalKeys.twin(key), let action = binding.action(at: index),
                   lookup[binding.context]?[twin] == action else { return nil }
+            // Every view's twin only where no view takes the key for itself.
+            if binding.context == .global, KeyContext.allCases.contains(where: { $0.isView && lookup[$0]?[twin] != nil }) { return nil }
             return twin
+        }
+    }
+
+    /// The screen actions the command palette offers by name.
+    static var named: [(name: String, action: WatchAction, help: String)] {
+        bindings.compactMap { binding in
+            guard let name = binding.palette, let action = binding.action(at: 0) else { return nil }
+            return (name, action, binding.help)
         }
     }
 }
@@ -201,10 +302,11 @@ enum Keybar {
     /// A key drawn as a keycap takes a blank on either side of it.
     static let keycapPadding = 2
 
-    /// The bindings of `context` that are on the bar in this state, fitted by `EQTerm.Keybar`:
-    /// `? keys`, `q quit`, `Esc close` stay; `compact` keeps only them.
+    /// The bindings on the bar in this context and state, a view's with those of every view
+    /// (lazygit's rule), fitted by `EQTerm.Keybar`: `? keys`, `q quit`, `Esc close` stay;
+    /// `compact` keeps only them.
     static func entries(_ context: KeyContext, state: KeyState, width: Int, compact: Bool = false, extra: Int = 0) -> [EQTerm.Keybar.Entry] {
-        let entries = KeyTable.bindings(in: context).compactMap { binding -> EQTerm.Keybar.Entry? in
+        let entries = KeyTable.effective(context).compactMap { binding -> EQTerm.Keybar.Entry? in
             guard let bar = binding.bar, binding.when?(state) ?? true, !(compact && binding.rank > 0) else { return nil }
             let words = [bar.text] + (binding.state.map { [$0(state)] } ?? [])
             return EQTerm.Keybar.Entry(key: bar.key, text: words.joined(separator: " "), rank: binding.rank)
@@ -220,33 +322,56 @@ enum Keybar {
     }
 }
 
-/// The full list the help overlay shows, grouped, and the README's key table.
+/// The key list the help overlay shows for a view, grouped, and the README's key table.
 enum KeyHelp {
-    static let contexts: [KeyContext] = [.meter, .global]
+    /// The README's order: every view first, then each view, then the menus.
+    static let contexts: [KeyContext] = [.global, .meter, .instruments, .events, .go, .palette, .pane]
 
-    static func lines() -> [(key: String, text: String)] {
+    static func contexts(for view: KeyContext) -> [KeyContext] {
+        [view, .global, .go, .palette, .pane]
+    }
+
+    static func lines(view: KeyContext = .meter) -> [(key: String, text: String)] {
         var result: [(key: String, text: String)] = []
         var group: String?
-        for binding in KeyTable.bindings where contexts.contains(binding.context) {
-            if binding.group != group {
-                if group != nil { result.append(("", "")) }
-                group = binding.group
-                result.append((binding.group, ""))
+        let shown = contexts(for: view)
+        for context in shown {
+            for binding in KeyTable.bindings(in: context) {
+                if binding.group != group {
+                    if group != nil { result.append(("", "")) }
+                    group = binding.group
+                    result.append((binding.group, ""))
+                }
+                result.append((binding.label, binding.help))
             }
-            result.append((binding.label, binding.help))
         }
-        result += [("", ""), ("Russian layout", ""), ("", "the same physical keys: й quits, я is zones, х ъ focus")]
-        result += KeyTable.collisions.map { ("", $0.note) }
+        result += [("", ""), ("Russian layout", ""), ("", "the same physical keys: й quits, я is zones, х ъ focus, ж the palette")]
+        result += KeyTable.collisions.filter { shown.contains($0.context) }.map { ("", $0.note) }
         return result
+    }
+
+    static func place(_ context: KeyContext) -> String {
+        switch context {
+        case .global: return "every view"
+        case .meter: return "Meter"
+        case .instruments: return "Instruments"
+        case .events: return "Events"
+        case .go: return "after g"
+        case .palette: return "palette"
+        case .pane: return "command output"
+        default: return ""
+        }
     }
 
     /// The Markdown table under README "Keys", generated from the same bindings and checked by a test.
     static func markdown() -> String {
-        var rows = ["| Key | Russian | Action |", "| --- | --- | --- |"]
-        for binding in KeyTable.bindings where contexts.contains(binding.context) {
-            let keys = binding.label.split(separator: " ").map { $0 == "…" ? "…" : "`\($0)`" }.joined(separator: " ")
-            let twins = KeyTable.twins(binding).map { "`\($0.name)`" }.joined(separator: " ")
-            rows.append("| \(keys) | \(twins) | \(binding.help) |")
+        var rows = ["| Key | Russian | Where | Action |", "| --- | --- | --- | --- |"]
+        for context in contexts {
+            for binding in KeyTable.bindings(in: context) {
+                let keys = binding.label.split(separator: " ").map { $0 == "…" ? "…" : "`\($0)`" }.joined(separator: " ")
+                let twins = KeyTable.twins(binding).map { "`\($0.name)`" }.joined(separator: " ")
+                rows.append("| \(keys) | \(twins) | \(place(context)) | \(binding.help) |")
+            }
         }
         return rows.joined(separator: "\n")
     }

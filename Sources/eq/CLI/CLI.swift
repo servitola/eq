@@ -672,40 +672,69 @@ enum CLI {
         return try meter(zones: !rest.isEmpty, look: look, command: "watch", ctx)
     }
 
-    /// Only the meter view exists so far; `eq tui` opens on it, as `eq watch` does.
+    /// `eq tui [VIEW]` opens on VIEW, the meter by default, as `eq watch` does.
     private static func tui(_ args: [String], _ ctx: CLIContext) throws -> Output {
-        let (look, rest) = try LookSettings.parseFlags(args.first == "meter" ? Array(args.dropFirst()) : args)
+        let view = args.first.flatMap(TUIView.init(rawValue:))
+        let (look, rest) = try LookSettings.parseFlags(view == nil ? args : Array(args.dropFirst()))
         guard rest.allSatisfy({ $0 == "--zones" }) else {
-            if let view = rest.first(where: { !$0.hasPrefix("-") }) {
-                throw CLIError.usage("eq tui has no view \"\(view)\" yet; meter is the one there is")
+            if let name = rest.first(where: { !$0.hasPrefix("-") }) {
+                let views = TUIView.allCases.map(\.rawValue).joined(separator: ", ")
+                throw CLIError.usage("eq tui has no view \"\(name)\" yet; there are \(views)")
             }
-            throw CLIError.usage("eq tui [meter] [--zones] " + LookSettings.flagsUsage)
+            throw CLIError.usage("eq tui [VIEW] [--zones] " + LookSettings.flagsUsage)
         }
-        return try meter(zones: !rest.isEmpty, look: look, command: "tui", ctx)
+        return try meter(zones: !rest.isEmpty, look: look, command: "tui", view: view ?? .meter, ctx)
     }
 
-    private static func meter(zones: Bool, look flags: TUIOptions, command: String, _ ctx: CLIContext) throws -> Output {
+    private static func meter(zones: Bool, look flags: TUIOptions, command: String, view: TUIView = .meter, _ ctx: CLIContext) throws -> Output {
         let terminal = ctx.terminal()
         try Watch.requireTerminal(isTTY: terminal.isTTY, command: command)
         let client = MeterClient(socketURL: ctx.meterSocketURL)
         do { try client.connect() } catch { throw CLIError.noMeter }
+        let events = MeterClient(socketURL: ctx.meterSocketURL)
         let session = WatchSession(ctx)
+        let environment = ProcessInfo.processInfo.environment
+        let settings = LookSettings.resolve(flags: flags, saved: (try? loadConfig(ctx))?.tui, env: environment)
+        var childEnvironment = environment
+        // The child writes to a pipe: it paints only when told, and not at all when the TUI does not.
+        if settings.depth == .none { childEnvironment["NO_COLOR"] = "1" } else { childEnvironment["CLICOLOR_FORCE"] = "1" }
+        let children = ChildRunner(executable: Bundle.main.executablePath ?? CommandLine.arguments[0], environment: childEnvironment)
+        let historyURL = ctx.stateDirectory.appendingPathComponent("tui-history")
+        let history = ((try? String(contentsOf: historyURL, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init).reversed()
         let effects = MeterEffects(edit: session.apply, header: session.header, send: client.send, mouse: Terminal.setMouse,
                                    connect: {
                                        client.close()
                                        try? client.connect()
                                        return client.descriptor
+                                   },
+                                   disconnect: client.close,
+                                   connectEvents: {
+                                       events.close()
+                                       guard (try? events.connect()) != nil, (try? events.send(#"{"subscribe":"events"}"#)) != nil else {
+                                           events.close()
+                                           return nil
+                                       }
+                                       return events.descriptor
+                                   },
+                                   complete: { Completions.names($0, ctx) },
+                                   children: children,
+                                   saveHistory: { lines in
+                                       try? FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(),
+                                                                                withIntermediateDirectories: true)
+                                       try? (lines.reversed().joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
                                    })
         Terminal.enter()
         let size = Terminal.size() ?? Size(cols: terminal.cols, rows: terminal.rows)
-        let look = LookSettings.resolve(flags: flags, saved: (try? loadConfig(ctx))?.tui, env: ProcessInfo.processInfo.environment)
-        let model = MeterModel(size: size, zones: zones, header: session.header(), reconnects: command == "tui", look: look)
+        let model = MeterModel(size: size, zones: zones, header: session.header(), reconnects: command == "tui", look: settings, view: view,
+                               history: Array(history.prefix(CommandPalette.historyLimit)))
         let runtime = Runtime(model, size: size, translate: MeterEffects.translate, perform: effects.perform)
         if let fd = client.descriptor { runtime.watch(fd: fd, id: MeterEffects.meterSource, latestOnly: true) }
         runtime.send(.start)
         let exitCode = runtime.run()
         Terminal.leave()
+        children.finish()
         client.close()
+        events.close()
         // Dying of SIGTERM or SIGHUP tells the parent why; Ctrl-C from kill ends like q.
         if let signal = runtime.endedBy, signal != SIGINT { Terminal.reraise(signal) }
         var output = Output(exitCode == 1 ? "\(CLIError.daemonClosedMeter)" : "", ["ok": exitCode == 0])
@@ -816,9 +845,10 @@ enum CLI {
                 profile = config.presets![next]!
                 profile.name = before.name
                 profile.preset = next
-            case .undo, .savePreset, .startSave, .zones, .instruments, .help, .quit,
+            case .undo, .savePreset, .startSave, .zones, .help, .quit,
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
-                 .closeModal, .scrollUp, .scrollDown, .nextLook, .nextPalette, .setLook, .setPalette:
+                 .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
+                 .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend:
                 return nil
             }
             return profile == before ? nil : profile

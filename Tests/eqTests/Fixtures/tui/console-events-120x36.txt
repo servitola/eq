@@ -1,0 +1,36 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
+  METER   INSTRUMENTS   EVENTS                                                                              g go  ; cmd
+ ╭─ EVENT LOG ─────────────────────────────────────────────────────────────────────────────────────── live · 11 of 11 ╮
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │  08:59:58  DAEMON   running · eq 2026.09.29.3                                                                      │
+ │  09:00:01  DEVICE   BE-RCA · USB · 44.1 kHz                                                                        │
+ │  09:00:01  PROFILE  BE-RCA plays preset favourite (device)                                                         │
+ │  09:12:40  APP      Spotify plays, preset flat                                                                     │
+ │  09:12:44  SOLO     listening to 85 Hz–9 kHz                                                                       │
+ │  09:13:02  SOLO     off                                                                                            │
+ │  09:20:15  ENABLED  bypassed                                                                                       │
+ │  09:20:18  ENABLED  on                                                                                             │
+ │  09:31:07  RATE     BE-RCA at 48 kHz                                                                               │
+ │  09:40:00  MODE     driver · on BE-RCA                                                                             │
+ │  09:52:30  ROUTE    Chrome → AirPods (first)                                                                       │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ ↑↓  scroll   Space  pause   /  filter   Esc  back   u  undo   y  look   m  mouse off   g  go   ?  keys   q  quit

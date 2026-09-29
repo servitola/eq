@@ -13,7 +13,7 @@ final class TUILookTests: XCTestCase {
     /// The mocks' state: `mocks.py` `base_state`.
     static func scene(cols: Int, rows: Int, look: Look = .studio, depth: ColorDepth = .truecolor, palette: PaletteName? = nil,
                       zones: Bool = false, focus: String? = nil, modal: WatchModal? = nil, flash: Int? = nil,
-                      message: MeterScene.Message? = nil, solo: Bool = false) -> MeterScene {
+                      message: MeterScene.Message? = nil, solo: Bool = false, view: TUIView = .meter) -> MeterScene {
         let frame = MeterFrame(t: 0, device: "BE-RCA", rate: 44100,
                                in: [-7.0, -6.0, -9.5, -14.0, -19.0, -14.5, -22.0, -26.0, -31.0, -39.0],
                                out: [-9.0, -7.5, -11.0, -15.0, -19.0, -17.0, -22.0, -26.0, -29.0, -37.0], peak: -6, limiting: false,
@@ -33,7 +33,29 @@ final class TUILookTests: XCTestCase {
         scene.outputPeak = -4.5
         scene.header = Watch.Header(preset: ("favourite", true), preference: Preference(bass: 1, treble: -0.5), knobs: ["voice": 3],
                                     dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
+        scene.view = view
+        scene.selected = scene.focus.flatMap { Instruments.all.firstIndex(of: $0) } ?? 0
+        scene.events.entries = events
         return scene
+    }
+
+    /// A morning's events as `eq events` would print them.
+    static let events: [EventEntry] = [
+        ("08:59:58", #"{"event":"daemon","state":"running","version":"2026.09.29.3","error":null}"#),
+        ("09:00:01", #"{"event":"device","device":"BE-RCA","uid":"be","transport":"USB","rate":44100}"#),
+        ("09:00:01", #"{"event":"profile","device":"BE-RCA","preset":"favourite","source":"device"}"#),
+        ("09:12:40", #"{"event":"app","app":"com.spotify.client","name":"Spotify","preset":"flat"}"#),
+        ("09:12:44", #"{"event":"solo","solo":{"low":85,"high":9000}}"#),
+        ("09:13:02", #"{"event":"solo","solo":null}"#),
+        ("09:20:15", #"{"event":"enabled","enabled":false}"#),
+        ("09:20:18", #"{"event":"enabled","enabled":true}"#),
+        ("09:31:07", #"{"event":"rate","device":"BE-RCA","rate":48000}"#),
+        ("09:40:00", #"{"event":"mode","mode":"driver","target":"BE-RCA","reason":null}"#),
+        ("09:52:30", #"{"event":"route","app":"com.google.Chrome","name":"Chrome","target":"air","targetName":"AirPods","reason":"first"}"#),
+    ].map { time, line in
+        var entry = EventEntry.decode(line)!
+        entry.time = time
+        return entry
     }
 
     static func screen(_ scene: MeterScene) -> Screen {
@@ -86,9 +108,24 @@ final class TUILookTests: XCTestCase {
          ("\(look)-zones-120x36", scene(cols: 120, rows: 36, look: look, zones: true, flash: 5, message: saved)),
          ("\(look)-focus-120x36", scene(cols: 120, rows: 36, look: look, zones: true, focus: "voice", flash: 5, message: listening,
                                         solo: true)),
-         ("\(look)-instruments-120x36", scene(cols: 120, rows: 36, look: look, focus: "voice", modal: .instruments(scroll: 0))),
-         ("\(look)-help-120x36", scene(cols: 120, rows: 36, look: look, modal: .help(scroll: 0)))]
+         ("\(look)-instruments-120x36", scene(cols: 120, rows: 36, look: look, focus: "voice", view: .instruments)),
+         ("\(look)-instruments-80x24", scene(cols: 80, rows: 24, look: look, view: .instruments)),
+         ("\(look)-events-120x36", scene(cols: 120, rows: 36, look: look, view: .events)),
+         ("\(look)-help-120x36", scene(cols: 120, rows: 36, look: look, modal: .help(scroll: 0))),
+         ("\(look)-go-120x36", { var s = scene(cols: 120, rows: 36, look: look); s.goMenu = true; return s }()),
+         ("\(look)-palette-120x36", { var s = scene(cols: 120, rows: 36, look: look); s.palette = palette; return s }()),
+         ("\(look)-output-120x36", { var s = scene(cols: 120, rows: 36, look: look, view: .events); s.child = output; return s }())]
     }
+
+    static let palette = CommandPalette(field: TextField("pre"), chosen: 0, history: [])
+    /// `eq zones` as a child prints it into the pane, with the colours `Paint` gives a pipe under CLICOLOR_FORCE.
+    static let output = ChildOutput(command: "zones", lines: Instruments.all.flatMap { instrument in
+        instrument.ranges.enumerated().map { k, range in
+            let name = k == 0 ? "\u{1B}[1m" + instrument.name.padding(toLength: 8, withPad: " ", startingAt: 0) + "\u{1B}[0m" : "        "
+            return name + InstrumentTable.rangeText(range).padding(toLength: 26, withPad: " ", startingAt: 0)
+                + "\u{1B}[2m" + InstrumentTable.bandsText(range) + "\u{1B}[0m"
+        }
+    }, status: 0, shown: true)
 
     func testGoldenScreensPerLook() throws {
         for c in Self.cases {
@@ -127,7 +164,7 @@ final class TUILookTests: XCTestCase {
             }
             try variants["tc"]!.write(to: Self.actual.appendingPathComponent(c.name + ".ans"), atomically: true, encoding: .utf8)
             let look = c.scene.settings.look
-            shown.append(["stem": c.name, "look": look.rawValue, "palette": c.scene.settings.paletteName.rawValue, "view": "meter",
+            shown.append(["stem": c.name, "look": look.rawValue, "palette": c.scene.settings.paletteName.rawValue, "view": c.scene.view.rawValue,
                           "w": c.scene.size.cols, "h": c.scene.size.rows, "variants": variants])
         }
         for look in Look.allCases {
@@ -144,6 +181,10 @@ final class TUILookTests: XCTestCase {
             .replacingOccurrences(of: #"["studio", "console", "classic"]"#, with: #"["studio", "console"]"#)
             .replacingOccurrences(of: "cat docs/design/tui/${mock.stem}.ans", with: "cat docs/design/tui/actual/${mock.stem}.ans")
             .replacingOccurrences(of: "<title>eq TUI looks</title>", with: "<title>eq TUI looks, as built</title>")
+            .replacingOccurrences(of: #""paper-meter-120x36": "light palette 120×36" };"#,
+                                  with: #""paper-meter-120x36": "light palette 120×36", "meter-120x40": "meter 120×40", "#
+                                      + #""instruments-80x24": "instruments 80×24", "events-120x36": "events 120×36", "go-120x36": "g menu 120×36", "#
+                                      + #""palette-120x36": "palette 120×36", "output-120x36": "command output 120×36" };"#)
             .replacingOccurrences(of: "Mock screens from <code>docs/design/tui/mocks.py</code>",
                                   with: "Screens from the real renderer (<code>EQ_WRITE_SCREENSHOTS=1 swift test --filter TUILookTests</code>)")
         try page.write(to: Self.actual.appendingPathComponent("preview.html"), atomically: true, encoding: .utf8)

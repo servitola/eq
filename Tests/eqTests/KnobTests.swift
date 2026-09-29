@@ -286,7 +286,7 @@ final class KnobTests: XCTestCase {
                            gains: [], preamp: 0, enabled: true)
         func bracket(_ name: String) -> String {
             let scene = MeterScreens.scene(f, cols: 120, rows: 30, focus: instrument(name), depth: .ansi)
-            return MeterScreens.screen(scene).markedLines()[2]
+            return MeterScreens.screen(scene).markedLines()[3]
         }
         let voice = bracket("voice")
         XCTAssertEqual(voice.components(separatedBy: "[2]┌").count - 1, 4, "four of five ranges dim: \(voice)")

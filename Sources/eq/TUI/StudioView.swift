@@ -20,13 +20,17 @@ struct StudioView {
 
     var geometry: MeterGeometry {
         let zones = scene.strip ? (scene.focus == nil ? Instruments.all.count : 1) : 0
-        return compact ? .compact(scene.size, zones: zones, focus: scene.focus != nil)
-            : .studio(scene.size, zones: zones, focus: scene.focus != nil)
+        let tabs = scene.tabRows
+        let size = Size(cols: scene.size.cols, rows: scene.size.rows - tabs)
+        let g: MeterGeometry = compact ? .compact(size, zones: zones, focus: scene.focus != nil)
+            : .studio(size, zones: zones, focus: scene.focus != nil, tabs: tabs)
+        return g.lowered(by: tabs)
     }
 
     func draw(into screen: inout Screen) {
         let g = geometry
         StatusBar(scene: scene).studio(into: &screen, width: scene.size.cols)
+        if scene.tabRows > 0 { TabRow.draw(scene, into: &screen) }
         if let box = g.box {
             Boxes.draw(box, into: &screen, t, border: scene.focus != nil ? p.borderHi : p.border, title: "meter",
                        right: scene.settings.scale ? "dBFS · gain dB" : nil)

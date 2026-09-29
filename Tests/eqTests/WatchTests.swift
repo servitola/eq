@@ -52,9 +52,10 @@ final class WatchTests: XCTestCase {
 
     func testStudioGeometry() {
         let g = geometry(cols: 120, rows: 40)
-        XCTAssertEqual(g.box, Rect(x: 0, y: 1, width: 93, height: 34), "the panel, then the 27-column side column")
-        XCTAssertEqual(g.side, Rect(x: 93, y: 1, width: 27, height: 37))
-        XCTAssertEqual([g.cell, g.barWidth, g.x0, g.top, g.rows, g.liveY], [8, 5, 7, 2, 32, 35])
+        XCTAssertEqual(g.box, Rect(x: 0, y: 2, width: 93, height: 33), "under the tab row: the panel, then the 27-column side column")
+        XCTAssertEqual(g.side, Rect(x: 93, y: 2, width: 27, height: 36))
+        XCTAssertEqual([g.cell, g.barWidth, g.x0, g.top, g.rows, g.liveY], [8, 5, 7, 3, 31, 35])
+        XCTAssertEqual(geometry(cols: 120, rows: 13).box?.y, 1, "below 14 rows there is no tab row")
         XCTAssertNil(geometry(cols: 109, rows: 40).side, "below 110 columns there is no side column")
         let centred = geometry(cols: 100, rows: 30)
         XCTAssertEqual(centred.box?.x, 3, "the panel is centred")
@@ -75,8 +76,9 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(lines.count, 30)
         XCTAssertTrue(lines[0].hasPrefix(" ◉ BE-RCA  44.1 kHz │ preamp -1.5 dB"), lines[0])
         XCTAssertTrue(lines[0].hasSuffix(" peak -6.0 dB "), lines[0])
-        XCTAssertTrue(lines[1].hasPrefix("   ╭─ meter ─"), lines[1])
-        XCTAssertTrue(lines[1].contains(" dBFS · gain dB ╮"), lines[1])
+        XCTAssertTrue(lines[1].hasPrefix("  Meter   Instruments   Events "), lines[1])
+        XCTAssertTrue(lines[2].hasPrefix("   ╭─ meter ─"), lines[2])
+        XCTAssertTrue(lines[2].contains(" dBFS · gain dB ╮"), lines[2])
         XCTAssertEqual(lines[g.liveY + 1].split(separator: " "), Config.bandLabels.map { Substring($0) })
         XCTAssertEqual(lines[g.liveY + 2].split(separator: " "), ["+12.0", "-12.0"] + Array(repeating: "0.0", count: 8))
         XCTAssertEqual(lines[28].trimmingCharacters(in: .whitespaces), "", "the message row is kept even when empty")
@@ -168,7 +170,9 @@ final class WatchTests: XCTestCase {
         let flat = MeterScreens.screen(scene(frame(out: -60)))
         let g = geometry()
         let zero = g.top + Int((Double(g.rows * 4 - 1) / 2).rounded()) / 4
-        XCTAssertTrue(flat.lines()[zero].contains("⠉⠉⠉⠉"), "a flat curve lies on the 0 dB line: \(flat.lines()[zero])")
+        let braille = #"[\u{2801}-\u{28FF}]{4}"#
+        XCTAssertNotNil(flat.lines()[zero].range(of: braille, options: .regularExpression), "a flat curve lies on the 0 dB line: \(flat.lines()[zero])")
+        XCTAssertEqual(flat.lines().filter { $0.range(of: braille, options: .regularExpression) != nil }.count, 1, "and nowhere else")
         var gains = Array(repeating: 0.0, count: 10)
         gains[2] = 12
         gains[7] = -12
@@ -272,7 +276,7 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(frames.count, 5)
         XCTAssertEqual(run.whole, [true, false, true, false, false], "the first frame, then only after the resize")
         XCTAssertTrue(frames[2].contains("BE-RCA"))
-        XCTAssertTrue(frames[4].components(separatedBy: "\n")[1].hasPrefix("   ╭─ meter"), "the new layout is centred for 100 columns")
+        XCTAssertTrue(frames[4].components(separatedBy: "\n")[2].hasPrefix("   ╭─ meter"), "the new layout is centred for 100 columns")
     }
 
     func testRunRendersTinyTerminal() throws {

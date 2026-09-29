@@ -1,0 +1,36 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
+  METER   INSTRUMENTS   EVENTS                                                                              g go  ; cmd
+      32 Hz │ 64 Hz │ 125 Hz│ 250 Hz│ 500 Hz│ 1k Hz │ 2k Hz │ 4k Hz │ 8k Hz │ 16k Hz│     ╭─ MASTER ──────────────────╮
+   0   ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                           │
+  -6   ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  20  10   6   3    1   0  │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  ╷┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┃┈┈┈╷  │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                    ┃      │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  GR                 -2.1  │
+ -18   ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                           │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │ COMP ●off ●gentle ●night  │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                           │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │ LIMIT ●     PEAK   -6.0   │
+ -30   ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                           │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │ PREAMP ───█─┼─────  -4.8  │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                           │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  ↗  BASS  ↑  TREB  ↑  TILT│
+ -42   ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  +1.0     -0.5      0.0   │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │                           │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │ INSTRUMENT KNOBS          │
+       ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  ↑  KCK   ↑  BAS   ↑  SNR │
+ ╭─ commands ─────────────────────────────────────────────────────────────────────────────────── 13 ╮  0.0      0.0   │
+ │▸ preset                               list presets; the current device's one marked *            │                 │
+ │  preset list                          list presets; the current device's one marked *            │ ↑  PNO   ↗  VOX │
+ │  preamp <gain>                        the preamp of the curve                                    │  0.0     +3.0   │
+ │  preset rm <name>                     delete a preset                                            │                 │
+ │  preset use <name>                    save the curve as <name> / apply <name>                    │ ↑  AIR          │
+ │  preset save <name>                   save the curve as <name> / apply <name>                    │  0.0            │
+ │  preset show <name>                   show a preset                                              │                 │
+ │  preset rename <old> <new>            rename a preset; devices using it follow                   │PE  ▆▆▆▆▆▆▆▆▆▆   │
+ │  app set <app> <preset>               while <app>, a bundle ID or an app's name, plays, hear <pr │                 │
+ │  filter add <type> <freq> <gain> <q>  add a filter: peak lowshelf highshelf lowpass highpass not │                 │
+ │  import --clear                       drop the imported correction, keep hand-tuned bands and fi │                 │
+ │  import <file|url|name>               apply a correction by headphone name (AutoEq, then OPRA),  │                 │
+ ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯─────────────────╯
+ : pre▏
+ Tab  complete   ↑↓  choose   Enter  run   Esc  close

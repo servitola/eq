@@ -40,9 +40,11 @@ enum MeterHarness {
         let runtime = Runtime(MeterModel(size: Size(cols: cols, rows: rows), zones: zones, header: effects.header()),
                               size: Size(cols: cols, rows: rows), translate: MeterEffects.translate,
                               perform: effects.perform, output: { written = $0 })
-        func draw() {
+        /// A frame is recorded even when the runtime found nothing new to draw for it: still
+        /// levels build no screen, and the screen is then the one already there.
+        func draw(frame: Bool = false) {
             written = []
-            guard runtime.program.last != nil, runtime.render() else { return }
+            guard runtime.program.last != nil, runtime.render() || frame else { return }
             var screen = Screen(runtime.size)
             runtime.program.view(into: &screen)
             result.drawn.append(screen.lines().joined(separator: "\n"))
@@ -57,7 +59,7 @@ enum MeterHarness {
             let isFrame = MeterEffects.translate(.line(source: MeterEffects.meterSource, line)) != nil
             if isFrame {
                 runtime.handle(.line(source: MeterEffects.meterSource, line))
-                draw()
+                draw(frame: true)
             }
             if runtime.finished { break }
             if let keys = readKey() {

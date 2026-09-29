@@ -16,8 +16,10 @@ final class ZonesTests: XCTestCase {
 
     private func instrument(_ name: String) -> Instrument { Instruments.all.first { $0.name == name }! }
 
+    /// Where the studio meter sits under the status bar and, from 14 rows, the tab row.
     private func geometry(_ cols: Int, _ rows: Int, zones: Int = 0) -> MeterGeometry {
-        .studio(Size(cols: cols, rows: rows), zones: zones, focus: false)
+        let tabs = rows >= TabRow.minRows ? 1 : 0
+        return MeterGeometry.studio(Size(cols: cols, rows: rows - tabs), zones: zones, focus: false, tabs: tabs).lowered(by: tabs)
     }
 
     func testAxisPutsBandFrequenciesOnTheirBarCentresAndInterpolatesInOctaves() {

@@ -69,7 +69,6 @@ enum Watch {
 
     static func outsideNote(_ instrument: Instrument) -> String { "outside \(instrument.name) — Esc to unfocus" }
     static let listenNeedsFocus = "focus an instrument first — [ ] or Tab"
-    static let paletteNote = "the command palette is not here yet — ? lists every key"
     static func cannotListen(_ instrument: Instrument) -> String { "can't listen to \(instrument.name) at this rate" }
     static let listenFailed = "listen: the daemon did not take the request"
     static let reconnecting = "daemon gone — reconnecting"
@@ -84,30 +83,21 @@ enum Watch {
     }
 }
 
-/// An overlay the watch draws over the meter until it is closed.
+/// The key list, drawn over the view until it is closed.
 enum WatchModal: Equatable {
-    case help(scroll: Int), instruments(scroll: Int)
+    case help(scroll: Int)
 
-    var context: KeyContext {
-        switch self {
-        case .help: return .help
-        case .instruments: return .instruments
-        }
-    }
+    var context: KeyContext { .help }
 
     var scroll: Int {
         switch self {
-        case .help(let scroll), .instruments(let scroll): return scroll
+        case .help(let scroll): return scroll
         }
     }
 
     /// Stops where the last line comes into view, so ↑ answers at once after too many ↓.
-    func scrolled(by delta: Int, size: Size) -> WatchModal {
-        let (rows, visible) = Overlay.metrics(self, size: size)
-        let next = min(max(scroll + delta, 0), max(rows - visible, 0))
-        switch self {
-        case .help: return .help(scroll: next)
-        case .instruments: return .instruments(scroll: next)
-        }
+    func scrolled(by delta: Int, size: Size, view: KeyContext) -> WatchModal {
+        let (rows, visible) = Overlay.metrics(self, size: size, view: view)
+        return .help(scroll: min(max(scroll + delta, 0), max(rows - visible, 0)))
     }
 }

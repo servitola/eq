@@ -57,14 +57,15 @@ final class MeterBenchmarkTests: XCTestCase {
     }
 
     /// Bytes a frame after the first, bytes of the first (a whole screen), and CPU a frame.
-    static func measure(look: Look, depth: ColorDepth, motion: Motion, frames count: Int = 300) -> (perFrame: Double, full: Int, ms: Double) {
+    static func measure(look: Look, depth: ColorDepth, motion: Motion, frames count: Int = 300,
+                        view: TUIView = .meter) -> (perFrame: Double, full: Int, ms: Double) {
         let size = Size(cols: 120, rows: 40)
         var settings = LookSettings()
         settings.look = look
         settings.depth = depth
         let header = Watch.Header(preset: ("favourite", true), preference: Preference(bass: 1, treble: -0.5), knobs: ["voice": 3],
                                   dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
-        var model = MeterModel(size: size, header: header, look: settings)
+        var model = MeterModel(size: size, header: header, look: settings, view: view)
         var renderer = Renderer()
         var screen = Screen(size)
         var bytes = 0
@@ -91,6 +92,14 @@ final class MeterBenchmarkTests: XCTestCase {
                                         m.perFrame, m.full, m.ms))
                     XCTAssertLessThan(m.perFrame, 4500, "research 08 §8: at most 60 % of the 7.6 KB a frame took before M2; \(look) \(depth) \(motion)")
                 }
+            }
+        }
+        for look in Look.allCases {
+            for motion in Motion.allCases {
+                let m = Self.measure(look: look, depth: .truecolor, motion: motion, view: .instruments)
+                table.append(String(format: "| %@, instruments view | 24bit | %@ | %.0f | %d | %.2f |", look.rawValue, motion.rawValue,
+                                    m.perFrame, m.full, m.ms))
+                XCTAssertLessThan(m.perFrame, 4500, "the Instruments view's mini-meters too; \(look) \(motion)")
             }
         }
         print(table.joined(separator: "\n"))

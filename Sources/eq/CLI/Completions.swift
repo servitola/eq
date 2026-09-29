@@ -113,22 +113,28 @@ enum Completions {
     }
 
     static func list(_ args: [String], _ ctx: CLIContext) -> Output {
+        let names = args.first.flatMap(Kind.init(rawValue:)).map { self.names($0, ctx) } ?? []
+        return Output(names.joined(separator: "\n"), names)
+    }
+
+    /// What `kind` completes to now: read from the config and Core Audio, never from the daemon.
+    static func names(_ kind: Kind, _ ctx: CLIContext) -> [String] {
         let config = try? CLI.loadConfig(ctx)
         let names: [String]
-        switch args.first.flatMap(Kind.init(rawValue:)) {
-        case .devices?:
+        switch kind {
+        case .devices:
             let known = ctx.connectedDevices().map(\.name) + (config?.devices.values.compactMap(\.name) ?? [])
             names = Set(known).sorted { $0.lowercased() < $1.lowercased() }
-        case .outputs?: names = Set(ctx.connectedDevices().map(\.name)).sorted { $0.lowercased() < $1.lowercased() }
-        case .presets?: names = (config?.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
-        case .instruments?: names = Instruments.all.map(\.name)
-        case .formats?: names = ExportFormat.allCases.map(\.rawValue)
-        case .apps?:
+        case .outputs: names = Set(ctx.connectedDevices().map(\.name)).sorted { $0.lowercased() < $1.lowercased() }
+        case .presets: names = (config?.presets ?? [:]).keys.sorted { $0.lowercased() < $1.lowercased() }
+        case .instruments: names = Instruments.all.map(\.name)
+        case .formats: names = ExportFormat.allCases.map(\.rawValue)
+        case .apps:
             let ids = ctx.audioApps().map(\.id) + (config?.apps ?? []).map(\.app)
             names = Set(ids).sorted { $0.lowercased() < $1.lowercased() }
         default: names = []
         }
-        return Output(names.joined(separator: "\n"), names)
+        return names
     }
 
     // MARK: - Shared pieces

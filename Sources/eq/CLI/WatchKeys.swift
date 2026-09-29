@@ -7,7 +7,7 @@ enum WatchAction: Equatable {
     case bass(Double), treble(Double)
     case cyclePreset, previousPreset, undo
     case savePreset(String)
-    case startSave, zones, instruments, help, quit
+    case startSave, zones, help, quit
     case focusNext, focusPrevious, unfocus, listen
     /// A key's step for the focused instrument's knob; `boost` is that step once the focus names it.
     case knob(Double), boost(String, Double)
@@ -16,7 +16,16 @@ enum WatchAction: Equatable {
     /// `y` and `Y`; saved as `setLook` and `setPalette` once the model has picked the next one.
     case nextLook, nextPalette
     case setLook(String), setPalette(String)
-    case closeModal, scrollUp, scrollDown
+    case closeModal, scrollUp, scrollDown, pageUp, pageDown, top, bottom
+    /// `g`, then a view's letter; `back` is Esc with nothing left to cancel.
+    case goMenu, go(TUIView), back
+    /// Enter on the Instruments view: the selected instrument, focused on the meter.
+    case focusInMeter
+    case pause, filter
+    /// Ctrl-C in a command's output: stop the command, keep what it printed.
+    case stop
+    /// Ctrl-Z: the runtime suspends before the key reaches the table; listed for the help and README.
+    case suspend
 }
 
 enum WatchKeys {
@@ -45,12 +54,17 @@ extension Key {
         switch event {
         case .key(let press):
             switch press.code {
+            case .char("\r") where press.modifiers.isEmpty: self = .char("\n")
             case .char(let c) where press.modifiers.isEmpty: self = .char(c)
             case .esc: self = .esc
             case .up: self = .up
             case .down: self = .down
             case .left: self = .left
             case .right: self = .right
+            case .pageUp: self = .pageUp
+            case .pageDown: self = .pageDown
+            case .home: self = .home
+            case .end: self = .end
             default: return nil
             }
         case .mouse(let mouse):

@@ -52,7 +52,7 @@ struct StatusBar {
         }
         if let mode = scene.header.dynamics?.comp {
             // The daemon's live reduction; without it (an older daemon) only the mode shows.
-            let reduction = f.comp.flatMap { $0.isFinite ? String(format: "%.1f", $0 == 0 ? 0 : $0) : nil }
+            let reduction = scene.live ? f.comp.flatMap { $0.isFinite ? String(format: "%.1f", $0 == 0 ? 0 : $0) : nil } : nil
             result.append([(mode.rawValue, p.accent, Self.no), (" comp", p.text3, Self.no)] + (reduction.map { [(" " + $0, p.warn, Self.no)] } ?? []))
         }
         if let colour = scene.header.dynamics?.color {
@@ -85,7 +85,7 @@ struct StatusBar {
         var segments = self.segments
         var flags = self.flags
         var focus = focusSegment
-        var peak = true
+        var peak = scene.live
         let peakText = f.peak.isFinite ? Table.gain(f.peak) : "?"
         let head = " ◉ " + device + " "
         func right() -> Int { (peak ? 6 + TerminalText.width(peakText) + 4 : 0) + flags.reduce(0) { $0 + $1.0.count + 3 } }
@@ -164,10 +164,9 @@ struct ShellRows {
         let room = max(width - x, 1)
         var said = false
         let y = messageY ?? keybarY
-        if let prompt = scene.prompt {
-            let label = Watch.promptLabel
-            let used = screen.ink(label, x: x, y: y, t.style(p.text3))
-            screen.ink(prompt.display(width: max(room - used, 1)), x: x + used, y: y, t.style(p.text))
+        if let (label, field) = field {
+            let used = screen.ink(label, x: x, y: y, t.style(scene.palette != nil ? p.accent : p.text3, nil, scene.palette != nil ? .bold : []))
+            screen.ink(field.display(width: max(room - used, 1)), x: x + used, y: y, t.style(p.text))
             said = true
         } else if let message = scene.message {
             let (mark, ink): (String, Swatch?) = {
@@ -186,6 +185,14 @@ struct ShellRows {
         }
         guard messageY != nil || !said else { return }
         keybar(y: keybarY, compact: messageY == nil, into: &screen)
+    }
+
+    /// The text field the message row holds: save as, the palette's line, the events filter.
+    private var field: (String, TextField)? {
+        if let prompt = scene.prompt { return (Watch.promptLabel, prompt) }
+        if let palette = scene.palette { return (": ", palette.field) }
+        if let filter = scene.filterField { return ("filter: ", filter) }
+        return nil
     }
 
     /// The last `fadeFrames` of a message step from `text2` to `text3` in three steps.

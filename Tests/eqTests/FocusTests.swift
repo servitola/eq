@@ -1,3 +1,4 @@
+import EQTerm
 import XCTest
 @testable import eq
 
@@ -213,7 +214,7 @@ final class FocusTests: XCTestCase {
             print("---- \(cols)×\(rows)\n" + lines.joined(separator: "\n") + "\n----")
             XCTAssertEqual(lines.count, rows)
             XCTAssertTrue(lines[0].contains("SOLO"), lines[0])
-            XCTAssertTrue(lines[2].contains("┌"), lines[2])
+            XCTAssertTrue(lines[3].contains("┌"), "under the status bar and the tabs: \(lines[3])")
             XCTAssertTrue(lines.contains { $0.contains(" vox ") && $0.contains("━") }, lines.joined(separator: "\n"))
         }
         XCTAssertTrue(render(cols: 100, rows: 30)[0].contains("focus: voice (85 Hz–9 kHz)"))
@@ -226,9 +227,16 @@ final class FocusTests: XCTestCase {
                 for focus in [nil, voice] {
                     let strip = (cols + rows) % 2 == 0
                     var scene = MeterScreens.scene(frame(solo: SoloRange(low: 85, high: 9000)), cols: cols, rows: rows, strip: strip,
-                                                   focus: focus, modal: rows % 3 == 0 ? .help(scroll: 0) : (rows % 3 == 1 ? .instruments(scroll: 3) : nil),
+                                                   focus: focus, modal: rows % 3 == 0 ? .help(scroll: 0) : nil,
                                                    note: "outside voice — Esc to unfocus", look: cols % 2 == 0 ? .studio : .console)
                     scene.peaks = Array(repeating: -3, count: 10)
+                    scene.view = TUIView.allCases[(cols / 3 + rows) % TUIView.allCases.count]
+                    scene.selected = rows % Instruments.all.count
+                    scene.events.entries = Array(repeating: EventEntry(time: "12:00:00", kind: "device", text: "BE-RCA · 44.1 kHz", tone: .accent),
+                                                 count: rows % 4)
+                    scene.goMenu = rows % 5 == 0
+                    if rows % 7 == 0 { scene.palette = CommandPalette(field: TextField("preset use f")) }
+                    if rows % 4 == 1 { scene.child = ChildOutput(command: "zones", lines: ["a", "\u{1B}[1mb\u{1B}[0m"], shown: true) }
                     XCTAssertEqual(MeterScreens.screen(scene).lines().count, rows)
                 }
             }

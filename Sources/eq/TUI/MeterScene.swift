@@ -34,6 +34,20 @@ struct MeterScene {
     var curve = CurveCache()
     /// Set while an overlay covers the meter.
     var fade = 0.0
+    var view = TUIView.meter
+    /// The meter connection is open: without it the status bar leaves out peak and LIMIT, which
+    /// only frames carry.
+    var live = true
+    /// The row the Instruments view has selected.
+    var selected = 0
+    var events = EventLog()
+    /// The events connection is down and being retried.
+    var eventsGone = false
+    var goMenu = false
+    var palette: CommandPalette?
+    var paletteValues: [Completions.Kind: [String]] = [:]
+    var child: ChildOutput?
+    var filterField: TextField?
 
     static let fadeFrames = 15
     static let flashBlendFrames = 9
@@ -60,15 +74,24 @@ struct MeterScene {
         return screen.lines()
     }
 
+    /// The tab row takes a row once there are 14.
+    var tabRows: Int { size.rows >= TabRow.minRows ? 1 : 0 }
+
     func draw(into screen: inout Screen) {
         let compact = size.cols < 60 || size.rows < 12
         if let modal {
             Overlay(scene: self).draw(modal, into: &screen)
-        } else if settings.look == .console, !compact {
-            ConsoleView(scene: self).draw(into: &screen)
         } else {
-            StudioView(scene: self, compact: compact).draw(into: &screen)
+            switch view {
+            case .meter where settings.look == .console && !compact: ConsoleView(scene: self).draw(into: &screen)
+            case .meter: StudioView(scene: self, compact: compact).draw(into: &screen)
+            case .instruments: InstrumentsView(scene: self).draw(into: &screen)
+            case .events: EventsView(scene: self).draw(into: &screen)
+            }
         }
+        if let child, child.shown { OutputPane(scene: self, child: child).draw(into: &screen) }
+        if let palette { PaletteView(scene: self, palette: palette).draw(into: &screen) }
+        if goMenu { GoMenu.draw(self, keybarY: size.rows - 1, into: &screen) }
         let ground = theme.depth.style(nil, theme.p.bg).bg
         if settings.paintsGround, ground != .none {
             screen.restyle(screen.area) { if $0.bg == .none { $0.bg = ground } }
@@ -89,10 +112,24 @@ struct MeterScene {
     }
 
     var keyState: KeyState {
-        KeyState(strip: strip, focused: focus != nil, listening: listening, mouse: header.mouse)
+        KeyState(strip: strip, focused: focus != nil, listening: listening, mouse: header.mouse, paused: events.paused != nil,
+                 running: child?.status == nil)
     }
 
-    var keyContext: KeyContext { prompt != nil ? .prompt : modal?.context ?? .meter }
+    var keyContext: KeyContext {
+        Self.context(prompt: prompt, filter: filterField, palette: palette, go: goMenu, pane: child?.shown == true, modal: modal, view: view)
+    }
+
+    /// Searched top-down: the text field or menu of the moment, the output pane, the overlay, then the view.
+    static func context(prompt: TextField?, filter: TextField?, palette: CommandPalette?, go: Bool, pane: Bool, modal: WatchModal?,
+                        view: TUIView) -> KeyContext {
+        if prompt != nil { return .prompt }
+        if filter != nil { return .filter }
+        if palette != nil { return .palette }
+        if go { return .go }
+        if pane { return .pane }
+        return modal?.context ?? view.context
+    }
 }
 
 extension Screen {
@@ -168,7 +205,8 @@ struct MeterGeometry {
 
     static let sideWidth = 27
 
-    static func studio(_ size: Size, zones: Int, focus: Bool) -> MeterGeometry {
+    /// `tabs`: rows the tab row took from `size` above it; they come out of the meter, not the strip.
+    static func studio(_ size: Size, zones: Int, focus: Bool, tabs: Int = 0) -> MeterGeometry {
         let (w, h) = (size.cols, size.rows)
         guard w >= 60, h >= 12 else { return compact(size, zones: zones, focus: focus) }
         let sideWidth = w >= 110 ? Self.sideWidth : 0
@@ -178,7 +216,7 @@ struct MeterGeometry {
         let boxWidth = 13 + cell * 10
         let px = max((panel - boxWidth) / 2, 0)
         let bracket = focus ? 1 : 0
-        let zoneRows = focus ? min(zones, max(h - 17, 0)) : min(zones, max(h - 22, 0))
+        let zoneRows = focus ? min(zones, max(h + tabs - 17, 0)) : min(zones, max(h + tabs - 22, 0))
         let rows = max(h - 1 - 2 - bracket - 3 - zoneRows - 2, 1)
         let box = Rect(x: px, y: 1, width: boxWidth, height: rows + 2 + bracket)
         return MeterGeometry(boxed: true, columns: Config.bandLabels.count, cell: cell, barWidth: barWidth, x0: px + 7, box: box,

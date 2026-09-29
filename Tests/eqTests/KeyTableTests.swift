@@ -6,16 +6,24 @@ final class KeyTableTests: XCTestCase {
     override func setUp() { Paint.forced = false }
     override func tearDown() { Paint.forced = nil }
 
+    /// A key's action in `context` as the table has it on a US layout: the context's own, then
+    /// every view's.
+    private func direct(_ key: Key, in context: KeyContext) -> WatchAction?? {
+        let lists = context == .global || !context.isView ? [KeyTable.bindings(in: context)]
+            : [KeyTable.bindings(in: context), KeyTable.bindings(in: .global)]
+        for list in lists {
+            if let owner = list.first(where: { $0.keys.contains(key) }) { return .some(owner.action(at: owner.keys.firstIndex(of: key)!)) }
+        }
+        return nil
+    }
+
     private func landings() -> [(context: KeyContext, key: Key, twinOf: Key)] {
         var result: [(KeyContext, Key, Key)] = []
         for context in KeyContext.allCases {
-            let bound = Set(KeyTable.bindings(in: context).flatMap(\.keys))
-            for binding in KeyTable.bindings(in: context) {
-                for key in binding.keys {
-                    guard let twin = PhysicalKeys.twin(key), bound.contains(twin) else { continue }
-                    let owner = KeyTable.bindings(in: context).first { $0.keys.contains(twin) }!
-                    let ownerAction = owner.action(at: owner.keys.firstIndex(of: twin)!)
-                    if ownerAction != binding.action(at: binding.keys.firstIndex(of: key)!) { result.append((context, twin, key)) }
+            for binding in KeyTable.effective(context) {
+                for (index, key) in binding.keys.enumerated() {
+                    guard let twin = PhysicalKeys.twin(key), let owner = direct(twin, in: context) else { continue }
+                    if owner != binding.action(at: index) { result.append((context, twin, key)) }
                 }
             }
         }
@@ -54,16 +62,20 @@ final class KeyTableTests: XCTestCase {
         }
         XCTAssertNil(PhysicalKeys.twin(.char("1")), "a digit is the same on both layouts")
         XCTAssertNil(PhysicalKeys.twin(.up))
-        XCTAssertEqual(KeyTable.action(for: .char("Ш"), in: .meter), .instruments)
+        XCTAssertEqual(KeyTable.action(for: .char("Ш"), in: .meter), .go(.instruments))
+        XCTAssertEqual(KeyTable.action(for: .char("ж"), in: .events), .palette, "every view's key, on every layout")
+        XCTAssertEqual(KeyTable.action(for: .char("у"), in: .go), .go(.events))
         XCTAssertEqual(KeyTable.action(for: .char("л"), in: .help), .scrollUp, "k's twin scrolls the overlay")
     }
 
     func testEveryMeterActionHasAKey() {
         let reachable = Set(KeyTable.bindings.flatMap { binding in binding.keys.indices.compactMap { binding.action(at: $0).map { "\($0)" } } })
         let needed: [WatchAction] = [.bandStep(0, 0.5), .bandStep(9, -0.5), .preamp(0.5), .preamp(-0.5), .bass(0.5), .treble(-0.5),
-                                     .cyclePreset, .previousPreset, .undo, .startSave, .zones, .instruments, .help, .quit,
+                                     .cyclePreset, .previousPreset, .undo, .startSave, .zones, .help, .quit,
                                      .focusNext, .focusPrevious, .unfocus, .listen, .knob(0.5), .knob(-0.5), .cycleComp, .cycleColour,
-                                     .colourAmount, .mouse, .palette, .closeModal, .scrollUp, .scrollDown]
+                                     .colourAmount, .mouse, .palette, .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom,
+                                     .goMenu, .go(.meter), .go(.instruments), .go(.events), .back, .focusInMeter, .pause, .filter, .stop,
+                                     .suspend, .nextLook, .nextPalette]
         for action in needed { XCTAssertTrue(reachable.contains("\(action)"), "\(action)") }
     }
 
@@ -79,7 +91,7 @@ final class KeyTableTests: XCTestCase {
     func testKeybarKeepsKeysAndQuitAndDropsWholeEntries() {
         let full = Keybar.line(.meter, state: KeyState(), width: 400)
         XCTAssertEqual(full, "1…0 band  ⇧ down  z zones off  i instruments  [ ] focus  +− preamp  p preset  u undo  s save  "
-                       + "y look  b t bass/treble  c comp  v color  m mouse off  ? keys  q quit")
+                       + "y look  b t bass/treble  c comp  v color  m mouse off  g go  ; cmd  ? keys  q quit")
         let entries = full.components(separatedBy: "  ")
         for width in 14..<TerminalText.width(full) {
             let line = Keybar.line(.meter, state: KeyState(), width: width)
@@ -98,6 +110,14 @@ final class KeyTableTests: XCTestCase {
         XCTAssertFalse(Keybar.line(.meter, state: KeyState(), width: 400).contains("listen"), "l needs a focus")
         XCTAssertEqual(Keybar.line(.help, state: KeyState(), width: 80), "↑↓ scroll  Esc close")
         XCTAssertEqual(Keybar.line(.prompt, state: KeyState(), width: 80), "Enter save  Esc cancel")
+        XCTAssertEqual(Keybar.line(.go, state: KeyState(), width: 80), "m meter  i instruments  e events  Esc cancel")
+        XCTAssertEqual(Keybar.line(.palette, state: KeyState(), width: 80), "Tab complete  ↑↓ choose  Enter run  Esc close")
+        XCTAssertEqual(Keybar.line(.instruments, state: KeyState(), width: 200),
+                       "↑↓ move  Enter focus  ← → knob  l listen off  Esc back  u undo  y look  m mouse off  g go  ; cmd  ? keys  q quit")
+        XCTAssertEqual(Keybar.line(.events, state: KeyState(paused: true), width: 80),
+                       "↑↓ scroll  Space pause  / filter  Esc back  u undo  y look  ? keys  q quit")
+        XCTAssertTrue(Keybar.line(.pane, state: KeyState(running: true), width: 80).contains("Ctrl-C stop"))
+        XCTAssertFalse(Keybar.line(.pane, state: KeyState(), width: 80).contains("Ctrl-C"), "only while it runs")
     }
 
     func testReadmeKeysSectionIsTheTable() throws {
@@ -108,12 +128,27 @@ final class KeyTableTests: XCTestCase {
                       "README \"Keys\" must be KeyHelp.markdown():\n" + KeyHelp.markdown())
     }
 
-    func testHelpListsEveryMeterBinding() {
-        let lines = KeyHelp.lines()
-        for binding in KeyTable.bindings(in: .meter) {
-            XCTAssertTrue(lines.contains { $0.key == binding.label && $0.text == binding.help }, binding.label)
+    func testHelpListsTheViewsKeysThenEveryViewsAndTheMenus() {
+        for view in TUIView.allCases {
+            let lines = KeyHelp.lines(view: view.context)
+            for context in [view.context, .global, .go, .palette, .pane] {
+                for binding in KeyTable.bindings(in: context) {
+                    XCTAssertTrue(lines.contains { $0.key == binding.label && $0.text == binding.help }, "\(view) \(binding.label)")
+                }
+            }
+            let others = TUIView.allCases.filter { $0 != view }.flatMap { KeyTable.bindings(in: $0.context) }
+                .filter { other in !KeyTable.bindings(in: view.context).contains { $0.help == other.help } }
+            for binding in others { XCTAssertFalse(lines.contains { $0.text == binding.help }, "\(view) shows \(binding.label)") }
+            XCTAssertEqual(lines.first?.key, KeyTable.bindings(in: view.context).first?.group, "the view's own keys come first")
         }
-        for collision in KeyTable.collisions { XCTAssertTrue(lines.contains { $0.text == collision.note }) }
+        let meter = KeyHelp.lines(view: .meter)
+        for collision in KeyTable.collisions where collision.context == .meter { XCTAssertTrue(meter.contains { $0.text == collision.note }) }
+    }
+
+    func testThePaletteNamesComeFromTheTable() {
+        let names = KeyTable.named.map(\.name)
+        XCTAssertEqual(Set(names).count, names.count)
+        for name in ["zones", "look", "keys", "quit", "go meter", "go instruments", "go events"] { XCTAssertTrue(names.contains(name), name) }
     }
 
     func testWidthCountsColumnsNotCharacters() {

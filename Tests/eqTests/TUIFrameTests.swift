@@ -68,13 +68,14 @@ final class TUIFrameTests: XCTestCase {
         XCTAssertEqual(positions.last, [total - visible, total - 1, total], "one k after too many j moves at once")
     }
 
-    func testIOpensTheInstrumentTable() throws {
-        let r = try run([nil, "ш", nil, "]", "i", nil], header: { Watch.Header(knobs: ["voice": 3]) })
+    func testIOpensTheInstrumentsViewAndEscComesBack() throws {
+        let r = try run([nil, "ш", nil, "j", "\u{1B}", nil], header: { Watch.Header(knobs: ["voice": 3]) })
         XCTAssertTrue(r.drawn[2].contains("╭─ instruments "), r.drawn[2])
-        XCTAssertNotNil(r.drawn[2].range(of: #"● voice +[┄┼●━]+ +\+3\.0 +fundamental +85–255"#, options: .regularExpression), r.drawn[2])
-        XCTAssertTrue(r.drawn[4].contains("╭─ instruments "), "] does nothing under the table: \(r.drawn[4])")
-        XCTAssertFalse(r.drawn[4].contains("focus: "))
-        XCTAssertFalse(r.drawn[5].contains("╭─ instruments "), "i closes what i opened")
+        XCTAssertNotNil(r.drawn[2].range(of: #"● voice +[┄┼●━]+ +\+3\.0 .+ fundamental +85–255"#, options: .regularExpression), r.drawn[2])
+        XCTAssertTrue(r.drawn[3].contains("▸ ● kick"), r.drawn[3])
+        XCTAssertTrue(r.drawn[4].contains("▸ ● bass"), "j moves the selection: \(r.drawn[4])")
+        XCTAssertFalse(r.drawn[5].contains("╭─ instruments "), "Esc goes back to the meter")
+        XCTAssertTrue(r.drawn[5].contains("╭─ meter "), r.drawn[5])
     }
 
     func testMouseFollowsTheSetting() throws {
@@ -93,9 +94,22 @@ final class TUIFrameTests: XCTestCase {
         XCTAssertEqual(told, [true], "a saved setting turns reporting on at start")
     }
 
-    func testThePaletteKeyIsKeptButSaysSo() throws {
-        let r = try run([nil, ";", nil])
-        XCTAssertTrue(r.drawn[2].contains(Watch.paletteNote), r.drawn[2])
+    func testThePaletteKeyOpensThePalette() throws {
+        let r = try run([nil, ";", "zon", "\r", nil])
+        XCTAssertTrue(r.drawn[2].contains("╭─ commands "), r.drawn[2])
+        XCTAssertTrue(lastRow(r.drawn[2]).contains("Enter  run"), lastRow(r.drawn[2]))
+        XCTAssertTrue(r.drawn[3].contains(": zon▏"), r.drawn[3])
+        XCTAssertTrue(r.drawn[3].contains("▸ zones"), "the screen's own action matches first: \(r.drawn[3])")
+        XCTAssertFalse(r.drawn[4].contains("╭─ commands "))
+        XCTAssertTrue(lastRow(r.drawn[4]).contains("z  zones on"), "Enter ran it: \(lastRow(r.drawn[4]))")
+    }
+
+    func testGThenALetterGoesThereAndOtherKeysCancel() throws {
+        let r = try run([nil, "g", "e", "п", "1", "g", "ь", nil])
+        XCTAssertTrue(r.drawn[2].contains("╭─ go to "), r.drawn[2])
+        XCTAssertTrue(r.drawn[3].contains("╭─ events "), r.drawn[3])
+        XCTAssertFalse(r.drawn[5].contains("╭─ go to "), "1 closed the menu and did nothing else")
+        XCTAssertTrue(r.drawn[7].contains("╭─ meter "), "ь is m on a Russian layout: \(r.drawn[7])")
     }
 
     func testAResumeRedrawsInFullWithoutAFrame() throws {
