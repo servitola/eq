@@ -237,6 +237,8 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(filters.detail, "filter 2 unstable at 192000 Hz — bypassed — raise its frequency to use it at this rate")
         s.warnings = []
         XCTAssertEqual(Doctor.run(probes(status: s, callbacksLater: 20)).checks.first { $0.name == "filters" }!.detail, "stable at 48000 Hz")
+        s.warnings = ["the EQ driver is build 14, this eq carries build 15 — run `eq mode driver` to update it"]
+        XCTAssertEqual(Doctor.run(probes(status: s, callbacksLater: 20)).checks.first { $0.name == "filters" }!.detail, "stable at 48000 Hz")
         let unreported = Doctor.run(probes(status: running(), callbacksLater: 20)).checks.first { $0.name == "filters" }!
         XCTAssertTrue(unreported.ok); XCTAssertTrue(unreported.detail.hasPrefix("skipped"))
     }

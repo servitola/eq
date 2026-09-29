@@ -269,9 +269,11 @@ enum Doctor {
         guard live.state == .running || live.state == .bypassed else {
             return DoctorCheck(name: "filters", ok: true, detail: "skipped (engine not running)", warning: false)
         }
-        guard let warnings = live.warnings else {
+        guard let all = live.warnings else {
             return DoctorCheck(name: "filters", ok: true, detail: "skipped (daemon does not report it)", warning: false)
         }
+        // Driver mode adds its update and route notes to the same list; they have rows of their own.
+        let warnings = all.filter { $0.hasSuffix("— bypassed") }
         guard !warnings.isEmpty else {
             return DoctorCheck(name: "filters", ok: true, detail: "stable at \(Table.whole(live.sampleRate)) Hz", warning: false)
         }
