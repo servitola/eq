@@ -273,3 +273,73 @@ Both looks stay inside the M2 budget (≤ 5.7 % CPU, ≤ 4.5 KB a frame) by medi
 runs went above it on the loaded machine. With silent levels nothing is written, as at M2, but
 the view is still built 30 times a second; skipping an unchanged frame before the view would
 bring the silent case toward zero and is the next saving to take.
+
+## 6. M3 as built: the shell [measured]
+
+Tabs, the `g` menu, the command palette with its child processes, and the Instruments and Events
+views, in both looks. Screens from the real renderer are in `docs/design/tui/actual/` beside the
+earlier ones (`*-instruments-*`, `*-events-120x36`, `*-go-120x36`, `*-palette-120x36`,
+`*-output-120x36`), pinned by golden files as before.
+
+Where the built screens differ from the mocks, and why:
+- **Three tabs, not ten.** Only the views that exist are named: Meter, Instruments, Events. The
+  later milestones add theirs; a tab that leads nowhere would teach the wrong letter.
+- **Console tabs** are key caps: the current one an `accent` chip, the others on `key_bg` with
+  their letter underlined, all upper case, as the console's engraved labels are.
+- **Instruments view**: a `level` column the mock lacks, eight cells of the instrument's loudest
+  band (painted by height in studio, LED segments in console), which the spec's "per-instrument
+  mini-meters" asked for; the Hz column is three columns narrower so that the map and the bands
+  still fit at 120 columns. The selection follows `↑`/`↓`, not the meter's focus, which is marked
+  `◉`; a flat knob reads `0.0`. No `/ filter`: eight rows need none. The "now" panel is as mocked.
+- **Not mocked, built**: the Events view (a log in a panel, newest at the bottom, time, kind in
+  its colour, text; the console's time in the LCD colours), the palette (suggestions in a box over
+  the message row, the typed letters in the accent, `▸` on the chosen one), the `g` menu (a box
+  over the bottom left) and the command output (a panel over the view, the child's colours kept
+  through `AnsiText`).
+- **The meter gives the tab row its row**, not the strip: at 120×36 the panel is one row shorter
+  than at M2b and the zones strip keeps all eight instruments.
+
+### Bytes and CPU
+
+In process (`MeterBenchmarkTests`, release build, 300 frames at 120×40), against M2b built from
+`8996be7` in the same session:
+
+| Look, colours | M2b bytes a frame | M3 bytes a frame | M2b ms a frame | M3 ms a frame |
+| --- | --- | --- | --- | --- |
+| studio, 24-bit, music | 1 197 | 1 181 | 0.28 | 0.29 |
+| studio, 24-bit, stress | 3 394 | 3 296 | 0.30 | 0.30 |
+| console, 24-bit, music | 399 | 386 | 0.31 | 0.32 |
+| console, 24-bit, stress | 1 985 | 1 916 | 0.32 | 0.33 |
+| studio, Instruments view, music | — | 467 | — | 0.30 |
+| console, Instruments view, music | — | 128 | — | 0.31 |
+
+On a pty: the harness of research 08 §8 (release build, 120×40, `TERM=xterm-256color`,
+`COLORTERM=truecolor`, a fake meter socket in a scratch directory sending 30 frames a second of
+§4's "music" with values rounded to 0.1 dB as the daemon sends them and answering the events
+subscription; `EQ_CONFIG`, `EQ_STATUS` and `EQ_CACHE` in the scratch directory; never the live
+daemon), 30 s a run, M2b and M3 interleaved. The Mac's own state moved the numbers more than the
+builds did: two sessions an hour apart gave every build about 1.5 points more in the first.
+
+| Build | View, look | Runs, CPU | Median | Frames/s written | Bytes a frame |
+| --- | --- | --- | --- | --- | --- |
+| M2b | meter, studio | 6.46, 6.32, 5.53 % | 6.3 % | 30.0 | 1 197 |
+| M3 | meter, studio | 6.46, 6.82, 6.82 % | 6.8 % | 30.0 | 1 184 |
+| M2b | meter, studio (later) | 4.89, 4.63, 3.76, 4.23, 4.79 % | 4.6 % | 30.0 | 1 197 |
+| M3 | meter, studio (later) | 4.93, 5.00, 4.06, 5.00, 4.66 % | 4.9 % | 30.0 | 1 184 |
+| M2b | meter, console | 5.89, 5.93 % | — | 30.0 | 397 |
+| M3 | meter, console | 6.19 % | — | 29.7 | 391 |
+| M3 | Instruments, studio | 5.92, 4.53 % | — | 30.0 | 464 |
+| M2b | meter, silent | 4.00, 4.66 % | — | 0 | 0 |
+| M3 | meter, silent | 0.83, 1.13, 1.10 % | — | 0 | 0 |
+| M3 | Events, music | 0.00, 0.00 % | — | 0 | 0 |
+
+In the later session both builds are inside the budget (≤ 5.7 %, ≤ 4.5 KB a frame); in the first
+both were above it, M2b included, so the budget as a fixed number depends on the Mac's state more
+than on eq. M3's cost over M2b: 0.01 ms a frame in process and about 0.3 points on the pty,
+inside the spread of either build. Two things M3 changed are clear: levels that stand still no
+longer build a screen (a frame whose levels, peaks and countdowns are unchanged sets
+`needsRedraw` false and the runtime skips the view), which takes the silent case from 4–5 % to
+about 1 %; and the Events view closes the meter connection, so the TUI there costs nothing
+measurable and the daemon's meter work stops while it is on screen (one frame is taken back after
+a `profile` event or a command, for the status bar's preamp and gains).
+

@@ -3,6 +3,34 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- `eq tui` and `eq watch` have views: a row of tabs under the status bar names them, `g` and a
+  letter goes there (a small menu lists the letters after `g`), a click on a tab too with the
+  mouse on, and `Esc` goes back. `eq tui instruments` and `eq tui events` open on one.
+- The Instruments view (`g i`, or `i` on the meter): every instrument with its knob, a live
+  mini-meter of its bands, its ranges in Hz on a frequency map and the bands they touch, and the
+  ten bands as they sound now. `←`/`→` turn the chosen knob, `l` listens to it alone, `Enter`
+  focuses it on the meter.
+- The Events view (`g e`): the daemon's events as a log in colour, `Space` to pause, `/` to
+  filter. The status bar follows them on every view.
+- The command palette on `;` (`ж`) or Ctrl-P: every `eq` command and the screen's own actions,
+  fuzzy-matched, with presets, devices, instruments, bands, formats and apps completed as you
+  type. A command runs beside the screen, which keeps drawing; its answer shows in the message
+  row, or in a panel with its colours when it is longer, and the status bar is read again after.
+  The last 100 lines run are kept in `~/.cache/eq/tui-history`.
+- `CLICOLOR_FORCE` makes eq paint when its output is a pipe, and `COLUMNS` sets the width it lays
+  out for there.
+
+### Changed
+
+- `i` opens the Instruments view instead of the table over the meter, and `?` lists the keys of
+  the view on screen first. The meter is one row shorter at 14 rows and more, for the tabs.
+- On the Events view the meter connection is closed, so the daemon's meter work stops; levels
+  that stand still no longer rebuild the screen.
+
 ## 2026.09.29.3 — 2026-09-29
 
 ### Added
