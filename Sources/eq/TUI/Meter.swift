@@ -21,6 +21,7 @@ enum MeterMsg {
     case eventsConnected
     case eventsConnectFailed
     case completions(Completions.Kind, [String])
+    case library(Library)
     case childOutput(String)
     /// The command's output ended; the runtime reaps it next.
     case childClosed
@@ -48,6 +49,10 @@ enum MeterCmd: Equatable {
     case stop
     case reap
     case saveHistory([String])
+    /// Reads the presets, the devices and the outputs again for the list views.
+    case refreshLibrary
+    /// The device the session edits: another than the playing one, or nil for that one.
+    case target(DeviceChoice?)
     case quit(Int32)
 }
 
@@ -109,6 +114,16 @@ struct MeterModel: Program {
     var tune = TuneState()
     /// The Tune view's value typed in the message row.
     var entry: TextField?
+    var library = Library()
+    var lists = Lists()
+    var form: FilterForm?
+    var confirm: Confirm?
+    var rename: TextField?
+    /// The device Tune edits while it is not the playing one.
+    var editing: DeviceChoice?
+    /// Tune's `d` waits for the devices to be read again, then steps this far.
+    var pendingDevice: Int?
+    let previews = PreviewCurves()
     /// Whether the last update changed what the screen shows.
     private(set) var needsRedraw = true
 
@@ -141,7 +156,7 @@ struct MeterModel: Program {
         needsRedraw = true
         switch msg {
         case .start:
-            return syncMouse() + [.connectEvents]
+            return syncMouse() + [.connectEvents] + (needsLibrary ? [.refreshLibrary] : [])
         case .frame(let f):
             return frame(f)
         case .input(let event):
@@ -152,14 +167,30 @@ struct MeterModel: Program {
         case .header(let new):
             header = new
             framesSinceMark = 0
+            lists.filter = min(lists.filter, max(filters.count - 1, 0))
+            if filters.isEmpty { lists.field = nil }
             return syncMouse()
         case .edited(let action, let failure):
             if let failure {
                 show(failure.split(separator: "\n").first.map(String.init) ?? "", failure.hasPrefix("nothing left") ? .warn : .error)
+                lists.follow = nil
             } else if let band = Self.band(action) {
                 flash = Countdown(value: band, left: Watch.flashFrames + MeterScene.flashBlendFrames)
+            } else if let text = done(action) {
+                show(text, .ok)
             }
-            return [.refreshHeader]
+            return [.refreshHeader] + (needsLibrary ? [.refreshLibrary] : [])
+        case .library(let new):
+            library = new
+            if let follow = lists.follow, let at = library.presetNames.firstIndex(where: { $0.lowercased() == follow.lowercased() }) {
+                lists.preset = at
+                lists.follow = nil
+            }
+            lists.preset = min(lists.preset, max(library.presetNames.count - 1, 0))
+            lists.device = min(lists.device, max(library.rows.count - 1, 0))
+            guard let step = pendingDevice else { return [] }
+            pendingDevice = nil
+            return otherDevice(step)
         case .sendFailed:
             // A failed send most likely means the socket is gone, and the daemon clears the solo then.
             show(Watch.listenFailed, .error)
@@ -229,7 +260,8 @@ struct MeterModel: Program {
         if let note { return note.value }
         if let child, child.status == nil, !child.shown { return MeterScene.Message(text: "running eq \(child.command) …") }
         if retry != nil && wantsMeter { return MeterScene.Message(text: Watch.reconnecting, kind: .warn) }
-        return view == .tune ? MeterScene.Message(text: TuneView.hint(tune.selected, app: last?.app)) : nil
+        if view == .filters, let field = form?.field ?? lists.field { return MeterScene.Message(text: field.hint(adding: form != nil)) }
+        return view == .tune ? MeterScene.Message(text: TuneView.hint(tune.selected, app: last?.app, editing: editing?.name)) : nil
     }
 
     /// The band an edit changed, for its chip to flash.
@@ -277,6 +309,13 @@ struct MeterModel: Program {
         scene.filterField = filterField
         scene.tune = tune
         scene.entry = entry
+        scene.library = library
+        scene.lists = lists
+        scene.form = form
+        scene.confirm = confirm
+        scene.rename = rename
+        scene.editing = editing
+        scene.previews = previews
         return scene
     }
 
@@ -287,7 +326,7 @@ struct MeterModel: Program {
         scene()?.draw(into: &screen)
     }
 
-    private mutating func show(_ text: String, _ kind: MeterScene.Message.Kind = .warn) {
+    mutating func show(_ text: String, _ kind: MeterScene.Message.Kind = .warn) {
         note = Countdown(value: MeterScene.Message(text: text, kind: kind), left: Watch.noteFrames)
     }
 
@@ -378,7 +417,7 @@ struct MeterModel: Program {
         return request(focused?.characterRange)
     }
 
-    private mutating func apply(_ action: WatchAction) -> [MeterCmd] {
+    mutating func apply(_ action: WatchAction) -> [MeterCmd] {
         if case .bandStep(let band, _) = action, let instrument = focused, !instrument.bands.contains(band) {
             show(Watch.outsideNote(instrument))
             return []
@@ -399,21 +438,34 @@ struct MeterModel: Program {
         return []
     }
 
-    private mutating func goTo(_ next: TUIView) -> [MeterCmd] {
+    mutating func goTo(_ next: TUIView) -> [MeterCmd] {
         goMenu = false
         modal = nil
         guard next != view else { return [] }
+        let left = leave()
         stack.append(view)
         if stack.count > Self.stackLimit { stack.removeFirst() }
         if next == .instruments { selected = focus ?? selected }
         view = next
-        return syncMeter()
+        return left + syncMeter() + (needsLibrary ? [.refreshLibrary] : [])
     }
 
     private mutating func back() -> [MeterCmd] {
         guard let previous = stack.popLast() else { return [] }
+        let left = leave()
         view = previous
-        return syncMeter()
+        return left + syncMeter() + (needsLibrary ? [.refreshLibrary] : [])
+    }
+
+    /// What a view had open goes with it; Tune goes back to the playing device's curve.
+    private mutating func leave() -> [MeterCmd] {
+        form = nil
+        confirm = nil
+        rename = nil
+        lists.field = nil
+        guard view == .tune, editing != nil else { return [] }
+        editing = nil
+        return [.target(nil)]
     }
 
     /// A status change seen on the events connection: the status bar follows it on every view.
@@ -431,8 +483,9 @@ struct MeterModel: Program {
         case .solo(let range): last?.solo = range
         case .profile:
             // Gains and preamp come only with frames: a view without levels takes one more.
-            return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : [])
+            return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : []) + (needsLibrary ? [.refreshLibrary] : [])
         }
+        if case .device = effect, needsLibrary { return [.refreshLibrary] }
         return []
     }
 
@@ -531,7 +584,7 @@ struct MeterModel: Program {
             show(line.isEmpty ? fallback : line, code == 0 ? .ok : .error)
             child = nil
         }
-        return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : [])
+        return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : []) + (needsLibrary ? [.refreshLibrary] : [])
     }
 
     // MARK: Keys
@@ -549,6 +602,10 @@ struct MeterModel: Program {
             default: break
             }
         }
+        if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left, modal == nil, !goMenu, palette == nil,
+           prompt == nil, rename == nil, confirm == nil, child?.shown != true, select(at: mouse) {
+            return []
+        }
         if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left {
             guard mouse.y == 1, size.rows >= TabRow.minRows, palette == nil, prompt == nil,
                   let target = TabRow.view(at: mouse.x, width: size.cols, current: view) else { return [] }
@@ -561,10 +618,38 @@ struct MeterModel: Program {
             case .cancel: prompt = nil
             case .submit(let name):
                 prompt = nil
+                if view == .presets { lists.follow = Config.normalizedPresetName(name) }
                 return apply(.savePreset(name))
             case .ignored: break
             }
             return []
+        }
+        if var field = rename {
+            switch field.handle(event) {
+            case .editing: rename = field
+            case .cancel: rename = nil
+            case .submit(let name):
+                rename = nil
+                guard let old = selectedPreset, !Config.normalizedPresetName(name).isEmpty, Config.normalizedPresetName(name) != old else { return [] }
+                lists.follow = Config.normalizedPresetName(name)
+                return apply(.renamePreset(old, name))
+            case .ignored: break
+            }
+            return []
+        }
+        if let asked = confirm {
+            switch event {
+            case .key(let press):
+                confirm = nil
+                let yes: [Character] = ["y", "Y", "н", "Н", "\r", "\n"]
+                guard press.modifiers.isEmpty, yes.map(KeyCode.char).contains(press.code) else { return [] }
+                return apply(asked.action)
+            case .mouse(let mouse) where mouse.action == .press:
+                confirm = nil
+                return []
+            default:
+                return []
+            }
         }
         if var field = entry {
             switch field.handle(event) {
@@ -598,8 +683,8 @@ struct MeterModel: Program {
             return []
         }
         guard let key = Key(event) else { return [] }
-        let context = MeterScene.context(prompt: prompt, entry: entry, filter: filterField, palette: palette, go: goMenu,
-                                         pane: child?.shown == true, modal: modal, view: view)
+        let context = MeterScene.context(prompt: prompt, entry: entry, rename: rename, filter: filterField, confirm: confirm, palette: palette,
+                                         go: goMenu, pane: child?.shown == true, modal: modal, form: form, fields: lists.field != nil, view: view)
         let action = KeyTable.action(for: key, in: context)
         if goMenu {
             guard case .go? = action else {
@@ -624,6 +709,8 @@ struct MeterModel: Program {
         case .closeModal:
             if goMenu {
                 goMenu = false
+            } else if context == .form {
+                form = nil
             } else if context == .pane {
                 let stop: [MeterCmd] = child?.status == nil ? [.stop] : []
                 child = nil
@@ -686,9 +773,13 @@ struct MeterModel: Program {
             return apply(.boost(instrument.name, delta))
         case .tuneSelect(let delta): tune.move(delta)
         case .tuneGroup(let delta): tune.jump(delta)
-        case .nudge(let size): return apply(.adjust(tune.selected, tune.selected.delta(size)))
+        case .nudge(let size):
+            if context == .fields || context == .form { return nudgeFilter(size, in: context) }
+            return apply(.adjust(tune.selected, tune.selected.delta(size)))
         case .tuneReset: return apply(.assign(tune.selected, 0))
         case .tuneEntry: entry = TextField()
+        case .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice:
+            return listAction(action, in: context)
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
              .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign,
              .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .addFilter, .setFilter, .removeFilter:
@@ -717,6 +808,12 @@ struct MeterModel: Program {
             child = output
         case .instruments:
             selected = min(max(selected + delta, 0), Instruments.all.count - 1)
+        case .presets:
+            lists.preset = min(max(lists.preset + delta, 0), max(library.presetNames.count - 1, 0))
+        case .devices:
+            lists.device = min(max(lists.device + delta, 0), max(library.rows.count - 1, 0))
+        case .filters:
+            lists.filter = min(max(lists.filter + delta, 0), max(filters.count - 1, 0))
         case .events:
             let page = EventsView.visible(size)
             events.scroll(by: -(abs(delta) == 10 ? delta / 10 * max(page - 1, 1) : delta), visible: page)

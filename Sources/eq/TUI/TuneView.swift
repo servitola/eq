@@ -21,8 +21,10 @@ struct TuneView {
         profile = Self.profile(scene)
     }
 
-    /// The saved curve; before the first header, what the frame and the header carry of it.
+    /// The saved curve; before the first header, what the frame and the header carry of it. A
+    /// device that is not playing has its own, from the library.
     static func profile(_ scene: MeterScene) -> Profile {
+        if let editing = scene.editing, scene.library.loaded { return scene.library.profile(editing.uid) }
         if let profile = scene.header.profile { return profile }
         let f = scene.frame
         return Profile(name: nil, preamp: f.preamp.isFinite ? f.preamp : 0, bands: scene.gains, preference: scene.header.preference,
@@ -159,7 +161,7 @@ struct TuneView {
     }
 
     /// The message row while nothing else is said: the selected control and how it moves.
-    static func hint(_ control: TuneControl, app: AppMatch?) -> String {
+    static func hint(_ control: TuneControl, app: AppMatch?, editing: String? = nil) -> String {
         let text: String
         switch control {
         case .comp: text = "comp — ↑↓ off · gentle · night, Enter types one, 0 turns it off"
@@ -168,6 +170,7 @@ struct TuneView {
         case .tilt: text = "tilt — ↑↓ 0.1 dB/octave, ⇧↑↓ 0.5, Alt↑↓ 0.05, Enter types a value"
         default: text = "\(control.name) selected — ↑↓ 0.5 dB, ⇧↑↓ 3 dB, Alt↑↓ 0.1 dB, Enter types a value"
         }
+        if let editing { return "editing \(editing), not the device playing · " + text }
         guard let app else { return text }
         return "\(app.name) plays \(app.preset); edits here change this device's own curve · " + text
     }
@@ -207,7 +210,8 @@ struct TuneView {
 
     private func response(_ r: Rect, _ l: Layout, into screen: inout Screen) {
         let over = -headroom
-        Boxes.draw(r, into: &screen, t, border: border(0), title: label("response"), right: over > 0 ? nil : "+12 … -12 dB")
+        let title = label("response") + (scene.editing.map { " · " + $0.name } ?? "")
+        Boxes.draw(r, into: &screen, t, border: border(0), title: title, right: over > 0 ? nil : "+12 … -12 dB")
         if over > 0 {
             let long = " ! clips \(Table.gain(over)) dB — lower the preamp "
             let text = r.width >= TerminalText.width(long) + 16 ? long : " ! clips \(Table.gain(over)) dB "

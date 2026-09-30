@@ -24,6 +24,9 @@ struct MeterEffects {
     var complete: (Completions.Kind) -> [String] = { _ in [] }
     var children: ChildRunner?
     var saveHistory: ([String]) -> Void = { _ in }
+    var library: () -> Library = { Library(loaded: true) }
+    /// Points the session's edits at a device other than the playing one, or back at it.
+    var target: (DeviceChoice?) -> Void = { _ in }
 
     func perform(_ cmd: MeterCmd, _ runtime: Runtime<MeterModel>) -> [MeterMsg] {
         switch cmd {
@@ -87,6 +90,11 @@ struct MeterEffects {
             return [.childExit(code)]
         case .saveHistory(let lines):
             saveHistory(lines)
+            return []
+        case .refreshLibrary:
+            return [.library(library())]
+        case .target(let device):
+            target(device)
             return []
         case .quit(let code):
             runtime.quit(code)

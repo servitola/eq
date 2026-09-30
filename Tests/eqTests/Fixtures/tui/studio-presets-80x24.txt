@@ -1,0 +1,24 @@
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+  Meter   Tune   Instruments   Presets   Devices   Filters   Events
+ ╭─ presets ──────────────────── 5 ╮ ╭─ late jazz ────────── vs BE-RCA, faint ╮
+ │   preset                preamp  │ │ +12 ⠔⠢⠤⠤⠤⢄⡀                            │
+ │ ◆ favourite*               0.0  │ │     ⢀⣀⣀⣀⡠⣀⠈⠉⠢⡀                         │
+ │   flat                     0.0  │ │     ⠁     ⠉⠒⠢⢄⣀⣀⠢⢄⣀ ⣀⠤⠤⠤⠤⠤⠤⠤⠒⠒⠒⠢⢄⣀⠒⠊⠑⠄ │
+ │▸  late jazz               -3.0  │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈⠉⠉⠉⠉⠑⠤⠤⠤⠢⠤⠔⠉┈┈┈┈┈┈⠉⠉⠉⠁ │
+ │   night                   -2.0  │ │                                        │
+ │   podcast                  0.0  │ │ -12                                    │
+ │                                 │ │     32     125    500    2k    8k      │
+ │                                 │ ╰────────────────────────────────────────╯
+ │                                 │   32 Hz     +4.8 →  +2.0
+ │                                 │   64 Hz     +4.0 →  +3.0
+ │                                 │   125 Hz    +4.2 →  +1.0
+ │                                 │   250 Hz    +2.3 →   0.0
+ │                                 │   500 Hz     0.0 →  -1.0
+ │                                 │   1k        -3.1 →   0.0
+ │                                 │   2k         0.0 →  +1.0
+ │                                 │   4k         0.0 →  +2.0
+ │                                 │   8k        +3.1 →  +1.0
+ │                                 │   16k       +2.4 →   0.0
+ ╰─────────────────────────────────╯   preamp    -4.8 →  -3.0
+
+ ↑↓  move   Enter  apply   s  save as   r  rename   ?  keys   q  quit

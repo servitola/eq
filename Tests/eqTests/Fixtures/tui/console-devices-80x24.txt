@@ -1,0 +1,24 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS
+ ╭─ DEVICES ───────────────────────╮ ╭─ MACBOOK PRO SPEAKERS ─────────────────╮
+ │      OUTPUT          CURVE      │ │ +12                                    │
+ │   EQ BE-RCA · EQ system output  │ │                                        │
+ │  ◉ ▪ BE-RCA          own ◆*     │ │                                        │
+ │▸   ■ MacBook Pro Sp… default    │ │     ⠔⠑⠢⠤⠊⠑⠤⠒⠢⡀                         │
+ │    ◇ AirPods         own ◆      │ │              ⠑⠒⠤⡀              ⡠⠢⡀ ⢀⡀  │
+ │    □ LG TV           default    │ │                 ⠈⠢⣀        ⢀⣀⡠⠊  ⠈⠒⠁⠸⡀ │
+ │    · Old DAC         own        │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠑⢢┈┈⢀⠔⠒⠉⠁┈┈┈┈┈┈┈┈┈┈ │
+ │                                 │ │                      ⠑⠒⠁               │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │ -12                                    │
+ │                                 │ │     32     125    500    2k    8k      │
+ │                                 │ ╰────────────────────────────────────────╯
+ │                                 │   PREAMP   0.0 dB
+ │                                 │   TONE     flat
+ │                                 │   KNOBS    none
+ │                                 │   DYNAMICS off
+ ╰─────────────────────────────────╯   FILTERS  none
+
+ ↑↓  move   Enter  use   c  copy here   e  edit   Esc  back   ?  keys   q  quit

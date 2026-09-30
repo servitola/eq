@@ -1,0 +1,24 @@
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+  Meter   Tune   Instruments   Presets   Devices   Filters   Events
+ ╭─ devices ───────────────────────╮ ╭─ MacBook Pro Speakers ─────────────────╮
+ │      output          curve      │ │ +12                                    │
+ │   EQ BE-RCA · EQ system output  │ │                                        │
+ │  ◉ ▪ BE-RCA          own ◆*     │ │                                        │
+ │▸   ■ MacBook Pro Sp… default    │ │     ⠔⠑⠢⠤⠊⠑⠤⠒⠢⡀                         │
+ │    ◇ AirPods         own ◆      │ │              ⠑⠒⠤⡀              ⡠⠢⡀ ⢀⡀  │
+ │    □ LG TV           default    │ │                 ⠈⠢⣀        ⢀⣀⡠⠊  ⠈⠒⠁⠸⡀ │
+ │    · Old DAC         own        │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠑⢢┈┈⢀⠔⠒⠉⠁┈┈┈┈┈┈┈┈┈┈ │
+ │                                 │ │                      ⠑⠒⠁               │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │ -12                                    │
+ │                                 │ │     32     125    500    2k    8k      │
+ │                                 │ ╰────────────────────────────────────────╯
+ │                                 │   preamp   0.0 dB
+ │                                 │   tone     flat
+ │                                 │   knobs    none
+ │                                 │   dynamics off
+ ╰─────────────────────────────────╯   filters  none
+
+ ↑↓  move   Enter  use   c  copy here   e  edit   Esc  back   ?  keys   q  quit

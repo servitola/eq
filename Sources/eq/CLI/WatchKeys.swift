@@ -31,6 +31,10 @@ enum WatchAction: Equatable {
     case tuneSelect(Int), tuneGroup(Int), nudge(Double), tuneReset, tuneEntry
     /// A control moved by a step in its own units, or set outright.
     case adjust(TuneControl, Double), assign(TuneControl, Double)
+    /// The list views' keys: Enter's action for the row, a rename or delete to confirm, the
+    /// preset diff, copy here, edit in Tune, a new filter, a filter's fields and a step between
+    /// them; `otherDevice` is Tune's next or previous device to edit.
+    case primary, startRename, startDelete, toggleDiff, copyHere, editInTune, startAdd, editFields, field(Int), otherDevice(Int)
     /// The list views' edits, each the change its `eq preset`, `eq device` or `eq filter` command makes.
     case usePreset(String), renamePreset(String, String), removePreset(String)
     /// `useDevice` takes a device's UID; it moves the system's output and saves nothing.

@@ -739,7 +739,9 @@ enum CLI {
                                        try? FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(),
                                                                                 withIntermediateDirectories: true)
                                        try? (lines.reversed().joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
-                                   })
+                                   },
+                                   library: { CLI.library(ctx) },
+                                   target: { session.device = $0 })
         Terminal.enter()
         let size = Terminal.size() ?? Size(cols: terminal.cols, rows: terminal.rows)
         let model = MeterModel(size: size, zones: zones, header: session.header(), reconnects: command == "tui", look: settings, view: view,
@@ -944,7 +946,8 @@ enum CLI {
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
                  .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
                  .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend,
-                 .tuneSelect, .tuneGroup, .nudge, .tuneReset, .tuneEntry:
+                 .tuneSelect, .tuneGroup, .nudge, .tuneReset, .tuneEntry,
+                 .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice:
                 return nil
             }
             return profile == before ? nil : profile
@@ -1233,8 +1236,13 @@ enum CLI {
     }
 
     static func presetMark(_ profile: Profile, _ config: Config) -> Table.PresetMark? {
-        guard let name = profile.preset, let preset = config.preset(named: name) else { return nil }
-        return (preset.name, !profile.sameCurve(as: preset.profile))
+        presetMark(profile, presets: config.presets)
+    }
+
+    static func presetMark(_ profile: Profile, presets: [String: Profile]?) -> Table.PresetMark? {
+        let needle = profile.preset?.lowercased()
+        guard let needle, let preset = presets?.first(where: { $0.key.lowercased() == needle }) else { return nil }
+        return (preset.key, !profile.sameCurve(as: preset.value))
     }
 
     static func editableProfile(_ config: Config, _ target: Target) -> Profile {

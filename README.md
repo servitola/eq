@@ -74,7 +74,7 @@ coreaudiod's own, rewritten while it runs, and nothing reads the entry once the 
 | `eq` | the curve in effect on the current output |
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
 | `eq watch [--zones] [--look LOOK] …` | the live equalizer in the terminal; tune from the keyboard, `?` lists every key, `y` switches the look, `q` quits; the flags are under [Looks](#looks) |
-| `eq tui [meter\|tune\|instruments\|events] [--zones] [--look LOOK] …` | the terminal UI, opened on the meter (the same screen as `eq watch`), the curve to edit, the instruments or the daemon's events; `;` opens a palette of every command |
+| `eq tui [meter\|tune\|instruments\|presets\|devices\|filters\|events] [--zones] [--look LOOK] …` | the terminal UI, opened on the meter (the same screen as `eq watch`), the curve to edit, the instruments, the presets, the outputs, the filters or the daemon's events; `;` opens a palette of every command |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
@@ -329,14 +329,15 @@ version, `pref …` when bass, treble or tilt were set, `boost …` when a knob 
 the backup files — they move only `eq.json` and two small bookkeeping files beside it,
 `eq.json.pos` and `eq.json.redo`.
 
-A whole `eq watch` session is one undo step: only its first save makes a backup, so after
-quitting, `eq undo` returns to the curve from before the session.
+A whole `eq watch` or `eq tui` session is one undo step: only its first save makes a backup, so after
+quitting, `eq undo` returns to the curve from before the session. Every change made in the Presets,
+Devices and Filters views is the same change its `eq` command makes, and belongs to that one step.
 
 ## Watch
 
 ```
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
-  Meter   Tune   Instruments   Events                               g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Events
    ╭─ meter ─────────────────────────────────────────────── dBFS · gain dB ╮
    │  0 ┤        ▔▔▔                                                  ├+12 │
    │ -6 ┤  ▔▔▔   ▂▂▂   ▔▔▔                                                 │
@@ -414,7 +415,7 @@ under everything, which the light `paper` palette needs on a dark terminal.
 
 Under the status bar a row of tabs names the views, the current one a solid chip and each other
 one with its letter underlined; `g` and that letter goes there, and a small menu over the keybar
-lists the letters after `g` (`п`, then `ь`, `е`, `ш` or `у` on a Russian layout). `Esc` with nothing
+lists the letters after `g` (`п`, then `ь`, `е`, `ш`, `з`, `в`, `а` or `у` on a Russian layout). `Esc` with nothing
 left to cancel goes back to the view before. `eq tui VIEW` opens on one (`eq tui events`); `eq
 watch` is the meter. Below 14 rows the tabs give their row to the meter, and below 60 columns only
 the current one shows.
@@ -433,6 +434,8 @@ the current one shows.
   `tape`), `Tab` jumps between the bands, the chain and the dynamics. Arrows are the same on
   every layout, so any band goes up and down from a Russian one without Shift. Every change is
   saved at once and belongs to the session's one undo step, as on the meter; `u` walks back.
+  `d` and `D` switch the curve being edited to the next or previous device, playing or not, with
+  its name in the response panel's title; leaving Tune goes back to the playing device's.
   In console the sliders are faders on channel strips with a tape label and an amber readout,
   the response a backlit window, and the chain a master section of faders, knobs and lamps.
 - **Instruments** (`g i`, or `i` on the meter): `eq zones` and `eq boost` as one table, each
@@ -440,6 +443,34 @@ the current one shows.
   band, its ranges in Hz, where each sits on a 20 Hz–20 kHz map and the bands each touches, and
   the ten bands as they sound now under it. `↑`/`↓` choose, `←`/`→` turn the chosen knob,
   `l` listens to it alone, `Enter` focuses it on the meter.
+- **Presets** (`g p`): every preset, the current device's marked `◆` and with a yellow `*` once
+  the curve has moved away from it, each with its ten gains as a spark and its preamp; beside
+  them the chosen one's curve in braille over its boost and cut tints, and its layers: preamp,
+  bass, treble and tilt, knobs, compressor and colour, filters. `Enter` plays it on the current
+  device (`eq preset use`), `s` saves the current curve as a new one (`eq preset save`), `r`
+  renames it with devices and app rules following (`eq preset rename`), `d` deletes it
+  (`eq preset rm`) once `y` answers the question in the message row, which first says which
+  devices keep its curve unmarked and how many app rules will match nothing; any other key keeps
+  it. `v` compares it with the current device's curve: both drawn, the current one faint, and
+  each band, the preamp and each layer that differs listed as `32 Hz +4.8 → +3.0`.
+- **Devices** (`g d`): the outputs connected now, then the devices with a profile of their own
+  that are not, as `eq device list` lists them: `◉` on the one whose curve plays, a glyph for how
+  each is connected (`■` built-in, `▪` USB, `◇` Bluetooth, `□` HDMI or DisplayPort, `○` AirPlay,
+  `◆` Thunderbolt, `·` offline), whether it has its own curve and its preset; beside them the
+  chosen one's curve and layers. `Enter` makes it the system's output (`eq device use`); `c`
+  copies the playing device's curve to it (`eq device copy --to`); `e` opens Tune on its curve,
+  whether it plays or not. In driver mode the EQ device heads the list as the system's output and
+  the device it plays on, and is never one to pick: `Enter` on a real device sets the system's
+  output to it, and the daemon, as for a pick in the Sound menu, points the EQ device at it and
+  takes the output back.
+- **Filters** (`g f`): the current device's parametric filters as `eq filter list` numbers them,
+  with type, frequency, gain, Q and whether an import or a hand added each; under them the
+  filters' combined response, a dot on each, the chosen one's own response lit. `Enter` (or `→`)
+  changes a filter in place: `←`/`→` pick the type, frequency, gain or Q, `↑`/`↓` step it (the
+  next type, a sixth of an octave, 0.5 dB, Q 0.1), `⇧↑`/`⇧↓` an octave, 3 dB or Q 1, `Alt↑`/`Alt↓`
+  a 24th of an octave, 0.1 dB or Q 0.01, each step saved at once (`eq filter set`); `Esc` goes
+  back to moving between filters. `a` opens a row under the others for a new filter, set the same
+  way, which `Enter` adds (`eq filter add`); `d` removes one (`eq filter rm`) once `y` answers.
 - **Events** (`g e`): the daemon's `eq events` as a log, newest at the bottom, each kind in its
   colour: device, rate, preset, bypass, solo, app, mode. `Space` pauses it while events keep
   arriving (the panel counts them), `/` filters by kind or text, `PgUp`/`PgDn`/`Home`/`End`
@@ -467,10 +498,10 @@ the same instead. `eq …` in front names the command when a screen action has t
 
 | Key | Russian | Where | Action |
 | --- | --- | --- | --- |
-| `g` | `п` `П` | every view | go to a view: m meter, t tune, i instruments, e events; a menu lists them |
+| `g` | `п` `П` | every view | go to a view: m meter, t tune, i instruments, p presets, d devices, f filters, e events; a menu lists them |
 | `;` `Ctrl-P` | `ж` | every view | the command palette: any eq command, run beside the screen |
 | `u` | `г` `Г` | every view | undo the last change made in this session, back to how it started |
-| `m` | `ь` `Ь` | every view | mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune selects it, and the wheel scrolls a list or steps what it is over |
+| `m` | `ь` `Ь` | every view | mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, and the wheel scrolls a list or steps what it is over |
 | `?` `h` | `р` `Р` | every view | the list of every key; ?, Esc or q closes it |
 | `q` | `й` `Й` | every view | quit |
 | `Ctrl-C` |  | every view | quit, from the lists too |
@@ -500,6 +531,7 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `1` … `9` |  | Tune | raise band 32 Hz … 8 kHz by 0.5 dB, as on the meter; 0 resets here, so 16 kHz goes up with ↑ |
 | `⇧1` … `⇧0` | `"` `№` `:` | Tune | lower band 32 Hz … 16 kHz by 0.5 dB, as on the meter |
 | `s` | `ы` `Ы` | Tune | save the curve as a preset |
+| `d` `D` | `в` `В` | Tune | edit the next / previous device's curve, playing or not; the playing one comes first |
 | `Esc` |  | Tune | back to the view before |
 | `↑` `↓` `j` `k` | `л` `о` | Instruments | move between the instruments |
 | `Home` `End` |  | Instruments | the first / the last instrument |
@@ -507,6 +539,36 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `→` `←` | `ю` `Ю` `б` `Б` | Instruments | its knob ±0.5 dB (. and , work too) |
 | `l` | `д` `Д` | Instruments | listen to it alone, and back; it becomes the meter's focus |
 | `Esc` |  | Instruments | back to the view before |
+| `↑` `↓` `j` `k` | `л` `о` | Presets | move between the presets |
+| `PgUp` `PgDn` `Home` `End` |  | Presets | a page up / down, the first / the last |
+| `Enter` |  | Presets | play it on the current device, as eq preset use does |
+| `s` | `ы` `Ы` | Presets | save the current device's curve as a preset: type its name in the message row, Enter saves |
+| `r` | `к` `К` | Presets | rename it; devices and app rules that name it follow |
+| `d` | `в` `В` | Presets | delete it once y answers the question in the message row; devices that used it keep the curve |
+| `v` | `м` `М` | Presets | compare it with the current device's curve: both drawn, and what differs listed |
+| `Esc` |  | Presets | back to the view before |
+| `↑` `↓` `j` `k` | `л` `о` | Devices | move between the outputs and the profiles of devices not connected |
+| `PgUp` `PgDn` `Home` `End` |  | Devices | a page up / down, the first / the last |
+| `Enter` |  | Devices | make it the system's output, as eq device use does; in driver mode the EQ device plays on it instead |
+| `c` | `с` `С` | Devices | copy the current device's curve to it, as eq device copy --to does |
+| `e` | `у` `У` | Devices | edit its curve in Tune, whether it plays or not |
+| `Esc` |  | Devices | back to the view before |
+| `↑` `↓` `j` `k` | `л` `о` | Filters | move between the filters |
+| `PgUp` `PgDn` `Home` `End` |  | Filters | a page up / down, the first / the last |
+| `Enter` `→` |  | Filters | change the filter in place: ← → pick its type, frequency, gain or Q, ↑ ↓ change it |
+| `a` | `ф` `Ф` | Filters | add a filter: a row under the others to set its type, frequency, gain and Q, Enter adds it |
+| `d` | `в` `В` | Filters | remove it once y answers the question in the message row |
+| `Esc` |  | Filters | back to the view before |
+| `←` `→` |  | a filter's fields | the type, the frequency, the gain or Q |
+| `↑` `↓` `k` `j` | `л` `о` | a filter's fields | change it, saved at once: the next type, a sixth of an octave, 0.5 dB, Q 0.1 |
+| `⇧↑` `⇧↓` `PgUp` `PgDn` |  | a filter's fields | an octave, 3 dB, Q 1 |
+| `Alt↑` `Alt↓` |  | a filter's fields | a 24th of an octave, 0.1 dB, Q 0.01 |
+| `Enter` `Esc` |  | a filter's fields | done: ↑ ↓ move between the filters again |
+| `←` `→` `Tab` |  | new filter | the type, the frequency, the gain or Q |
+| `↑` `↓` `k` `j` | `л` `о` | new filter | change it: the next type, a sixth of an octave, 0.5 dB, Q 0.1 |
+| `⇧↑` `⇧↓` `Alt↑` `Alt↓` |  | new filter | coarse: an octave, 3 dB, Q 1; fine: a 24th of an octave, 0.1 dB, Q 0.01 |
+| `Enter` |  | new filter | add it, as eq filter add does |
+| `Esc` |  | new filter | cancel |
 | `↑` `↓` `j` `k` | `л` `о` | Events | scroll the log |
 | `PgUp` `PgDn` `Home` `End` |  | Events | a page up / down, the oldest / the newest |
 | `Space` |  | Events | pause the log and go on; events keep arriving underneath, the panel counts them |
@@ -515,6 +577,9 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `g` `m` | `ь` | after g | the meter |
 | `g` `t` | `е` | after g | the curve to edit: bands as sliders, preamp, tone, dynamics |
 | `g` `i` | `ш` | after g | the instruments, their knobs and levels |
+| `g` `p` | `з` | after g | the presets: apply, save as, rename, delete, compare |
+| `g` `d` | `в` | after g | the outputs and their curves: use one, copy the curve to one, edit one |
+| `g` `f` | `а` | after g | the current device's parametric filters: add, change, remove |
 | `g` `e` | `у` | after g | the daemon's events as they happen |
 | `Esc` |  | after g | stay; any other key does too |
 | `Enter` |  | palette | run the chosen line: an eq command as a child process, or a screen action |
@@ -539,7 +604,7 @@ those of every view, `g`'s letters, the palette's and the command output's. It s
 it do nothing to the curve. `m` turns mouse reporting on and remembers it as
 `"tui": {"mouse": true}` in eq.json; it is off by default because it takes plain drag-to-select
 away from the terminal; on, a click on a tab opens that view, a click on a band or a control in
-Tune selects it, and the wheel scrolls the lists and steps whatever it is over in Tune. The table
+Tune or on a row of Presets, Devices or Filters selects it, and the wheel scrolls the lists and steps whatever it is over in Tune. The table
 above is generated from the same key table the TUI reads its keys from, and a test keeps the two
 equal.
 

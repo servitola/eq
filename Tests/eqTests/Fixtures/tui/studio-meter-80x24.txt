@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
-  Meter   Tune   Instruments   Events                               g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Events
    ╭─ meter ─────────────────────────────────────────────── dBFS · gain dB ╮
    │  0 ┤        ▔▔▔                                                  ├+12 │
    │ -6 ┤  ▔▔▔   ▂▂▂   ▔▔▔                                                 │

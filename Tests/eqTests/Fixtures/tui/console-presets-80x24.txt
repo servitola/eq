@@ -1,0 +1,24 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS
+ ╭─ PRESETS ──────────────────── 5 ╮ ╭─ LATE JAZZ ────────── vs BE-RCA, faint ╮
+ │   PRESET                PREAMP  │ │ +12 ⠔⠢⠤⠤⠤⢄⡀                            │
+ │ ◆ favourite*               0.0  │ │     ⢀⣀⣀⣀⡠⣀⠈⠉⠢⡀                         │
+ │   flat                     0.0  │ │     ⠁     ⠉⠒⠢⢄⣀⣀⠢⢄⣀ ⣀⠤⠤⠤⠤⠤⠤⠤⠒⠒⠒⠢⢄⣀⠒⠊⠑⠄ │
+ │▸  late jazz               -3.0  │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈⠉⠉⠉⠉⠑⠤⠤⠤⠢⠤⠔⠉┈┈┈┈┈┈⠉⠉⠉⠁ │
+ │   night                   -2.0  │ │                                        │
+ │   podcast                  0.0  │ │ -12                                    │
+ │                                 │ │     32     125    500    2k    8k      │
+ │                                 │ ╰────────────────────────────────────────╯
+ │                                 │   32 HZ     +4.8 →  +2.0
+ │                                 │   64 HZ     +4.0 →  +3.0
+ │                                 │   125 HZ    +4.2 →  +1.0
+ │                                 │   250 HZ    +2.3 →   0.0
+ │                                 │   500 HZ     0.0 →  -1.0
+ │                                 │   1K        -3.1 →   0.0
+ │                                 │   2K         0.0 →  +1.0
+ │                                 │   4K         0.0 →  +2.0
+ │                                 │   8K        +3.1 →  +1.0
+ │                                 │   16K       +2.4 →   0.0
+ ╰─────────────────────────────────╯   PREAMP    -4.8 →  -3.0
+
+ ↑↓  move   Enter  apply   s  save as   r  rename   ?  keys   q  quit

@@ -116,7 +116,75 @@ final class TUILookTests: XCTestCase {
          ("\(look)-help-120x36", scene(cols: 120, rows: 36, look: look, modal: .help(scroll: 0))),
          ("\(look)-go-120x36", { var s = scene(cols: 120, rows: 36, look: look); s.goMenu = true; return s }()),
          ("\(look)-palette-120x36", { var s = scene(cols: 120, rows: 36, look: look); s.palette = palette; return s }()),
-         ("\(look)-output-120x36", { var s = scene(cols: 120, rows: 36, look: look, view: .events); s.child = output; return s }())]
+         ("\(look)-output-120x36", { var s = scene(cols: 120, rows: 36, look: look, view: .events); s.child = output; return s }()),
+         ("\(look)-presets-120x36", lists(scene(cols: 120, rows: 36, look: look, view: .presets)) { $0.lists.preset = 3 }),
+         ("\(look)-presets-80x24", lists(scene(cols: 80, rows: 24, look: look, view: .presets)) { $0.lists.preset = 2; $0.lists.diff = true }),
+         ("\(look)-devices-120x36", lists(scene(cols: 120, rows: 36, look: look, view: .devices)) { $0.lists.device = 2 }),
+         ("\(look)-devices-80x24", lists(scene(cols: 80, rows: 24, look: look, view: .devices)) {
+             $0.lists.device = 1
+             $0.library.driver = Library.Driver(name: "BE-RCA · EQ", target: DeviceChoice(uid: "be", name: "BE-RCA"))
+         }),
+         ("\(look)-filters-120x36", lists(scene(cols: 120, rows: 36, look: look, view: .filters)) {
+             $0.lists.filter = 1
+             $0.lists.field = .gain
+             $0.message = MeterScene.Message(text: FilterField.gain.hint(adding: false))
+         }),
+         ("\(look)-filters-80x24", lists(scene(cols: 80, rows: 24, look: look, view: .filters)) {
+             $0.form = FilterForm(filter: Filter(type: .peak, frequency: 250, gain: -2.5, q: 1.41, origin: .hand), field: .frequency)
+             $0.message = MeterScene.Message(text: FilterField.frequency.hint(adding: true))
+         })]
+    }
+
+    /// The curve playing on BE-RCA, as `eq` shows it: the mocks' layers and an AutoEq import with one filter added by hand.
+    static let playing: Profile = {
+        var profile = Profile(name: "BE-RCA", preamp: -4.8, bands: Config.screenshotCurve, preset: "favourite",
+                              preference: Preference(bass: 1, treble: -0.5), instruments: ["voice": 3],
+                              dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
+        profile.filters = [Filter(type: .lowShelf, frequency: 105, gain: 4, q: 0.7, origin: .import),
+                           Filter(type: .peak, frequency: 2100, gain: -3.2, q: 1.8, origin: .import),
+                           Filter(type: .highShelf, frequency: 10000, gain: 2, q: 0.7, origin: .import),
+                           Filter(type: .peak, frequency: 3000, gain: -2, q: 1.41, origin: .hand)]
+        profile.imported = "AutoEq · HD 600"
+        return profile
+    }()
+
+    static let library: Library = {
+        var library = Library(loaded: true)
+        library.presets = [
+            "favourite": Profile(name: nil, preamp: 0, bands: Config.screenshotCurve),
+            "flat": .flat,
+            "night": Profile(name: nil, preamp: -2, bands: [3, 2, 1, 0, 0, -1, -2, -2, -3, -4], dynamics: Dynamics(comp: .night)),
+            "late jazz": Profile(name: nil, preamp: -3, bands: [2, 3, 1, 0, -1, 0, 1, 2, 1, 0], preference: Preference(bass: 2, treble: -1),
+                                 instruments: ["bass": 2, "piano": 1.5]),
+            "podcast": Profile(name: nil, preamp: 0, bands: [-6, -4, -2, 0, 1, 2, 3, 2, 0, -2], instruments: ["voice": 3],
+                               dynamics: Dynamics(comp: .gentle)),
+        ]
+        library.devices = [
+            "be": playing,
+            "air": Profile(name: "AirPods", preamp: -2, bands: [3, 2, 1, 0, 0, -1, -2, -2, -3, -4], preset: "night", dynamics: Dynamics(comp: .night)),
+            "dac": Profile(name: "Old DAC", preamp: 0, bands: [0, 0, 0, 1, 1, 0, 0, -1, -1, 0]),
+        ]
+        library.fallback = Profile(name: nil, preamp: 0, bands: Config.screenshotCurve)
+        library.rows = [
+            DeviceRow(uid: "be", name: "BE-RCA", transport: "usb", connected: true, profile: "own"),
+            DeviceRow(uid: "mbp", name: "MacBook Pro Speakers", transport: "builtin", connected: true, profile: "default"),
+            DeviceRow(uid: "air", name: "AirPods", transport: "bluetooth", connected: true, profile: "own"),
+            DeviceRow(uid: "tv", name: "LG TV", transport: "hdmi", connected: true, profile: "default"),
+            DeviceRow(uid: "dac", name: "Old DAC", transport: nil, connected: false, profile: "own"),
+        ]
+        library.current = DeviceChoice(uid: "be", name: "BE-RCA")
+        library.output = "be"
+        library.apps = [AppRule(app: "com.spotify.client", preset: "night")]
+        return library
+    }()
+
+    /// A list view over the library above, with the playing curve in the header.
+    static func lists(_ scene: MeterScene, _ edit: (inout MeterScene) -> Void) -> MeterScene {
+        var scene = scene
+        scene.library = library
+        scene.header.profile = playing
+        edit(&scene)
+        return scene
     }
 
     /// The Tune view with `control` selected and its hint in the message row, as the model says it.

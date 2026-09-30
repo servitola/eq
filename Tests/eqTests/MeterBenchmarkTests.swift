@@ -66,6 +66,12 @@ final class MeterBenchmarkTests: XCTestCase {
         let header = Watch.Header(preset: ("favourite", true), preference: Preference(bass: 1, treble: -0.5), knobs: ["voice": 3],
                                   dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
         var model = MeterModel(size: size, header: header, look: settings, view: view)
+        if [.presets, .devices, .filters].contains(view) {
+            _ = model.update(.library(TUILookTests.library))
+            var listed = header
+            listed.profile = TUILookTests.playing
+            _ = model.update(.header(listed))
+        }
         var renderer = Renderer()
         var screen = Screen(size)
         var bytes = 0
@@ -80,6 +86,29 @@ final class MeterBenchmarkTests: XCTestCase {
             if n == 0 { full = written } else { bytes += written }
         }
         return (Double(bytes) / Double(count), full, (cpu() - start) / Double(count + 1) * 1000)
+    }
+
+    /// A list view with nothing but keys: `j` and `k` in turn, each moving the selection and its preview.
+    static func measureKeys(look: Look, depth: ColorDepth, view: TUIView, presses count: Int = 300) -> (perKey: Double, full: Int) {
+        let size = Size(cols: 120, rows: 40)
+        var settings = LookSettings()
+        settings.look = look
+        settings.depth = depth
+        var model = MeterModel(size: size, look: settings, view: view)
+        _ = model.update(.library(TUILookTests.library))
+        _ = model.update(.header(Watch.Header(preset: ("favourite", true), profile: TUILookTests.playing)))
+        var renderer = Renderer()
+        var screen = Screen(size)
+        model.view(into: &screen)
+        let full = renderer.render(screen).count
+        var bytes = 0
+        for n in 0..<count {
+            _ = model.update(.input(.key(KeyPress(.char(n % 2 == 0 ? "j" : "k")))))
+            screen.clear()
+            model.view(into: &screen)
+            bytes += renderer.render(screen).count
+        }
+        return (Double(bytes) / Double(count), full)
     }
 
     func testEveryLookAndDepthStaysInTheByteBudget() {
@@ -109,6 +138,20 @@ final class MeterBenchmarkTests: XCTestCase {
                     table.append(String(format: "| %@, tune view | %@ | %@ | %.0f | %d | %.2f |", look.rawValue, depth.rawValue, motion.rawValue,
                                         m.perFrame, m.full, m.ms))
                     XCTAssertLessThan(m.perFrame, 4500, "the Tune view's mini-meters and output; \(look) \(depth) \(motion)")
+                }
+            }
+        }
+        for view in [TUIView.presets, .devices, .filters] {
+            for look in Look.allCases {
+                for depth in ColorDepth.allCases {
+                    let m = Self.measure(look: look, depth: depth, motion: .stress, view: view)
+                    let keys = Self.measureKeys(look: look, depth: depth, view: view)
+                    table.append(String(format: "| %@, %@ view | %@ | stress | %.0f | %d | %.2f |", look.rawValue, view.rawValue, depth.rawValue,
+                                        m.perFrame, m.full, m.ms))
+                    table.append(String(format: "| %@, %@ view | %@ | j k | %.0f | %d | — |", look.rawValue, view.rawValue, depth.rawValue,
+                                        keys.perKey, keys.full))
+                    XCTAssertLessThan(m.perFrame, 4500, "\(view): only the status bar moves; \(look) \(depth)")
+                    XCTAssertLessThan(keys.perKey, 4500, "\(view): a new selection and its preview; \(look) \(depth)")
                 }
             }
         }

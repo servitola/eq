@@ -1,0 +1,24 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS
+ ╭─ FILTERS · BE-RCA ──────────────────── 4 of 32 · imported: AutoEq · HD 600 ╮
+ │  #   TYPE       FREQUENCY   GAIN      Q      SOURCE                        │
+ │   1  lowshelf      105 Hz   +4.0 dB   0.70   import                        │
+ │   2  peak         2.1 kHz   -3.2 dB   1.80   import                        │
+ │   3  highshelf     10 kHz   +2.0 dB   0.70   import                        │
+ │   4  peak           3 kHz   -2.0 dB   1.41   hand                          │
+ │▸  +  peak          250 Hz   -2.5 dB   1.41   new                           │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ RESPONSE ────────────────────────── filters combined · the chosen one lit ╮
+ │ +12                                                                        │
+ │                                                                            │
+ │                                                                            │
+ │     ⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠒⠒⠢⠤⢄●                                               ⣀⣀⣀⣀⣀⣀  │
+ │   0 ⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⢄⣀⣀⡀┈┈┈┈┈⣀⣀⡠⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤●⠤⠤⠤⠤⠤⠤⠤┈ │
+ │                          ⠉⠑⠒◉⠊⠉              ⠈⠉⠢⢄●⢀⣀⡠●⠒⠉⠁                  │
+ │                                                  ⠈⠁                        │
+ │                                                                            │
+ │ -12                                                                        │
+ │       32     64     125    250    500    1k     2k     4k     8k     16k   │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ new filter · frequency — ↑↓ a sixth of an octave, ⇧↑↓ an octave, Alt↑↓ a 24th
+ ← →  field   ↑ ↓  change   Enter  add   Esc  cancel

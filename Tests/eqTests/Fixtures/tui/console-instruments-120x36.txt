@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   FOCUS VOICE   VOICE +3.0                   ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   EVENTS                                                                       g go  ; cmd
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
  ╭─ INSTRUMENTS ─────────────────────────────────────────────────────────────────────────── 8 instruments · 17 ranges ╮
  │     INSTRUMENT            KNOB  LEVEL      RANGE         HZ         32       250     2k       16k  BANDS           │
  │   ● kick     ┄┄┄┄┄┼┄┄┄┄┄   0.0  ▆▆▆▆▆▆▆▆ ◆ thump         50–100    ┈┈┊┈━━━━┈┈┈┊┈┈┈┈┈┈┈┊┈┈┈┈┈┈┈┈┊┈  64 125          │

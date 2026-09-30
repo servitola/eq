@@ -76,7 +76,7 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(lines.count, 30)
         XCTAssertTrue(lines[0].hasPrefix(" ◉ BE-RCA  44.1 kHz │ preamp -1.5 dB"), lines[0])
         XCTAssertTrue(lines[0].hasSuffix(" peak -6.0 dB "), lines[0])
-        XCTAssertTrue(lines[1].hasPrefix("  Meter   Tune   Instruments   Events "), lines[1])
+        XCTAssertTrue(lines[1].hasPrefix("  Meter   Tune   Instruments   Presets   Devices   Filters   Events "), lines[1])
         XCTAssertTrue(lines[2].hasPrefix("   ╭─ meter ─"), lines[2])
         XCTAssertTrue(lines[2].contains(" dBFS · gain dB ╮"), lines[2])
         XCTAssertEqual(lines[g.liveY + 1].split(separator: " "), Config.bandLabels.map { Substring($0) })

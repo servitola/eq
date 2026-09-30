@@ -1,0 +1,36 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
+ ╭─ DEVICES ───────────────── 4 connected · 1 not ╮ ╭─ AIRPODS ──────────────── own profile ╮ ╭─ LAYERS ──────────────╮
+ │      OUTPUT             VIA         CURVE      │ │ +12                                   │ │ PRESET   ◆ night      │
+ │  ◉ ▪ BE-RCA             USB         own ◆*     │ │                                       │ │ PREAMP   -2.0 dB      │
+ │    ■ MacBook Pro Speak… built-in    default    │ │                                       │ │ TONE     flat         │
+ │▸   ◇ AirPods            Bluetooth   own ◆      │ │                                       │ │ KNOBS    none         │
+ │    □ LG TV              HDMI        default    │ │                                       │ │ DYNAMICS night comp   │
+ │    · Old DAC            offline     own        │ │                                       │ │ FILTERS  none         │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │     ⢠⢢                                │ │                       │
+ │                                                │ │     ⠊ ⠓⠊⠢⡀                            │ │                       │
+ │                                                │ │          ⠈⠢⠤⡀                         │ │                       │
+ │                                                │ │             ⠈⢆                        │ │                       │
+ │                                                │ │   0 ┈┈┈┈┈┈┈┈┈┈⠉⠒⠢⠤⣀┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⡄ │ │                       │
+ │                                                │ │                    ⠉⠢⡀             ⢰⠁ │ │                       │
+ │                                                │ │                      ⠈⠒⠢⡀        ⡠⡀⢸  │ │                       │
+ │                                                │ │                         ⠱⠔⠉⢆⡠⠒⢢ ⢠⠃⢸⢸  │ │                       │
+ │                                                │ │                                ⠣⠜ ⢸⠎  │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │ -12                                   │ │                       │
+ │                                                │ │     32     125   500    2k     8k     │ │                       │
+ ╰────────────────────────────────────────────────╯ ╰───────────────────────────────────────╯ ╰───────────────────────╯
+
+ ↑↓  move   Enter  use   c  copy here   e  edit   Esc  back   u  undo   y  look   m  mouse off   ?  keys   q  quit

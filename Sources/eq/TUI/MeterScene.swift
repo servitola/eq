@@ -51,6 +51,14 @@ struct MeterScene {
     var filterField: TextField?
     var tune = TuneState()
     var entry: TextField?
+    var library = Library()
+    var lists = Lists()
+    var form: FilterForm?
+    var confirm: Confirm?
+    var rename: TextField?
+    /// The device Tune edits when it is not the one playing.
+    var editing: DeviceChoice?
+    var previews = PreviewCurves()
 
     static let fadeFrames = 15
     static let flashBlendFrames = 9
@@ -90,6 +98,9 @@ struct MeterScene {
             case .meter: StudioView(scene: self, compact: compact).draw(into: &screen)
             case .tune: TuneView(scene: self).draw(into: &screen)
             case .instruments: InstrumentsView(scene: self).draw(into: &screen)
+            case .presets: PresetsView(scene: self).draw(into: &screen)
+            case .devices: DevicesView(scene: self).draw(into: &screen)
+            case .filters: FiltersView(scene: self).draw(into: &screen)
             case .events: EventsView(scene: self).draw(into: &screen)
             }
         }
@@ -117,24 +128,31 @@ struct MeterScene {
 
     var keyState: KeyState {
         KeyState(strip: strip, focused: focus != nil, listening: listening, mouse: header.mouse, paused: events.paused != nil,
-                 running: child?.status == nil)
+                 running: child?.status == nil, diff: lists.diff, editing: editing != nil)
     }
 
     var keyContext: KeyContext {
-        Self.context(prompt: prompt, entry: entry, filter: filterField, palette: palette, go: goMenu, pane: child?.shown == true,
-                     modal: modal, view: view)
+        Self.context(prompt: prompt, entry: entry, rename: rename, filter: filterField, confirm: confirm, palette: palette, go: goMenu,
+                     pane: child?.shown == true, modal: modal, form: form, fields: lists.field != nil, view: view)
     }
 
-    /// Searched top-down: the text field or menu of the moment, the output pane, the overlay, then the view.
-    static func context(prompt: TextField?, entry: TextField? = nil, filter: TextField?, palette: CommandPalette?, go: Bool, pane: Bool,
-                        modal: WatchModal?, view: TUIView) -> KeyContext {
+    /// Searched top-down: the text field or question of the moment, the menus, the output pane,
+    /// the overlay, a form or a filter's fields, then the view.
+    static func context(prompt: TextField?, entry: TextField? = nil, rename: TextField? = nil, filter: TextField?, confirm: Confirm? = nil,
+                        palette: CommandPalette?, go: Bool, pane: Bool, modal: WatchModal?, form: FilterForm? = nil, fields: Bool = false,
+                        view: TUIView) -> KeyContext {
         if prompt != nil { return .prompt }
         if entry != nil { return .entry }
+        if rename != nil { return .rename }
         if filter != nil { return .filter }
+        if confirm != nil { return .confirm }
         if palette != nil { return .palette }
         if go { return .go }
         if pane { return .pane }
-        return modal?.context ?? view.context
+        if let modal { return modal.context }
+        if view == .filters, form != nil { return .form }
+        if view == .filters, fields { return .fields }
+        return view.context
     }
 }
 

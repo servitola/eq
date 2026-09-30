@@ -4,16 +4,9 @@ import Foundation
 /// The views the TUI switches between; each is reached by `g` and its letter, a click on its
 /// tab, or `go …` in the palette.
 enum TUIView: String, CaseIterable {
-    case meter, tune, instruments, events
+    case meter, tune, instruments, presets, devices, filters, events
 
-    var title: String {
-        switch self {
-        case .meter: return "Meter"
-        case .tune: return "Tune"
-        case .instruments: return "Instruments"
-        case .events: return "Events"
-        }
-    }
+    var title: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
     var letter: Character { rawValue.first! }
 
     var context: KeyContext {
@@ -21,13 +14,42 @@ enum TUIView: String, CaseIterable {
         case .meter: return .meter
         case .tune: return .tune
         case .instruments: return .instruments
+        case .presets: return .presets
+        case .devices: return .devices
+        case .filters: return .filters
         case .events: return .events
         }
     }
 
     /// The meter connection is held only while a view that draws levels is on screen: the
     /// daemon's meter work stops while nobody watches.
-    var showsLevels: Bool { self != .events }
+    var showsLevels: Bool { [.meter, .tune, .instruments].contains(self) }
+}
+
+/// The top and bottom of every view but the meter: the console's surface, the status bar, the
+/// tabs; the message row and the keybar.
+enum Chrome {
+    static func top(_ scene: MeterScene, into screen: inout Screen) {
+        let t = scene.theme
+        if scene.settings.look == .console {
+            screen.fill(screen.area, with: Cell(" ", style: t.style(nil, t.p.surface)))
+            StatusBar(scene: scene).console(into: &screen, width: scene.size.cols)
+        } else {
+            StatusBar(scene: scene).studio(into: &screen, width: scene.size.cols)
+        }
+        if scene.tabRows > 0 { TabRow.draw(scene, into: &screen) }
+    }
+
+    static func bottom(_ scene: MeterScene, into screen: inout Screen) {
+        let rows = scene.size.rows
+        ShellRows(scene: scene).draw(messageY: rows >= 10 ? rows - 2 : nil, keybarY: rows - 1, x: 1, widen: false, into: &screen)
+    }
+
+    /// Under the status bar and the tabs, down to the message row.
+    static func body(_ size: Size) -> Rect {
+        let top = 1 + (size.rows >= TabRow.minRows ? 1 : 0)
+        return Rect(x: 1, y: top, width: max(size.cols - 2, 0), height: max(size.rows - 2 - top, 0))
+    }
 }
 
 /// Row 1 under the status bar: the views as tabs, the current one a solid chip, the others with

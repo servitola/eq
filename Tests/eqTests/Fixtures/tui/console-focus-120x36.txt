@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   FOCUS VOICE   VOICE +3.0                   ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   EVENTS                                                                       g go  ; cmd
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
                    ┌────────────┐ ┌─── F1 ────┐ ┌── F2 ──┐ ┌──────┐ ┌────┐                ╭─ MASTER ──────────────────╮
       32 Hz │ 64 Hz │ 125 Hz│ 250 Hz│ 500 Hz│ 1k Hz │ 2k Hz │ 4k Hz │ 8k Hz │ 16k Hz│     │                           │
    0   ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │  ▆▆▆  │     │  20  10   6   3    1   0  │

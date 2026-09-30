@@ -52,11 +52,13 @@ enum Key: Hashable {
 /// Where a key is looked up: a view, or the modal on top of it. `global` is searched after any
 /// of them, so a view's own key shadows it.
 enum KeyContext: CaseIterable {
-    case meter, tune, instruments, events
-    case help, prompt, entry, go, palette, pane, filter
+    case meter, tune, instruments, presets, devices, filters, events
+    /// The Filters view while a filter's fields are being changed in place.
+    case fields
+    case help, prompt, entry, rename, confirm, form, go, palette, pane, filter
     case global
 
-    var isView: Bool { [.meter, .tune, .instruments, .events].contains(self) }
+    var isView: Bool { [.meter, .tune, .instruments, .presets, .devices, .filters, .fields, .events].contains(self) }
 }
 
 /// What the keybar needs to know to show a key's state, or whether to show it at all.
@@ -67,6 +69,8 @@ struct KeyState: Equatable {
     var mouse = false
     var paused = false
     var running = false
+    var diff = false
+    var editing = false
 }
 
 struct KeyBinding {
@@ -181,6 +185,9 @@ enum KeyTable {
                    label: "⇧1 … ⇧0", help: "lower band 32 Hz … 16 kHz by 0.5 dB, as on the meter"),
         KeyBinding(context: .tune, group: "Tune view", keys: chars("sS"), actions: [.startSave],
                    label: "s", help: "save the curve as a preset", bar: ("s", "save"), rank: 9),
+        KeyBinding(context: .tune, group: "Tune view", keys: chars("dD"), actions: [.otherDevice(1), .otherDevice(-1)],
+                   label: "d D", help: "edit the next / previous device's curve, playing or not; the playing one comes first",
+                   bar: ("d", "device"), rank: 10),
         KeyBinding(context: .tune, group: "Tune view", keys: [.esc], actions: [.back],
                    label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 8),
 
@@ -199,6 +206,83 @@ enum KeyTable {
         KeyBinding(context: .instruments, group: "Instruments view", keys: [.esc], actions: [.back],
                    label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 5),
 
+        KeyBinding(context: .presets, group: "Presets view", keys: up + down, actions: scroll,
+                   label: "↑ ↓ j k", help: "move between the presets", bar: ("↑↓", "move"), rank: 1),
+        KeyBinding(context: .presets, group: "Presets view", keys: [.pageUp, .pageDown, .home, .end],
+                   actions: [.pageUp, .pageDown, .top, .bottom], label: "PgUp PgDn Home End", help: "a page up / down, the first / the last"),
+        KeyBinding(context: .presets, group: "Presets view", keys: [.char("\n")], actions: [.primary],
+                   label: "Enter", help: "play it on the current device, as eq preset use does", bar: ("Enter", "apply"), rank: 2),
+        KeyBinding(context: .presets, group: "Presets view", keys: chars("sS"), actions: [.startSave],
+                   label: "s", help: "save the current device's curve as a preset: type its name in the message row, Enter saves",
+                   bar: ("s", "save as"), rank: 3),
+        KeyBinding(context: .presets, group: "Presets view", keys: chars("rR"), actions: [.startRename],
+                   label: "r", help: "rename it; devices and app rules that name it follow", bar: ("r", "rename"), rank: 4),
+        KeyBinding(context: .presets, group: "Presets view", keys: chars("dD"), actions: [.startDelete],
+                   label: "d", help: "delete it once y answers the question in the message row; devices that used it keep the curve",
+                   bar: ("d", "delete"), rank: 5),
+        KeyBinding(context: .presets, group: "Presets view", keys: chars("vV"), actions: [.toggleDiff],
+                   label: "v", help: "compare it with the current device's curve: both drawn, and what differs listed", bar: ("v", "diff"),
+                   rank: 6, state: { $0.diff ? "on" : "off" }),
+        KeyBinding(context: .presets, group: "Presets view", keys: [.esc], actions: [.back],
+                   label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 7),
+
+        KeyBinding(context: .devices, group: "Devices view", keys: up + down, actions: scroll,
+                   label: "↑ ↓ j k", help: "move between the outputs and the profiles of devices not connected", bar: ("↑↓", "move"), rank: 1),
+        KeyBinding(context: .devices, group: "Devices view", keys: [.pageUp, .pageDown, .home, .end],
+                   actions: [.pageUp, .pageDown, .top, .bottom], label: "PgUp PgDn Home End", help: "a page up / down, the first / the last"),
+        KeyBinding(context: .devices, group: "Devices view", keys: [.char("\n")], actions: [.primary],
+                   label: "Enter", help: "make it the system's output, as eq device use does; in driver mode the EQ device plays on it instead",
+                   bar: ("Enter", "use"), rank: 2),
+        KeyBinding(context: .devices, group: "Devices view", keys: chars("cC"), actions: [.copyHere],
+                   label: "c", help: "copy the current device's curve to it, as eq device copy --to does", bar: ("c", "copy here"), rank: 3),
+        KeyBinding(context: .devices, group: "Devices view", keys: chars("eE"), actions: [.editInTune],
+                   label: "e", help: "edit its curve in Tune, whether it plays or not", bar: ("e", "edit"), rank: 4),
+        KeyBinding(context: .devices, group: "Devices view", keys: [.esc], actions: [.back],
+                   label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 5),
+
+        KeyBinding(context: .filters, group: "Filters view", keys: up + down, actions: scroll,
+                   label: "↑ ↓ j k", help: "move between the filters", bar: ("↑↓", "move"), rank: 1),
+        KeyBinding(context: .filters, group: "Filters view", keys: [.pageUp, .pageDown, .home, .end],
+                   actions: [.pageUp, .pageDown, .top, .bottom], label: "PgUp PgDn Home End", help: "a page up / down, the first / the last"),
+        KeyBinding(context: .filters, group: "Filters view", keys: [.char("\n"), .right], actions: [.editFields],
+                   label: "Enter →", help: "change the filter in place: ← → pick its type, frequency, gain or Q, ↑ ↓ change it",
+                   bar: ("Enter", "edit"), rank: 2),
+        KeyBinding(context: .filters, group: "Filters view", keys: chars("aA"), actions: [.startAdd],
+                   label: "a", help: "add a filter: a row under the others to set its type, frequency, gain and Q, Enter adds it",
+                   bar: ("a", "add"), rank: 3, palette: "add filter"),
+        KeyBinding(context: .filters, group: "Filters view", keys: chars("dD"), actions: [.startDelete],
+                   label: "d", help: "remove it once y answers the question in the message row", bar: ("d", "delete"), rank: 4),
+        KeyBinding(context: .filters, group: "Filters view", keys: [.esc], actions: [.back],
+                   label: "Esc", help: "back to the view before", bar: ("Esc", "back"), rank: 5),
+
+        KeyBinding(context: .fields, group: "A filter's fields", keys: [.left, .right], actions: [.field(-1), .field(1)],
+                   label: "← →", help: "the type, the frequency, the gain or Q", bar: ("← →", "field"), rank: 1),
+        KeyBinding(context: .fields, group: "A filter's fields", keys: up + down,
+                   actions: [.nudge(step), .nudge(step), .nudge(step), .nudge(-step), .nudge(-step), .nudge(-step)],
+                   label: "↑ ↓ k j", help: "change it, saved at once: the next type, a sixth of an octave, 0.5 dB, Q 0.1",
+                   bar: ("↑ ↓", "change"), rank: 2),
+        KeyBinding(context: .fields, group: "A filter's fields", keys: [.shiftUp, .pageUp, .shiftDown, .pageDown],
+                   actions: [.nudge(coarse), .nudge(coarse), .nudge(-coarse), .nudge(-coarse)],
+                   label: "⇧↑ ⇧↓ PgUp PgDn", help: "an octave, 3 dB, Q 1", bar: ("⇧↑↓", "coarse"), rank: 4),
+        KeyBinding(context: .fields, group: "A filter's fields", keys: [.altUp, .altDown], actions: [.nudge(fine), .nudge(-fine)],
+                   label: "Alt↑ Alt↓", help: "a 24th of an octave, 0.1 dB, Q 0.01", bar: ("Alt↑↓", "fine"), rank: 5),
+        KeyBinding(context: .fields, group: "A filter's fields", keys: [.char("\n"), .esc], actions: [.editFields],
+                   label: "Enter Esc", help: "done: ↑ ↓ move between the filters again", bar: ("Esc", "done"), rank: 3),
+
+        KeyBinding(context: .form, group: "New filter", keys: [.left, .right, .char("\t"), .backTab],
+                   actions: [.field(-1), .field(1), .field(1), .field(-1)],
+                   label: "← → Tab", help: "the type, the frequency, the gain or Q", bar: ("← →", "field"), rank: 1),
+        KeyBinding(context: .form, group: "New filter", keys: up + down,
+                   actions: [.nudge(step), .nudge(step), .nudge(step), .nudge(-step), .nudge(-step), .nudge(-step)],
+                   label: "↑ ↓ k j", help: "change it: the next type, a sixth of an octave, 0.5 dB, Q 0.1", bar: ("↑ ↓", "change"), rank: 2),
+        KeyBinding(context: .form, group: "New filter", keys: [.shiftUp, .pageUp, .shiftDown, .pageDown, .altUp, .altDown],
+                   actions: [.nudge(coarse), .nudge(coarse), .nudge(-coarse), .nudge(-coarse), .nudge(fine), .nudge(-fine)],
+                   label: "⇧↑ ⇧↓ Alt↑ Alt↓", help: "coarse: an octave, 3 dB, Q 1; fine: a 24th of an octave, 0.1 dB, Q 0.01"),
+        KeyBinding(context: .form, group: "New filter", keys: [.char("\n")], actions: [.primary],
+                   label: "Enter", help: "add it, as eq filter add does", bar: ("Enter", "add")),
+        KeyBinding(context: .form, group: "New filter", keys: [.esc], actions: [.closeModal],
+                   label: "Esc", help: "cancel", bar: ("Esc", "cancel")),
+
         KeyBinding(context: .events, group: "Events view", keys: up + down, actions: scroll,
                    label: "↑ ↓ j k", help: "scroll the log", bar: ("↑↓", "scroll"), rank: 1),
         KeyBinding(context: .events, group: "Events view", keys: [.pageUp, .pageDown, .home, .end],
@@ -213,14 +297,15 @@ enum KeyTable {
                    label: "Esc", help: "clear the filter, then back to the view before", bar: ("Esc", "back"), rank: 4),
 
         KeyBinding(context: .global, group: "Every view", keys: chars("gG"), actions: [.goMenu],
-                   label: "g", help: "go to a view: m meter, t tune, i instruments, e events; a menu lists them", bar: ("g", "go"), rank: 18),
+                   label: "g", help: "go to a view: m meter, t tune, i instruments, p presets, d devices, f filters, e events; a menu lists them",
+                   bar: ("g", "go"), rank: 18),
         KeyBinding(context: .global, group: "Every view", keys: chars(";") + [.char("\u{10}")], actions: [.palette],
                    label: "; Ctrl-P", help: "the command palette: any eq command, run beside the screen", bar: (";", "cmd"), rank: 19),
         KeyBinding(context: .global, group: "Every view", keys: chars("uU"), actions: [.undo],
                    label: "u", help: "undo the last change made in this session, back to how it started", bar: ("u", "undo"), rank: 11,
                    palette: "undo in this session"),
         KeyBinding(context: .global, group: "Every view", keys: chars("mM"), actions: [.mouse],
-                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune selects it, and the wheel scrolls a list or steps what it is over",
+                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, and the wheel scrolls a list or steps what it is over",
                    bar: ("m", "mouse"), rank: 17, state: { $0.mouse ? "on" : "off" }, palette: "mouse"),
         KeyBinding(context: .global, group: "Every view", keys: chars("?hH"), actions: [.help],
                    label: "? h", help: "the list of every key; ?, Esc or q closes it", bar: ("?", "keys"), palette: "keys"),
@@ -240,8 +325,15 @@ enum KeyTable {
                    help: "the curve to edit: bands as sliders, preamp, tone, dynamics", bar: ("t", "tune"), rank: 2, palette: "go tune"),
         KeyBinding(context: .go, group: "Go to", keys: chars("i"), actions: [.go(.instruments)], label: "g i",
                    help: "the instruments, their knobs and levels", bar: ("i", "instruments"), rank: 3, palette: "go instruments"),
+        KeyBinding(context: .go, group: "Go to", keys: chars("p"), actions: [.go(.presets)], label: "g p",
+                   help: "the presets: apply, save as, rename, delete, compare", bar: ("p", "presets"), rank: 4, palette: "go presets"),
+        KeyBinding(context: .go, group: "Go to", keys: chars("d"), actions: [.go(.devices)], label: "g d",
+                   help: "the outputs and their curves: use one, copy the curve to one, edit one", bar: ("d", "devices"), rank: 5,
+                   palette: "go devices"),
+        KeyBinding(context: .go, group: "Go to", keys: chars("f"), actions: [.go(.filters)], label: "g f",
+                   help: "the current device's parametric filters: add, change, remove", bar: ("f", "filters"), rank: 6, palette: "go filters"),
         KeyBinding(context: .go, group: "Go to", keys: chars("e"), actions: [.go(.events)], label: "g e",
-                   help: "the daemon's events as they happen", bar: ("e", "events"), rank: 4, palette: "go events"),
+                   help: "the daemon's events as they happen", bar: ("e", "events"), rank: 7, palette: "go events"),
         KeyBinding(context: .go, group: "Go to", keys: [.esc], actions: [.closeModal], label: "Esc",
                    help: "stay; any other key does too", bar: ("Esc", "cancel")),
 
@@ -271,6 +363,16 @@ enum KeyTable {
                    label: "Enter", help: "save", bar: ("Enter", "save")),
         KeyBinding(context: .prompt, group: "Save as", keys: [.esc], actions: [nil],
                    label: "Esc", help: "cancel", bar: ("Esc", "cancel")),
+
+        KeyBinding(context: .rename, group: "Rename", keys: [.char("\n")], actions: [nil],
+                   label: "Enter", help: "rename", bar: ("Enter", "rename")),
+        KeyBinding(context: .rename, group: "Rename", keys: [.esc], actions: [nil],
+                   label: "Esc", help: "cancel", bar: ("Esc", "cancel")),
+
+        KeyBinding(context: .confirm, group: "Are you sure", keys: [.char("y"), .char("Y"), .char("\n")], actions: [nil],
+                   label: "y Enter", help: "yes, do it", bar: ("y", "yes")),
+        KeyBinding(context: .confirm, group: "Are you sure", keys: [.char("n"), .esc], actions: [nil],
+                   label: "n Esc", help: "no; any other key keeps it too", bar: ("n", "no")),
 
         KeyBinding(context: .entry, group: "Value", keys: [.char("\n")], actions: [nil],
                    label: "Enter", help: "set it", bar: ("Enter", "set")),
@@ -380,10 +482,18 @@ enum Keybar {
 /// The key list the help overlay shows for a view, grouped, and the README's key table.
 enum KeyHelp {
     /// The README's order: every view first, then each view, then the menus.
-    static let contexts: [KeyContext] = [.global, .meter, .tune, .instruments, .events, .go, .palette, .pane]
+    static let contexts: [KeyContext] = [.global, .meter, .tune, .instruments, .presets, .devices, .filters, .fields, .form, .events,
+                                         .go, .palette, .pane]
 
+    /// A view's own keys and those of the rows and forms it opens.
     static func contexts(for view: KeyContext) -> [KeyContext] {
-        [view, .global, .go, .palette, .pane]
+        let own: [KeyContext]
+        switch view {
+        case .presets: own = [.presets, .rename, .confirm]
+        case .filters, .fields: own = [.filters, .fields, .form, .confirm]
+        default: own = [view]
+        }
+        return own + [.global, .go, .palette, .pane]
     }
 
     static func lines(view: KeyContext = .meter) -> [(key: String, text: String)] {
@@ -411,6 +521,11 @@ enum KeyHelp {
         case .meter: return "Meter"
         case .tune: return "Tune"
         case .instruments: return "Instruments"
+        case .presets: return "Presets"
+        case .devices: return "Devices"
+        case .filters: return "Filters"
+        case .fields: return "a filter's fields"
+        case .form: return "new filter"
         case .events: return "Events"
         case .go: return "after g"
         case .palette: return "palette"

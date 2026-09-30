@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
-  Meter   Tune   Instruments   Events                                                                       g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Events                                         g go  ; cmd
 ╭─ meter ─────────────────────────────────────────────────────────────────── dBFS · gain dB ╮╭─ output ────────────────╮
 │  0 ┤                                                                                 ├+12 ││ peak ███████████·▏  -6.0│
 │       ▔▔▔▔▔   ▔▔▔▔▔                                                                       ││ limit ● idle            │
@@ -24,13 +24,13 @@
 │                                                                                      ├-6  ││ ● cymbals ┄┄┄┼┄┄┄    0.0│
 │-48 ┤                                                                                      ││ ● air     ┄┄┄┼┄┄┄    0.0│
 │                                                                                           │╰─────────────────────────╯
-│                                                                                           │
-│                                                                                           │
-│                                                                                           │
-│╭─ go to ────────────────╮                                                            ├-12 │
-╰│  m  Meter        here  │─────────────────────────────────────────────────────────────────╯
- │  t  Tune               │1     -15     -19     -17     -22     -26     -29     -37
- │  i  Instruments        │Hz   250Hz   500Hz   1kHz    2kHz    4kHz    8kHz    16kHz
+│╭─ go to ────────────────╮                                                                 │
+││  m  Meter        here  │                                                                 │
+││  t  Tune               │                                                                 │
+││  i  Instruments        │                                                            ├-12 │
+╰│  p  Presets            │─────────────────────────────────────────────────────────────────╯
+ │  d  Devices            │1     -15     -19     -17     -22     -26     -29     -37
+ │  f  Filters            │Hz   250Hz   500Hz   1kHz    2kHz    4kHz    8kHz    16kHz
  │  e  Events             │2    +2.3     0.0    -3.1     0.0     0.0    +3.1    +2.4
  ╰────────────────────────╯
- m  meter   t  tune   i  instruments   e  events   Esc  cancel
+ m  meter   t  tune   i  instruments   p  presets   d  devices   f  filters   e  events   Esc  cancel

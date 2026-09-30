@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   EVENTS                               g go  ; cmd
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS
  ╭─ RESPONSE ──────────────────────────── ! clips +1.9 dB — lower the preamp ─╮
  │ +12       ⢀⣀⡠●⣀⣀⣀⣀⡠●⣀⣀⣀⣀⣀●⣀                                                │
  │   0 ⠒⠒⠒⠊⠉⠉⠁┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠉⠉⠉⠉●⠉⠒⠒⠒⠒●⠤⠤⠤⢄⣀●⠤⠤⠤⠒⠒●⠒⠉⠉⠉⠉●⠉⠉⠉⠉⠉●⠑⠒⠒⠒⠒●⠢⠄┈┈┈┈┈│

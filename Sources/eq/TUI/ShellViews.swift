@@ -168,6 +168,10 @@ struct ShellRows {
             let used = screen.ink(label, x: x, y: y, t.style(scene.palette != nil ? p.accent : p.text3, nil, scene.palette != nil ? .bold : []))
             screen.ink(field.display(width: max(room - used, 1)), x: x + used, y: y, t.style(p.text))
             said = true
+        } else if let confirm = scene.confirm {
+            let used = screen.ink("? ", x: x, y: y, t.style(p.warn, nil, .bold))
+            screen.ink(TerminalText.truncated(confirm.question, columns: max(room - used, 0)), x: x + used, y: y, t.style(p.text))
+            said = true
         } else if let message = scene.message {
             let (mark, ink): (String, Swatch?) = {
                 switch message.kind {
@@ -191,6 +195,7 @@ struct ShellRows {
     private var field: (String, TextField)? {
         if let prompt = scene.prompt { return (Watch.promptLabel, prompt) }
         if let entry = scene.entry { return (scene.tune.selected.prompt, entry) }
+        if let rename = scene.rename, let name = PresetsView.selected(scene) { return ("rename \(name) to: ", rename) }
         if let palette = scene.palette { return (": ", palette.field) }
         if let filter = scene.filterField { return ("filter: ", filter) }
         return nil

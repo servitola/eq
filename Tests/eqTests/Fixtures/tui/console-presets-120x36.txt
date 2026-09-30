@@ -1,0 +1,36 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
+ ╭─ PRESETS ─────────────────────────────────── 5 ╮ ╭─ NIGHT ──────────────────────── curve ╮ ╭─ LAYERS ──────────────╮
+ │   PRESET                    CURVE      PREAMP  │ │ +12                                   │ │ PREAMP   -2.0 dB      │
+ │ ◆ favourite*                ▆▆▆▅▅▄▅▅▅▅    0.0  │ │                                       │ │ TONE     flat         │
+ │   flat                      ▅▅▅▅▅▅▅▅▅▅    0.0  │ │                                       │ │ KNOBS    none         │
+ │   late jazz                 ▅▅▅▅▄▅▅▅▅▅   -3.0  │ │                                       │ │ DYNAMICS night comp   │
+ │▸  night                     ▅▅▅▅▅▄▄▄▄▃   -2.0  │ │                                       │ │ FILTERS  none         │
+ │   podcast                   ▃▃▄▅▅▅▅▅▅▄    0.0  │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │     ⢠⢢                                │ │                       │
+ │                                                │ │     ⠊ ⠓⠊⠢⡀                            │ │                       │
+ │                                                │ │          ⠈⠢⠤⡀                         │ │                       │
+ │                                                │ │             ⠈⢆                        │ │                       │
+ │                                                │ │   0 ┈┈┈┈┈┈┈┈┈┈⠉⠒⠢⠤⣀┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⡄ │ │                       │
+ │                                                │ │                    ⠉⠢⡀             ⢰⠁ │ │                       │
+ │                                                │ │                      ⠈⠒⠢⡀        ⡠⡀⢸  │ │                       │
+ │                                                │ │                         ⠱⠔⠉⢆⡠⠒⢢ ⢠⠃⢸⢸  │ │                       │
+ │                                                │ │                                ⠣⠜ ⢸⠎  │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │                                       │ │                       │
+ │                                                │ │ -12                                   │ │                       │
+ │                                                │ │     32     125   500    2k     8k     │ │                       │
+ ╰────────────────────────────────────────────────╯ ╰───────────────────────────────────────╯ ╰───────────────────────╯
+
+ ↑↓  move   Enter  apply   s  save as   r  rename   d  delete   v  diff off   Esc  back   u  undo   ?  keys   q  quit
