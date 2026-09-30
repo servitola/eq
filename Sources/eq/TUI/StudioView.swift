@@ -2,7 +2,7 @@ import EQTerm
 import Foundation
 
 /// The dense, graphic look: a boxed meter with a dBFS gutter and a gain axis, bars coloured by
-/// height, peak ticks, the response curve in braille over boost and cut tints, gain chips, and a
+/// height, peak ticks, the response curve as one braille line over them, gain chips, and a
 /// column of gauges at 110 columns and wider. Below 60 columns or 12 rows, the compact rows.
 struct StudioView {
     let scene: MeterScene
@@ -95,14 +95,6 @@ struct StudioView {
         }
     }
 
-    /// The boost or cut area `distance` rows from the curve: brightest at the line, the plain
-    /// tint from the fourth row on, so the curve's edge glows. Row 0 is the curve's own cell.
-    /// Sixteen colours and none paint no tint at all.
-    private static func fills(_ p: Palette, boost: Bool) -> [Swatch] {
-        let plain = boost ? p.boostFill : p.cutFill
-        return [0.58, 0.68, 0.74, 0.79].map { plain.mixed(toward: boost ? p.boost : p.cut, 1 - $0 / 0.84).with(sgr: nil, []) } + [plain]
-    }
-
     private func meter(_ g: MeterGeometry, into screen: inout Screen) {
         let rows = g.rows, top = g.top, x0 = g.plotX0, width = g.plotWidth
         guard rows > 0, width > 0 else { return }
@@ -111,39 +103,18 @@ struct StudioView {
             let c = t.level(Watch.floorDB + (Double(b) + 0.5) / Double(rows) * -Watch.floorDB)
             return (c, t.faded(c))
         }
+        // A bar's colour where it fills a cell or lights an LED: the curve crossing there keeps it as its ground.
         var under = [Swatch?](repeating: nil, count: width * rows)
-        var tint = [Swatch?](repeating: nil, count: width * rows)
-        // The curve's own cells: lit in its side's colour where it has left the 0 dB line.
-        var glow = [Swatch?](repeating: nil, count: width * rows)
         let curve = scene.settings.showsCurve && g.columns >= 2
         let zeroRow = Int((Double(rows * 4 - 1) / 2).rounded()) / 4
         if curve {
             scene.curve.update(scene.curveGains, rate: scene.frame.rate, centres: g.centres, x0: x0, width: width, rows: rows, thick: g.boxed)
-            let ys = scene.curve.ys
-            let lit = g.boxed && (t.depth == .truecolor || t.depth == .indexed)
-            let boost = lit ? Self.fills(p, boost: true) : [p.boostFill], cut = lit ? Self.fills(p, boost: false) : [p.cutFill]
-            for cx in 0..<width where cx * 2 + 1 < ys.count {
-                let row = (ys[cx * 2] + ys[cx * 2 + 1]) / 2 / 4
-                guard row != zeroRow else { continue }
-                let fills = row < zeroRow ? boost : cut
-                for r in min(row, zeroRow)...max(row, zeroRow) {
-                    let fill = fills[min(abs(r - row), fills.count - 1)]
-                    if r == row { glow[r * width + cx] = lit ? fill : nil } else { tint[r * width + cx] = fill }
-                }
-            }
         }
         let grid = g.boxed && scene.settings.scale ? Set(Self.gridLevels.map { Self.row($0, rows: rows) }) : []
         let zeroInk = g.boxed ? p.curve.mixed(toward: p.bg, 0.72).with(sgr: nil, .dim) : p.grid
         for r in 0..<rows {
-            let line = curve && r == zeroRow ? zeroInk : (grid.contains(r) ? p.grid : nil)
-            for cx in 0..<width {
-                let bg = tint[r * width + cx]
-                if let line {
-                    screen.set(x0 + cx, top + r, Cell("┈", style: t.style(line, bg)))
-                } else if let bg {
-                    screen.set(x0 + cx, top + r, Cell(" ", style: t.style(nil, bg)))
-                }
-            }
+            guard let line = curve && r == zeroRow ? zeroInk : (grid.contains(r) ? p.grid : nil) else { continue }
+            screen.ink(String(repeating: "┈", count: width), x: x0, y: top + r, t.style(line))
         }
         for bar in bars(g) {
             let outH = (bar.level - Watch.floorDB) / -Watch.floorDB * Double(rows)
@@ -156,28 +127,26 @@ struct StudioView {
                 for dx in 0..<bar.width {
                     let col = bar.x - x0 + dx
                     guard col >= 0, col < width else { continue }
-                    let bg = tint[r * width + col]
                     var cell: Cell?
                     if leds {
                         let db = Watch.floorDB + (Double(b) + 0.5) / Double(rows) * -Watch.floorDB
                         let lit = b < Int(outH.rounded()) || b == peak
                         var c = t.led(db, lit: lit)
                         if bar.outside, lit { c = c.mixed(toward: p.bg, 0.6).with(sgr: nil, .dim) }
-                        cell = Cell("▆", style: t.style(c, bg))
+                        cell = Cell("▆", style: t.style(c))
                         if lit { under[r * width + col] = c }
                     } else if b < full {
                         cell = Cell(" ", style: t.style(nil, ink, solid: true))
                         under[r * width + col] = ink
                     } else if b == full, fraction > 0.12 {
-                        cell = Cell(Watch.partials[min(Int(fraction * 8), 7)], style: t.style(ink, bg))
-                        under[r * width + col] = ink
+                        cell = Cell(Watch.partials[min(Int(fraction * 8), 7)], style: t.style(ink))
                     } else if let peak, b == peak, peak >= full {
                         var tick = t.level(Watch.floorDB + (Double(b) + 0.5) / Double(rows) * -Watch.floorDB)
                             .mixed(toward: Swatch(0xFFFFFF), 0.35)
                         if bar.outside { tick = t.faded(tick) }
-                        cell = Cell("▔", style: t.style(tick, bg))
+                        cell = Cell("▔", style: t.style(tick))
                     } else if Double(b) < inH {
-                        cell = Cell("░", style: t.style(p.ghost, bg))
+                        cell = Cell("░", style: t.style(p.ghost))
                     }
                     if let cell { screen.set(x0 + col, y, cell) }
                 }
@@ -187,13 +156,12 @@ struct StudioView {
         for (col, column) in scene.curve.glyphs where col >= 0 && col < width {
             for (r, glyph) in column where r >= 0 && r < rows {
                 let below = under[r * width + col]
-                let bg = below ?? glow[r * width + col] ?? tint[r * width + col]
-                screen.set(x0 + col, top + r, Cell(String(glyph), style: t.style(p.curve, bg, g.boxed ? .bold : [], solid: below != nil)))
+                screen.set(x0 + col, top + r, Cell(String(glyph), style: t.style(p.curve, below, g.boxed ? .bold : [], solid: below != nil)))
             }
         }
         guard g.boxed else { return }
         CurveNodes.draw(scene, centres: g.centres, x0: x0, top: top, width: width, rows: rows, into: &screen) { col, r in
-            (under[r * width + col], glow[r * width + col] ?? tint[r * width + col])
+            (under[r * width + col], nil)
         }
     }
 

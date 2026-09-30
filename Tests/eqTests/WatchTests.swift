@@ -167,7 +167,7 @@ final class WatchTests: XCTestCase {
         XCTAssertTrue(lines[0].hasSuffix(" BYPASS   LIMIT  "), lines[0])
     }
 
-    func testCurveFollowsTheGainsAndTintsBoostAndCut() {
+    func testCurveFollowsTheGainsAsALineWithNoFill() {
         let flat = MeterScreens.screen(scene(frame(out: -60)))
         let g = geometry()
         let zero = g.top + Int((Double(g.rows * 4 - 1) / 2).rounded()) / 4
@@ -184,11 +184,51 @@ final class WatchTests: XCTestCase {
         let bottom = (g.top..<(g.top + g.rows)).last { onCurve(g.centre(7), $0) }!
         XCTAssertLessThanOrEqual(top, g.top + 1, "+12 dB at 125 Hz reaches the top")
         XCTAssertGreaterThanOrEqual(bottom, g.top + g.rows - 2, "-12 dB at 4 kHz the bottom")
-        let fill = Theme(palette: .ink, depth: .truecolor).p
-        XCTAssertEqual(screen[g.centre(2), zero - 2].style.bg, .rgb(fill.boostFill.r, fill.boostFill.g, fill.boostFill.b))
-        XCTAssertEqual(screen[g.centre(7), zero + 2].style.bg, .rgb(fill.cutFill.r, fill.cutFill.g, fill.cutFill.b))
+        XCTAssertEqual(screen[g.centre(2), zero - 2].style.bg, .none, "nothing painted between the line and 0 dB")
+        XCTAssertEqual(screen[g.centre(7), zero + 2].style.bg, .none)
         XCTAssertEqual(Curve.response(gains, at: 125, rate: 44100), 12, accuracy: 0.2)
         XCTAssertEqual(Curve.response(gains, at: 4000, rate: 44100), -12, accuracy: 0.2)
+    }
+
+    func testCurveDotsJoinAcrossBothColumnsOfASteepStep() {
+        var dots: Set<[Int]> = []
+        for (col, column) in Curve.cells([0, 9, 9]) {
+            for (row, glyph) in column {
+                let mask = glyph.unicodeScalars.first!.value - 0x2800
+                for (x, bits) in [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]].enumerated() {
+                    for (y, bit) in bits.enumerated() where mask & UInt32(bit) != 0 { dots.insert([col * 2 + x, row * 4 + y]) }
+                }
+            }
+        }
+        XCTAssertEqual(Set(dots.map { $0[1] }), Set(0...9), "every dot row from one sample to the next")
+        XCTAssertEqual(dots.filter { $0[0] == 0 }.map { $0[1] }.sorted(), [0, 1, 2, 3, 4], "the first half of the rise in the first column")
+        XCTAssertEqual(dots.filter { $0[0] == 1 }.map { $0[1] }.sorted(), [5, 6, 7, 8, 9], "the rest in the second")
+    }
+
+    func testCurveCrossingBarsLeavesThemTheirOwnColour() {
+        var gains = Array(repeating: 0.0, count: 10)
+        gains[1] = 9
+        gains[6] = -9
+        var off = scene(frame(out: -3, gains: gains), depth: .truecolor)
+        off.settings.curve = false
+        let on = scene(frame(out: -3, gains: gains), depth: .truecolor)
+        let bare = MeterScreens.screen(off), drawn = MeterScreens.screen(on)
+        let g = geometry()
+        let zero = g.top + Int((Double(g.rows * 4 - 1) / 2).rounded()) / 4
+        var crossed = 0
+        for y in g.top..<(g.top + g.rows) where y != zero {
+            for x in g.plotX0..<(g.plotX0 + g.plotWidth) {
+                let cell = drawn[x, y]
+                guard (cell.text.unicodeScalars.first?.value ?? 0) >= 0x2800 || cell.text == "●" else {
+                    XCTAssertEqual(cell, bare[x, y], "off the line, nothing changes at \(x),\(y)")
+                    continue
+                }
+                guard bare[x, y].text == " ", bare[x, y].style.bg != .none else { continue }
+                XCTAssertEqual(cell.style.bg, bare[x, y].style.bg, "the line over a bar keeps the bar's colour behind it")
+                crossed += 1
+            }
+        }
+        XCTAssertGreaterThan(crossed, 0, "the line crosses the bars somewhere")
     }
 
     func testMonochromeKeepsTheLookInReverseVideo() {

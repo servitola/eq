@@ -4,11 +4,11 @@
  │      OUTPUT          CURVE      │ │ +12                                    │
  │   EQ BE-RCA · EQ system output  │ │                                        │
  │  ◉ ▪ BE-RCA          own ◆*     │ │                                        │
- │▸   ■ MacBook Pro Sp… default    │ │     ⠔⠑⠢⠤⠊⠑⠤⠒⠢⡀                         │
- │    ◇ AirPods         own ◆      │ │              ⠑⠒⠤⡀              ⡠⠢⡀ ⢀⡀  │
- │    □ LG TV           default    │ │                 ⠈⠢⣀        ⢀⣀⡠⠊  ⠈⠒⠁⠸⡀ │
- │    · Old DAC         own        │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠑⢢┈┈⢀⠔⠒⠉⠁┈┈┈┈┈┈┈┈┈┈ │
- │                                 │ │                      ⠑⠒⠁               │
+ │▸   ■ MacBook Pro Sp… default    │ │     ⡴⠳⢦⣤⠞⠳⣤⠶⢦                          │
+ │    ◇ AirPods         own ◆      │ │             ⠈⠳⠶⣤⡀              ⣠⢦⡀ ⢀⡀  │
+ │    □ LG TV           default    │ │                 ⠙⢦⣀        ⢀⣀⣠⠞⠁ ⠙⠶⠋⢳⡀ │
+ │    · Old DAC         own        │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠉⠳⣆┈┈⢀⡴⠶⠛⠋⠉⠁┈┈┈┈┈┈┈⠁ │
+ │                                 │ │                     ⠈⠳⠶⠋               │
  │                                 │ │                                        │
  │                                 │ │                                        │
  │                                 │ │                                        │

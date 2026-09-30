@@ -28,22 +28,25 @@ enum Curve {
 
     private static let bits: [[UInt32]] = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]]
 
-    /// Braille cells keyed by (column offset, row): each sample's dot, joined to the one before
-    /// by the dots between them so a steep slope stays one line. `thick` doubles it downwards, to
-    /// `bottom` at most, so the dots touch and read as a solid line.
+    /// Braille cells keyed by (column offset, row): each sample's dot joined to the one before
+    /// by a Bresenham line on the 2×4 dot grid, so a steep slope is split between both dot
+    /// columns and leaves no gap. `thick` doubles each dot downwards, to `bottom` at most, so the
+    /// dots touch and read as a solid line.
     static func cells(_ ys: [Int], thick: Bool = false, bottom: Int = .max) -> [Int: [Int: Character]] {
         var masks: [Int: [Int: UInt32]] = [:]
-        var previous: Int?
-        for (dx, dy) in ys.enumerated() {
-            var lo = dy, hi = dy
-            if let previous, abs(dy - previous) > 1 {
-                (lo, hi) = dy > previous ? (previous + 1, dy) : (dy, previous - 1)
+        func plot(_ x: Int, _ y: Int) {
+            for y in y...max(thick ? min(y + 1, bottom) : y, y) {
+                masks[x / 2, default: [:]][y / 4, default: 0] |= bits[x % 2][y % 4]
             }
-            if thick { hi = max(min(hi + 1, bottom), lo) }
-            for y in lo...hi {
-                masks[dx / 2, default: [:]][y / 4, default: 0] |= bits[dx % 2][y % 4]
+        }
+        for (x, y) in ys.enumerated() {
+            guard x > 0 else {
+                plot(x, y)
+                continue
             }
-            previous = dy
+            let from = ys[x - 1], rise = abs(y - from), step = y > from ? 1 : -1
+            if rise == 0 { plot(x, y) }
+            for i in stride(from: 1, through: rise, by: 1) { plot(2 * i > rise ? x : x - 1, from + i * step) }
         }
         return masks.mapValues { $0.mapValues { Character(UnicodeScalar(0x2800 + $0)!) } }
     }

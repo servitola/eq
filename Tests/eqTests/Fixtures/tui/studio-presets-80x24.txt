@@ -2,9 +2,9 @@
  Meter Tune Instruments  Presets  Devices Filters Apps System History Events
  ╭─ presets ──────────────────── 5 ╮ ╭─ late jazz ────────── vs BE-RCA, faint ╮
  │   preset                preamp  │ │ +12 ⠔⠢⠤⠤⠤⢄⡀                            │
- │ ◆ favourite*               0.0  │ │     ⢀⣀⣀⣀⡠⣀⠈⠉⠢⡀                         │
- │   flat                     0.0  │ │     ⠁     ⠉⠒⠢⢄⣀⣀⠢⢄⣀ ⣀⠤⠤⠤⠤⠤⠤⠤⠒⠒⠒⠢⢄⣀⠒⠊⠑⠄ │
- │▸  late jazz               -3.0  │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈⠉⠉⠉⠉⠑⠤⠤⠤⠢⠤⠔⠉┈┈┈┈┈┈⠉⠉⠉⠁ │
+ │ ◆ favourite*               0.0  │ │     ⢀⣀⣀⣀⣠⣀⠈⠉⠢⡀                         │
+ │   flat                     0.0  │ │     ⠋⠉⠉⠉⠁⠉⠛⠶⢦⣄⣀⣀⠢⢄⣀ ⣀⣤⣤⣤⣤⣤⣤⣤⠶⠶⠶⢦⣄⣀⠒⠊⠑⠄ │
+ │▸  late jazz               -3.0  │ │   0 ┈┈┈┈┈┈┈┈┈⠈⠉⠉⠛⠛⠛⠛⠉⠤⠤⠤⠢⠤⠔⠉┈┈┈┈⠈⠉⠛⠛⠛⠃ │
  │   night                   -2.0  │ │                                        │
  │   podcast                  0.0  │ │ -12                                    │
  │                                 │ │     32     125    500    2k    8k      │

@@ -226,31 +226,14 @@ struct TuneView {
         let curve = scene.chainCurve
         curve.update(profile.engineBands, rate: scene.frame.rate, centres: l.centres, x0: x0, width: width, rows: rows)
         let zeroRow = Int((Double(rows * 4 - 1) / 2).rounded()) / 4
-        var tint = [Swatch?](repeating: nil, count: width * rows)
-        if !console {
-            for cx in 0..<width {
-                guard let a = curve.ys[cx * 2], let b = curve.ys[cx * 2 + 1] else { continue }
-                let row = (a + b) / 2 / 4
-                for y in min(row, zeroRow)...max(row, zeroRow) where y != row {
-                    tint[y * width + cx] = row < zeroRow ? p.boostFill : p.cutFill
-                }
-            }
-            for y in 0..<rows where y != zeroRow {
-                for cx in 0..<width where tint[y * width + cx] != nil {
-                    screen.set(x0 + cx, top + y, Cell(" ", style: t.style(nil, tint[y * width + cx])))
-                }
-            }
-        }
-        for cx in 0..<width {
-            screen.set(x0 + cx, top + zeroRow, Cell("┈", style: t.style(console ? scale : p.grid, window ?? tint[zeroRow * width + cx])))
-        }
+        screen.ink(String(repeating: "┈", count: width), x: x0, y: top + zeroRow, t.style(console ? scale : p.grid, window))
         for (gain, y) in [(12, 0), (0, zeroRow), (-12, rows - 1)] {
             screen.ink(gain == 0 ? "  0" : String(format: "%+d", gain).leftPadded(to: 3), x: r.x + 2, y: top + y, t.style(scale, window))
         }
         let ink = console ? p.windowFg : p.curve
         for (col, column) in curve.glyphs where col >= 0 && col < width {
             for (y, glyph) in column where y >= 0 && y < rows {
-                screen.set(x0 + col, top + y, Cell(String(glyph), style: t.style(ink, window ?? tint[y * width + col])))
+                screen.set(x0 + col, top + y, Cell(String(glyph), style: t.style(ink, window, .bold)))
             }
         }
         for band in 0..<10 {
@@ -260,7 +243,7 @@ struct TuneView {
             let gain = TuneControl.band(band).value(in: profile)
             let node = here ? (console ? p.capSel : p.accent) : (console ? (gain == 0 ? p.windowFg : p.needle) : t.gain(gain))
             let y = min(dot / 4, rows - 1)
-            screen.set(x0 + cx, top + y, Cell(here ? "◉" : "●", style: t.style(node, window ?? tint[y * width + cx], .bold)))
+            screen.set(x0 + cx, top + y, Cell(here ? "◉" : "●", style: t.style(node, window, .bold)))
         }
     }
 
@@ -586,6 +569,7 @@ final class ChainCurve {
         var rate: Double
         var centres: [Int]
         var x0, width, rows: Int
+        var thick: Bool
     }
 
     private var key: Key?
@@ -604,8 +588,8 @@ final class ChainCurve {
 
     private static func rate(_ rate: Double) -> Double { rate > 0 ? rate : Config.stabilityCheckRate }
 
-    func update(_ bands: [EQBand], rate: Double, centres: [Int], x0: Int, width: Int, rows: Int) {
-        let next = Key(bands: bands, rate: rate, centres: centres, x0: x0, width: width, rows: rows)
+    func update(_ bands: [EQBand], rate: Double, centres: [Int], x0: Int, width: Int, rows: Int, thick: Bool = true) {
+        let next = Key(bands: bands, rate: rate, centres: centres, x0: x0, width: width, rows: rows, thick: thick)
         guard next != key else { return }
         key = next
         let fs = Self.rate(rate)
@@ -625,7 +609,7 @@ final class ChainCurve {
         lo += lo % 2
         var hi = lo
         while hi < ys.count, ys[hi] != nil { hi += 1 }
-        let cells = Curve.cells(ys[lo..<hi].map { $0! })
+        let cells = Curve.cells(ys[lo..<hi].map { $0! }, thick: thick, bottom: rows * 4 - 1)
         glyphs = Dictionary(uniqueKeysWithValues: cells.map { ($0.key + lo / 2, $0.value) })
     }
 

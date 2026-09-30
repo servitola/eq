@@ -8,9 +8,8 @@ final class PreviewCurves {
     let over = ChainCurve()
 }
 
-/// A curve on the ten bands' log-frequency axis in a box: boost and cut tinted under it (a
-/// backlit window in console), another drawn faint behind it, a third in the accent over it, and
-/// a dot on it at each of `nodes`.
+/// A curve on the ten bands' log-frequency axis in a box (a backlit window in console), another
+/// drawn thin and faint behind it, a third in the accent over it, and a dot on it at each of `nodes`.
 struct ResponsePanel {
     let scene: MeterScene
 
@@ -29,38 +28,23 @@ struct ResponsePanel {
         let curves = scene.previews
         curves.main.update(bands, rate: rate, centres: centres, x0: x0, width: width, rows: rows)
         let zeroRow = Int((Double(rows * 4 - 1) / 2).rounded()) / 4
-        var tint = [Swatch?](repeating: nil, count: width * rows)
-        if !console {
-            for cx in 0..<width {
-                guard let a = curves.main.ys[cx * 2], let b = curves.main.ys[cx * 2 + 1] else { continue }
-                let row = (a + b) / 2 / 4
-                for y in min(row, zeroRow)...max(row, zeroRow) where y != row { tint[y * width + cx] = row < zeroRow ? p.boostFill : p.cutFill }
-            }
-            for y in 0..<rows where y != zeroRow {
-                for cx in 0..<width where tint[y * width + cx] != nil {
-                    screen.set(x0 + cx, top + y, Cell(" ", style: t.style(nil, tint[y * width + cx])))
-                }
-            }
-        }
         let scale = console ? p.windowFg.mixed(toward: p.windowBg, 0.35) : p.text3
-        for cx in 0..<width {
-            screen.set(x0 + cx, top + zeroRow, Cell("┈", style: t.style(console ? scale : p.grid, window ?? tint[zeroRow * width + cx])))
-        }
+        screen.ink(String(repeating: "┈", count: width), x: x0, y: top + zeroRow, t.style(console ? scale : p.grid, window))
         for (gain, y) in [(12, 0), (0, zeroRow), (-12, rows - 1)] {
             screen.ink(gain == 0 ? "  0" : String(format: "%+d", gain).leftPadded(to: 3), x: r.x + 2, y: top + y, t.style(scale, window))
         }
         func glyphs(_ curve: ChainCurve, _ ink: Swatch, _ attributes: Style.Attributes = []) {
             for (col, column) in curve.glyphs where col >= 0 && col < width {
                 for (y, glyph) in column where y >= 0 && y < rows {
-                    screen.set(x0 + col, top + y, Cell(String(glyph), style: t.style(ink, window ?? tint[y * width + col], attributes)))
+                    screen.set(x0 + col, top + y, Cell(String(glyph), style: t.style(ink, window, attributes)))
                 }
             }
         }
         if let behind {
-            curves.behind.update(behind, rate: rate, centres: centres, x0: x0, width: width, rows: rows)
+            curves.behind.update(behind, rate: rate, centres: centres, x0: x0, width: width, rows: rows, thick: false)
             glyphs(curves.behind, console ? scale : p.text3)
         }
-        glyphs(curves.main, console ? p.windowFg : p.curve)
+        glyphs(curves.main, console ? p.windowFg : p.curve, .bold)
         if let over {
             curves.over.update(over, rate: rate, centres: centres, x0: x0, width: width, rows: rows)
             glyphs(curves.over, console ? p.capSel : p.accent, .bold)
@@ -70,7 +54,7 @@ struct ResponsePanel {
             guard cx >= 0, cx < width, let dot = curves.main.ys[cx * 2] else { continue }
             let y = min(dot / 4, rows - 1)
             let ink = node.selected ? (console ? p.capSel : p.accent) : (console ? p.needle : p.title)
-            screen.set(x0 + cx, top + y, Cell(node.selected ? "◉" : "●", style: t.style(ink, window ?? tint[y * width + cx], .bold)))
+            screen.set(x0 + cx, top + y, Cell(node.selected ? "◉" : "●", style: t.style(ink, window, .bold)))
         }
         let labels = Table.shortLabels
         let step = width / 10 >= 5 ? 1 : 2
