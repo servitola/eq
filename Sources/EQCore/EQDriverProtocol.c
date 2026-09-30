@@ -1,11 +1,14 @@
 #include "EQDriverProtocol.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 
 _Static_assert(sizeof(eqc_blob_band) == 32, "no padding in a band");
 _Static_assert(sizeof(eqc_blob) == 352 + 32 * EQC_MAX_BANDS, "no padding in the settings record");
-_Static_assert(sizeof(eqc_meter_frame) == 32 + 3 * 8 * EQC_MAX_METER_BANDS, "no padding in the meter frame");
+_Static_assert(offsetof(eqc_meter_frame, spectrumCount) == EQC_METER_V1_SIZE, "version 1 is the record before the spectrum");
+_Static_assert(EQC_METER_V1_SIZE == 32 + 3 * 8 * EQC_MAX_METER_BANDS, "no padding in the version 1 meter frame");
+_Static_assert(sizeof(eqc_meter_frame) == EQC_METER_V1_SIZE + 8 + 8 * EQC_SPECTRUM_BANDS, "no padding in the meter frame");
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__, "records are little-endian in memory");
 
 bool eqc_blob_encode(eqc_blob *out, const eqc_settings *s, const char *targetUID, uint64_t serial) {
@@ -130,7 +133,9 @@ const char *eqc_blob_status_text(eqc_blob_status status) {
 void eqc_meter_frame_read(eqc_meter_frame *out, eqc_engine *engine, const double *frequencies, int32_t bands) {
     memset(out, 0, sizeof(*out));
     out->magic = EQC_METER_MAGIC;
-    out->version = EQC_METER_VERSION;
+    out->version = EQC_METER_SPECTRUM_VERSION;
+    out->spectrumCount = EQC_SPECTRUM_BANDS;
+    for (int32_t i = 0; i < EQC_SPECTRUM_BANDS; i++) out->spectrumDB[i] = EQC_METER_FLOOR_DB;
     int32_t count = bands < 0 ? 0 : bands > EQC_MAX_METER_BANDS ? EQC_MAX_METER_BANDS : bands;
     if (engine && eqc_meter_band_count(eqc_engine_meter(engine)) != count) count = 0;
     out->bandCount = (uint16_t)count;
@@ -141,15 +146,19 @@ void eqc_meter_frame_read(eqc_meter_frame *out, eqc_engine *engine, const double
     out->peakDB = EQC_METER_FLOOR_DB;
     if (!engine) return;
     eqc_meter_read(eqc_engine_meter(engine), out->inputDB, out->outputDB, &out->peakDB);
+    eqc_meter_read_spectrum(eqc_engine_meter(engine), out->spectrumDB);
     out->limiting = eqc_limiting(engine);
     out->compressorReductionDB = eqc_compressor_reduction_db(engine);
 }
 
 bool eqc_meter_frame_decode(const void *bytes, size_t size, eqc_meter_frame *out) {
-    if (size != sizeof(eqc_meter_frame)) return false;
+    if (size != EQC_METER_V1_SIZE && size != sizeof(eqc_meter_frame)) return false;
     eqc_meter_frame f;
-    memcpy(&f, bytes, sizeof(f));
-    if (f.magic != EQC_METER_MAGIC || f.version != EQC_METER_VERSION || f.bandCount > EQC_MAX_METER_BANDS) return false;
+    memset(&f, 0, sizeof(f));
+    memcpy(&f, bytes, size);
+    uint16_t version = size == EQC_METER_V1_SIZE ? EQC_METER_VERSION : EQC_METER_SPECTRUM_VERSION;
+    if (f.magic != EQC_METER_MAGIC || f.version != version || f.bandCount > EQC_MAX_METER_BANDS) return false;
+    if (f.spectrumCount != 0 && f.spectrumCount != EQC_SPECTRUM_BANDS) return false;
     *out = f;
     return true;
 }

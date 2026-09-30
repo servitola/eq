@@ -395,7 +395,8 @@ final class DriverSessionTests: XCTestCase {
     func testTheMeterComesFromThePlugin() throws {
         make()
         let meter = DriverMeter(frequencies: Config.bandFrequencies, inputDB: Array(repeating: -20, count: 10),
-                                outputDB: Array(repeating: -18, count: 10), peakDB: -6, limiting: false, compressorReductionDB: 0)
+                                outputDB: Array(repeating: -18, count: 10), peakDB: -6, limiting: false, compressorReductionDB: 0,
+                                spectrumDB: Array(repeating: -30, count: 31))
         driver.meterReply = meter
         XCTAssertNil(session.meter())
         try session.start()

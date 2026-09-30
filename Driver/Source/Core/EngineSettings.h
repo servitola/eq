@@ -105,12 +105,13 @@ class EngineSettings {
 // call longer than the meter's capacity is split so that it stays metered. Realtime: no
 // allocation, no locks.
 inline void processStereo(eqc_engine *engine, const float *stereo, float *left, float *right, uint32_t frames,
-                          bool metering) {
+                          bool metering, bool spectrum = false) {
     for (uint32_t i = 0; i < frames; ++i) {
         left[i] = stereo[2 * i];
         right[i] = stereo[2 * i + 1];
     }
     eqc_set_metering(engine, metering);
+    eqc_set_spectrum(engine, spectrum);
     for (uint32_t done = 0; done < frames;) {
         uint32_t n = std::min<uint32_t>(frames - done, EQC_METER_CAPACITY);
         float *channels[2] = {left + done, right + done};

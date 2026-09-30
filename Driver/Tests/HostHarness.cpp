@@ -312,9 +312,15 @@ static void checkSettings(const std::string &targetUID) {
     CFDataRef meter = nullptr;
     get(2, 'eqMt', meter);
     eqc_meter_frame frame;
-    CHECK(meter && eqc_meter_frame_decode(CFDataGetBytePtr(meter), size_t(CFDataGetLength(meter)), &frame) &&
-          frame.bandCount == 10 && frame.frequencies[9] == 16000);
+    CHECK(meter && CFDataGetLength(meter) == EQC_METER_V1_SIZE &&
+          eqc_meter_frame_decode(CFDataGetBytePtr(meter), size_t(CFDataGetLength(meter)), &frame) && frame.version == EQC_METER_VERSION &&
+          frame.bandCount == 10 && frame.frequencies[9] == 16000 && frame.spectrumCount == 0);
     if (meter) CFRelease(meter);
+    CFDataRef spectrum = nullptr;
+    get(2, 'eqMs', spectrum);
+    CHECK(spectrum && eqc_meter_frame_decode(CFDataGetBytePtr(spectrum), size_t(CFDataGetLength(spectrum)), &frame) &&
+          frame.version == EQC_METER_SPECTRUM_VERSION && frame.bandCount == 10 && frame.spectrumCount == EQC_SPECTRUM_BANDS);
+    if (spectrum) CFRelease(spectrum);
 }
 
 static int idle() {

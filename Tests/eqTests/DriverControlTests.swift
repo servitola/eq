@@ -85,13 +85,37 @@ final class DriverControlTests: XCTestCase {
         XCTAssertEqual(meter.outputDB, Array(repeating: EQC_METER_FLOOR_DB, count: Config.bandFrequencies.count))
         XCTAssertEqual(meter.peakDB, EQC_METER_FLOOR_DB)
         XCTAssertFalse(meter.limiting)
+        XCTAssertEqual(meter.spectrumDB, Array(repeating: EQC_METER_FLOOR_DB, count: 31))
         XCTAssertNil(DriverControl.meter(from: data.dropLast()))
         XCTAssertNil(DriverControl.meter(from: Data(count: data.count)))
+    }
+
+    /// A plug-in from before the spectrum (revision 15 and older) sends `eqMt` only, as version 1;
+    /// a new one sends the same there and version 2 on `eqMs`.
+    func testMeterFrameOfEitherVersionDecodes() throws {
+        let memory = UnsafeMutableRawPointer.allocate(byteCount: eqc_engine_size(), alignment: 16)
+        defer { memory.deallocate() }
+        let engine = OpaquePointer(memory)
+        eqc_engine_init(engine, Config.bandFrequencies, Int32(Config.bandFrequencies.count))
+        var frame = eqc_meter_frame()
+        eqc_meter_frame_read(&frame, engine, Config.bandFrequencies, Int32(Config.bandFrequencies.count))
+        frame.spectrumDB.17 = -12.5
+        let v2 = withUnsafeBytes(of: &frame) { Data($0) }
+        XCTAssertEqual(try XCTUnwrap(DriverControl.meter(from: v2)).spectrumDB[17], -12.5)
+
+        frame.version = UInt16(EQC_METER_VERSION)
+        let v1 = withUnsafeBytes(of: &frame) { Data($0.prefix(Int(EQC_METER_V1_SIZE))) }
+        XCTAssertEqual(v1.count, 416)
+        let old = try XCTUnwrap(DriverControl.meter(from: v1))
+        XCTAssertEqual(old.spectrumDB, [])
+        XCTAssertEqual(old.frequencies, Config.bandFrequencies)
+        XCTAssertNil(DriverControl.meter(from: withUnsafeBytes(of: &frame) { Data($0) }), "version 1 at version 2's length")
     }
 
     func testSelectorsMatchThePlugin() {
         XCTAssertEqual(DriverControl.settingsSelector, 0x6571_5374)
         XCTAssertEqual(DriverControl.meterSelector, 0x6571_4D74)
+        XCTAssertEqual(DriverControl.spectrumSelector, 0x6571_4D73)
         XCTAssertEqual(DriverControl.healthSelector, 0x6571_486C)
     }
 }

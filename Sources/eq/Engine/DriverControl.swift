@@ -73,6 +73,8 @@ struct DriverMeter: Equatable {
     var peakDB: Double
     var limiting: Bool
     var compressorReductionDB: Double
+    /// The output's third octaves; empty from a plug-in before them.
+    var spectrumDB: [Double] = []
 }
 
 enum DriverError: Error, Equatable, CustomStringConvertible {
@@ -98,6 +100,7 @@ struct DriverControl: DriverPort {
     private static func selector(_ code: String) -> AudioObjectPropertySelector { code.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
     static let settingsSelector = selector("eqSt")
     static let meterSelector = selector("eqMt")
+    static let spectrumSelector = selector("eqMs")
     static let healthSelector = selector("eqHl")
     static let targetSelector = selector("eqTg")
     static let hiddenSelector = selector("eqHd")
@@ -123,8 +126,10 @@ struct DriverControl: DriverPort {
         func values<T>(_ tuple: T) -> [Double] {
             withUnsafeBytes(of: tuple) { Array($0.bindMemory(to: Double.self).prefix(bands)) }
         }
+        let spectrum = withUnsafeBytes(of: frame.spectrumDB) { Array($0.bindMemory(to: Double.self).prefix(Int(frame.spectrumCount))) }
         return DriverMeter(frequencies: values(frame.frequencies), inputDB: values(frame.inputDB), outputDB: values(frame.outputDB),
-                           peakDB: frame.peakDB, limiting: frame.limiting != 0, compressorReductionDB: frame.compressorReductionDB)
+                           peakDB: frame.peakDB, limiting: frame.limiting != 0, compressorReductionDB: frame.compressorReductionDB,
+                           spectrumDB: spectrum)
     }
 
     private func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
@@ -173,8 +178,12 @@ struct DriverControl: DriverPort {
         guard status == noErr else { throw DriverError.failed("writing the \(what)", status) }
     }
 
+    /// `eqMs` where the plug-in has it, else `eqMt`. Asked first rather than read and failed: a
+    /// read of a property the plug-in lacks may land in coreaudiod's log, 30 times a second.
     func meter() throws -> DriverMeter {
-        guard let data = try read(Self.meterSelector, "meter") as? Data, let meter = Self.meter(from: data) else {
+        var spectrum = address(Self.spectrumSelector)
+        let selector = AudioObjectHasProperty(device, &spectrum) ? Self.spectrumSelector : Self.meterSelector
+        guard let data = try read(selector, "meter") as? Data, let meter = Self.meter(from: data) else {
             throw DriverError.badReply("meter")
         }
         return meter

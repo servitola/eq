@@ -55,6 +55,9 @@ constexpr AudioObjectPropertySelector kPropertyHidden = 'eqHd';
 constexpr AudioObjectPropertySelector kPropertyHealth = 'eqHl';
 constexpr AudioObjectPropertySelector kPropertySettings = 'eqSt';
 constexpr AudioObjectPropertySelector kPropertyMeter = 'eqMt';
+// The meter with the spectrum: a property of its own, since an eq before it reads `eqMt` and takes
+// only a version 1 record there.
+constexpr AudioObjectPropertySelector kPropertySpectrum = 'eqMs';
 constexpr UInt64 kChangeApplyPending = 1;
 constexpr Float32 kVolumeMinDB = -64.0f;
 constexpr UInt32 kMaxTargetFrames = 8192;
@@ -291,8 +294,9 @@ class Driver : TargetExecutor {
         // touch the engine.
         if (d.engineOwner_.load(std::memory_order_acquire) == io) {
             uint64_t read = d.meterReadAt_.load(std::memory_order_relaxed);
+            uint64_t spectrumRead = d.spectrumReadAt_.load(std::memory_order_relaxed);
             processStereo(d.engine_, io->scratch.data(), io->left.data(), io->right.data(), frames,
-                          read && now - read < d.meterWindow_);
+                          read && now - read < d.meterWindow_, spectrumRead && now - spectrumRead < d.meterWindow_);
         } else {
             std::fill_n(io->left.data(), frames, 0.0f);
             std::fill_n(io->right.data(), frames, 0.0f);
@@ -556,11 +560,14 @@ class Driver : TargetExecutor {
         notify(kObjectDevice, kPropertySettings);
     }
 
-    CFDataRef copyMeter() {
-        meterReadAt_.store(mach_absolute_time(), std::memory_order_relaxed);
+    CFDataRef copyMeter(bool spectrum) {
+        uint64_t now = mach_absolute_time();
+        meterReadAt_.store(now, std::memory_order_relaxed);
+        if (spectrum) spectrumReadAt_.store(now, std::memory_order_relaxed);
         eqc_meter_frame frame;
         eqc_meter_frame_read(&frame, engine_, kMeterFrequencies, kMeterBands);
-        return CFDataCreate(nullptr, reinterpret_cast<const UInt8 *>(&frame), sizeof(frame));
+        if (!spectrum) frame.version = EQC_METER_VERSION;
+        return CFDataCreate(nullptr, reinterpret_cast<const UInt8 *>(&frame), spectrum ? sizeof(frame) : EQC_METER_V1_SIZE);
     }
 
     OSStatus setHidden(UInt32 size, const void *data) {
@@ -737,6 +744,7 @@ class Driver : TargetExecutor {
                 {kPropertyHealth, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
                 {kPropertySettings, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
                 {kPropertyMeter, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
+                {kPropertySpectrum, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone},
             });
         case kPropertyTarget:
             return r.cf([this] {
@@ -750,7 +758,8 @@ class Driver : TargetExecutor {
                 std::lock_guard<std::mutex> lock(stringsMutex_);
                 return CFDataCreate(nullptr, record_.data(), CFIndex(record_.size()));
             });
-        case kPropertyMeter: return r.cf([this] { return copyMeter(); });
+        case kPropertyMeter: return r.cf([this] { return copyMeter(false); });
+        case kPropertySpectrum: return r.cf([this] { return copyMeter(true); });
         default: return kAudioHardwareUnknownPropertyError;
         }
     }
@@ -1306,6 +1315,7 @@ class Driver : TargetExecutor {
     eqc_engine *engine_ = nullptr;
     std::atomic<TargetIO *> engineOwner_{nullptr};
     std::atomic<uint64_t> meterReadAt_{0};
+    std::atomic<uint64_t> spectrumReadAt_{0};
     uint64_t meterWindow_ = 0;
     ClientCheck clientCheck_{kClientRequirement};
     std::atomic<pid_t> lastWriter_{0};

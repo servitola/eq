@@ -930,6 +930,57 @@ TEST(plugin_processing_is_eqcore_to_the_bit) {
     CHECK(frame.peakDB == EQC_METER_FLOOR_DB && frame.inputDB[9] == EQC_METER_FLOOR_DB);
 }
 
+// What every eq before the spectrum does with a meter record: exactly 416 bytes, version 1.
+static bool decodesBeforeSpectrum(const void *bytes, size_t size) {
+    if (size != 416) return false;
+    uint32_t magic;
+    uint16_t version;
+    std::memcpy(&magic, bytes, 4);
+    std::memcpy(&version, static_cast<const uint8_t *>(bytes) + 4, 2);
+    return magic == EQC_METER_MAGIC && version == 1;
+}
+
+TEST(meter_record_carries_the_spectrum_only_in_version_2) {
+    TestEngine e;
+    std::vector<float> stereo(2 * 4096), left(4096), right(4096);
+    for (uint32_t i = 0; i < 4096; ++i) stereo[2 * i] = stereo[2 * i + 1] = 0.5f * std::sin(2 * M_PI * 1000 * i / 48000);
+    const double meter[] = {32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+    eqc_meter_frame frame, decoded;
+
+    processStereo(e.engine, stereo.data(), left.data(), right.data(), 4096, true);
+    eqc_meter_frame_read(&frame, e.engine, meter, 10);
+    CHECK(frame.version == EQC_METER_SPECTRUM_VERSION && frame.spectrumCount == EQC_SPECTRUM_BANDS);
+    CHECK(frame.spectrumDB[17] == EQC_METER_FLOOR_DB);
+
+    processStereo(e.engine, stereo.data(), left.data(), right.data(), 4096, true, true);
+    processStereo(e.engine, stereo.data(), left.data(), right.data(), 4096, true, true);
+    eqc_meter_frame_read(&frame, e.engine, meter, 10);
+    CHECK_NEAR(frame.spectrumDB[17], -6, 1.5);
+    CHECK(frame.spectrumDB[16] < frame.spectrumDB[17] - 6 && frame.spectrumDB[18] < frame.spectrumDB[17] - 6);
+    CHECK(eqc_meter_frame_decode(&frame, sizeof(frame), &decoded) && decoded.spectrumCount == EQC_SPECTRUM_BANDS &&
+          decoded.spectrumDB[17] == frame.spectrumDB[17] && decoded.outputDB[5] == frame.outputDB[5]);
+    CHECK(!decodesBeforeSpectrum(&frame, sizeof(frame)));
+
+    // `eqMt` from a new plug-in: the old eq reads it as before, the new one as a frame with no spectrum.
+    eqc_meter_frame v1 = frame;
+    v1.version = EQC_METER_VERSION;
+    CHECK(decodesBeforeSpectrum(&v1, EQC_METER_V1_SIZE));
+    CHECK(eqc_meter_frame_decode(&v1, EQC_METER_V1_SIZE, &decoded) && decoded.spectrumCount == 0 && decoded.bandCount == 10 &&
+          decoded.outputDB[5] == frame.outputDB[5] && decoded.spectrumDB[17] == 0);
+
+    CHECK(!eqc_meter_frame_decode(&v1, sizeof(v1), &decoded));
+    CHECK(!eqc_meter_frame_decode(&frame, EQC_METER_V1_SIZE, &decoded));
+    eqc_meter_frame odd = frame;
+    odd.spectrumCount = 5;
+    CHECK(!eqc_meter_frame_decode(&odd, sizeof(odd), &decoded));
+    CHECK(!eqc_meter_frame_decode(&frame, sizeof(frame) - 8, &decoded));
+
+    processStereo(e.engine, stereo.data(), left.data(), right.data(), 4096, true, false);
+    processStereo(e.engine, stereo.data(), left.data(), right.data(), 4096, true, true);
+    eqc_meter_frame_read(&frame, e.engine, meter, 10);
+    CHECK(frame.spectrumDB[17] > -8);
+}
+
 TEST(each_target_keeps_its_own_curve) {
     MapStorage storage;
     TestEngine e;

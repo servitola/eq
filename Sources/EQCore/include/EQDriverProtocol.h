@@ -19,7 +19,10 @@ extern "C" {
 #define EQC_BLOB_UID_CAPACITY 256
 /// "EQM1" in memory.
 #define EQC_METER_MAGIC 0x314d5145u
+/// `eqMt` carries version 1 and nothing else, since every eq before the spectrum accepts only
+/// that; version 2, the same record with the spectrum after it, comes from `eqMs`.
 #define EQC_METER_VERSION 1
+#define EQC_METER_SPECTRUM_VERSION 2
 
 // The widest values the plug-in accepts: past what eq's own config allows, short of anything that
 // could only be a mistake.
@@ -77,10 +80,18 @@ typedef struct {
     double frequencies[EQC_MAX_METER_BANDS];
     double inputDB[EQC_MAX_METER_BANDS];
     double outputDB[EQC_MAX_METER_BANDS];
+    /// Version 2 only: the output's third octaves, EQC_SPECTRUM_BANDS of them or none.
+    uint32_t spectrumCount, reserved2;
+    double spectrumDB[EQC_SPECTRUM_BANDS];
 } eqc_meter_frame;
 
-/// Reads a running engine lock-free, from any thread.
+/// A version 1 record: everything before `spectrumCount`.
+#define EQC_METER_V1_SIZE 416
+
+/// Reads a running engine lock-free, from any thread, as a version 2 record. Send the first
+/// EQC_METER_V1_SIZE bytes with `version` set to EQC_METER_VERSION for a version 1 one.
 void eqc_meter_frame_read(eqc_meter_frame *out, eqc_engine *_Nullable engine, const double *frequencies, int32_t bands);
+/// Either version; a version 1 record reads as one with no spectrum.
 bool eqc_meter_frame_decode(const void *bytes, size_t size, eqc_meter_frame *out);
 
 #pragma clang assume_nonnull end
