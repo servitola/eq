@@ -502,3 +502,95 @@ The list views' CPU is the process starting and reading its config; after that n
 Each M5 meter run came out a few tenths above the M4 run before it, while the load rose through the
 session (each pair above the last); the in-process numbers are the same for both, so the
 difference is inside the spread seen in §6 and §7.
+
+## 9. M6 as built: Apps, System, History; the docs [measured]
+
+The last three views in both looks, after Filters on the tab row. Screens from the real renderer are
+in `docs/design/tui/actual/` (`*-apps-*`, `*-system-*`, `*-history-*`, at 120×36 and 80×24), pinned
+by golden files; every other screen gained the three tabs. No mocks existed; the views reuse the
+looks' parts (rounded panels, the `sel` row with `▸`, keycaps, the braille response).
+
+What was decided while building:
+- **Letters.** `g a` Apps, `g s` System, `g h` History (`ф`, `ы`, `р`). The spec's table said `g u`
+  for History, but every tab underlines its first letter, and History has no `u`; inside the `g`
+  menu `h` is free, since the menu takes its own keys before every view's `? h`.
+- **Ten tabs** are 94 columns padded. Where they do not fit, the others lose their padding (76
+  columns), then shorten to three letters; the current one always keeps its chip, so a click and
+  the letter still match what is drawn.
+- **Apps** edit through the session like the lists before: `eq app set`, `rm`, `on`, `off` as
+  functions of the config, a test comparing each with its command on two scratch stores, `u`
+  walking them back with the experimental flags. The picker lists the apps with audio open from the
+  same process list `eq __complete apps` reads, and offers what is typed as it is, which `eq app set`
+  resolves as a bundle ID or an installed app's name. The rule heard now follows the daemon's `app`
+  events, which also set the status bar's app, so the mark moves without a read of the status
+  file. Routes have no command, so they are shown read-only from eq.json and the status file,
+  with `RoutePolicy.driverNote` in driver mode.
+- **System**: the status file is read in process (cheap); `eq doctor --json` runs as a child of its
+  own (a second runner beside the palette's, with its own source and reap timer), because its
+  audio and driver checks sleep a second or two and must not hold the loop. The report decodes into
+  the doctor's own `DoctorReport`. Driver health comes from the status (target, IO, EQ, slips,
+  clock, default), the writer check and the launch agent from the doctor's rows.
+- **Mode switch (`o`)**: `eq mode X --dry-run --json` runs first as a child; its `install` field
+  decides. When the switch would install or update the driver, the TUI refuses and says to run
+  `eq mode driver` in a shell: the install asks macOS for an administrator password (a dialog, or
+  sudo in the terminal), and the child runs in its own process group with no terminal, where a sudo
+  prompt would hang. Otherwise the question says what the dry run said, and `y` runs `eq mode` in
+  the command pane; the status and the doctor are read again when it ends. `m` stays the mouse.
+- **History**: `Enter` walks `ConfigStore.stepBack`/`stepForward` until the chosen version is live,
+  which leaves the chain, the position and the redo stash as that many `eq undo`/`eq redo` would (a
+  test runs both); `←`/`→` are one `eq undo`/`eq redo`. After a restore the session's own undo
+  starts over, since its steps no longer lead back from the file now live.
+- **Cheap items left from §5–§8**: `/` in the key list keeps only the keys that have the text; `/`
+  on Presets, Devices, Apps and System jumps to the first row that has it (a jump, not a filter,
+  so a row's index stays the one every action uses; `Esc` goes back). On Filters `=` or a digit
+  types the field's value, read by the same `key=value` function as `eq filter set`. `Esc back` is
+  on the keybar only with a view to go back to. The spec's double click is a second click on the
+  chosen row, since SGR mouse reports presses only and the model keeps no clock.
+- **Docs**: README "Watch" is "TUI"; `eq man` gains a KEYS section generated from the key table,
+  a test holding it to the table as another holds the README's.
+
+### Bytes and CPU
+
+In process (`MeterBenchmarkTests`, release build, 120×40; "j k" as in §8):
+
+| View | Look | 24-bit | 256 | 16 | none | Full frame, 24-bit |
+| --- | --- | --- | --- | --- | --- | --- |
+| Apps, j k | studio | 594 | 484 | 393 | 58 | 6 108 |
+| Apps, j k | console | 634 | 513 | 393 | 58 | 11 460 |
+| System, j k | studio | 443 | 359 | 261 | 85 | 8 957 |
+| System, j k | console | 479 | 384 | 261 | 85 | 13 644 |
+| History, j k | studio | 3 718 | 3 010 | 2 188 | 1 844 | 9 788 |
+| History, j k | console | 3 588 | 2 914 | 2 243 | 1 842 | 15 294 |
+| any, stress | both | 0 | 0 | 0 | 0 | — |
+
+History costs the most a key: `j` and `k` move between the live version (its layers) and one
+that differs (the live curve faint behind, and the differences), so the whole preview changes;
+still under 4.5 KB. The meter's rows are unchanged (studio 24-bit 1 181 B music, 3 296 B stress;
+console 386 and 1 916; 0.28–0.32 ms a frame).
+
+On a pty, the harness of §6 (release builds, 120×40, a fake meter socket in a scratch directory at
+30 frames a second of "music", `EQ_CONFIG`/`EQ_STATUS`/`EQ_CACHE` in it, never the live daemon or
+~/.config/eq), 30 s a run after 2.5 s of start-up, M5 (`27766bf`) and M6 interleaved (load 2–4):
+
+| Build | View | Runs, CPU | Frames/s written | Bytes a frame |
+| --- | --- | --- | --- | --- |
+| M5 | meter, studio | 4.66, 6.23, 5.99 % | 26.9 | 1 014 |
+| M6 | meter, studio | 5.86, 6.33, 5.96 % | 26.9 | 1 015 |
+| M6 | Apps, idle | 0.00 % | 0 | — |
+| M6 | History, idle | 0.00 % | 0 | — |
+| M6 | History, a key a second | 0.17 % | 1.0 | 3 323 |
+| M5 | Presets, a key a second | 0.13 % | 1.0 | 1 260 |
+| M6 | Presets, a key a second | 0.13 % | 1.0 | 1 260 |
+
+Medians 5.99 and 5.96 %: M6 adds nothing to the meter. This run starts measuring after start-up,
+so the idle lists show 0 where §8's 0.1–0.2 % was the start. System was not run on the pty: its
+doctor child reads the installed driver's health, which this harness keeps away from; in process it
+behaves as the other lists.
+
+### What is left of the spec
+
+- `palette auto` picking `paper` from the terminal's answer to OSC 11 (§5): it needs a query and a
+  reply read back through tmux into Zap, still unverified on the user's stack.
+- Whether Zap under tmux sends Ctrl-P as 0x10 on a Russian layout (spec, Risks); `;` and `ж` do not
+  depend on it.
+- An `eq route` command; until then routes are read-only in the TUI.

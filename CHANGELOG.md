@@ -3,6 +3,36 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- The Apps view (`g a`, or `eq tui apps`): the app rules with their presets, the one heard now
+  marked as the daemon's events say, a rule whose preset is gone in yellow, and the apps with
+  audio open. `a` adds a rule from a list of those apps (or an app typed by bundle ID or name),
+  then a preset; `Enter` gives a rule another preset, `d` removes it after a `y`, `o` turns
+  following apps on and off. Routes in eq.json are shown under them, read only, with where each
+  app plays now and why, and why none plays in driver mode.
+- The System view (`g s`): the daemon's state, the mode asked for and the one running, device,
+  rate, latency, slips, versions and the launch agent; in driver mode the driver's health
+  (target, IO, EQ, slips, clock, default output, writer). Beside them `eq doctor`, run beside
+  the screen when the view opens and on `r`, each check `✓`, `!` or `✗` with the chosen one's
+  whole text. `o` switches mode after saying what a dry run says, with `eq mode`'s output in the
+  command pane; a switch that must install the driver is left to a shell, where macOS asks for the
+  password.
+- The History view (`g h`): every saved version of eq.json with its time, curve and preset, the
+  live one marked, and the chosen one drawn over the live one with what differs. `Enter` restores
+  it the way `eq undo` and `eq redo` would, `←` and `→` step one version.
+- `/` jumps to a row on Presets, Devices, Apps and System, and filters the key list.
+- With the mouse on, a second click on the chosen row does what `Enter` does.
+- On Filters, `=` or a digit types a field's value, read as `eq filter set` reads it (`3k`, `-2,5`).
+- `eq man` has a KEYS section, generated from the same table as the key list and the README.
+
+### Changed
+
+- `Esc back` is on the keybar only when there is a view to go back to.
+- Where ten tabs do not fit, they lose their padding, then shorten to three letters.
+
 ## 2026.09.30 — 2026-09-30
 
 ### Added
