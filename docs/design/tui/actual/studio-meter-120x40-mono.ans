@@ -1,5 +1,5 @@
 [0;7m ◉ [0;1;7mBE-RCA [0;2m [0m44.1 kHz[0;2m │ preamp [0m-4.8[0;2m dB │ [0m◆ [0;1mfavourite*[0;2m │ [0m● voice +3.0[0;2m │ bass [0m+1[0;2m treble [0m-0.5                  [0;2m peak [0m-6.0[0;2m dB [0m
- [0;1;7m Meter [0m  [0;4mT[0;2mune [0m  [0;4mI[0;2mnstruments [0m  [0;4mE[0;2mvents [0m                                                                      [0;1mg[0;2m go[0m  [0;1m;[0;2m cmd[0m
+ [0;1;7m Meter [0m  [0;4mT[0;2mune [0m  [0;4mI[0;2mnstruments [0m  [0;4mP[0;2mresets [0m  [0;4mD[0;2mevices [0m  [0;4mF[0;2milters [0m  [0;4mE[0;2mvents [0m                                        [0;1mg[0;2m go[0m  [0;1m;[0;2m cmd[0m
 [0;2m╭─[0;1m meter [0;2m─────────────────────────────────────────────────────────────────── dBFS · gain dB ╮╭─[0;1m output [0;2m────────────────╮[0m
 [0;2m│  0[0m [0;2m┤[0m                                                                                 [0;2m├+12[0m [0;2m││[0m [0;2mpeak [0m███████████[0;2m·[0;1m▏[0m  -6.0[0;2m│[0m
 [0;2m│[0m               ▔▔▔▔▔                                                                       [0;2m││[0m [0;2mlimit ●[0m [0;2midle[0m            [0;2m│[0m
