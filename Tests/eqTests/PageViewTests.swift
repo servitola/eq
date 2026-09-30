@@ -316,6 +316,21 @@ final class PageViewTests: XCTestCase {
         XCTAssertEqual(m.doctor.report?.checks[4].name, "output")
     }
 
+    func testASecondClickOnTheChosenRowIsItsEnter() {
+        var m = model(.history)
+        let l = HistoryView.split(m.size)
+        let row = Mouse(.press, button: .left, x: l.list.x + 5, y: l.list.y + 2 + 4)
+        XCTAssertEqual(send(&m, [.input(.mouse(row))]), [])
+        XCTAssertEqual(send(&m, [.input(.mouse(row))]), [.edit(.restoreVersion(4))])
+        m = model(.presets)
+        let presets = SplitLayout(m.size)
+        let night = Mouse(.press, button: .left, x: presets.list.x + 5, y: presets.list.y + 2 + 3)
+        XCTAssertEqual(send(&m, [.input(.mouse(night)), .input(.mouse(night))]), [.edit(.usePreset("night"))])
+        m = model(.system)
+        let check = Mouse(.press, button: .left, x: 60, y: 7)
+        XCTAssertEqual(send(&m, [.input(.mouse(check)), .input(.mouse(check))]), [], "a check has nothing to do")
+    }
+
     func testEveryPageFitsEverySize() {
         for view in [TUIView.apps, .system, .history] {
             for (cols, rows) in [(20, 8), (40, 12), (59, 16), (60, 14), (80, 24), (99, 30), (200, 60)] {

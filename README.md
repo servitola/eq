@@ -532,7 +532,7 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `g` | `п` `П` | every view | go to a view: m meter, t tune, i instruments, p presets, d devices, f filters, a apps, s system, h history, e events; a menu lists them |
 | `;` `Ctrl-P` | `ж` | every view | the command palette: any eq command, run beside the screen |
 | `u` | `г` `Г` | every view | undo the last change made in this session, back to how it started |
-| `m` | `ь` `Ь` | every view | mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, and the wheel scrolls a list or steps what it is over |
+| `m` | `ь` `Ь` | every view | mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, a second click on the chosen row is its Enter, and the wheel scrolls a list or steps what it is over |
 | `?` `h` | `р` `Р` | every view | the list of every key; ?, Esc or q closes it |
 | `q` | `й` `Й` | every view | quit |
 | `Ctrl-C` |  | every view | quit, from the lists too |
@@ -663,13 +663,14 @@ state on the keybar (`z zones on`), and while an instrument is focused its knob,
 
 `?` or `h` opens the list of every key over the view, grouped: the view's own keys first, then
 those of every view, `g`'s letters, the palette's and the command output's. It stays until `?`,
-`Esc` or `q` closes it; `↑`/`↓` (`j`/`k`) scroll it when it is taller than the terminal. Keys under
-it do nothing to the curve. `m` turns mouse reporting on and remembers it as
+`Esc` or `q` closes it; `↑`/`↓` (`j`/`k`) scroll it when it is taller than the terminal, and `/`
+keeps only the keys that have what you type. Keys under it do nothing to the curve. `m` turns mouse reporting on and remembers it as
 `"tui": {"mouse": true}` in eq.json; it is off by default because it takes plain drag-to-select
 away from the terminal; on, a click on a tab opens that view, a click on a band or a control in
-Tune or on a row of Presets, Devices or Filters selects it, and the wheel scrolls the lists and steps whatever it is over in Tune. The table
-above is generated from the same key table the TUI reads its keys from, and a test keeps the two
-equal.
+Tune or on a list's row selects it, a second click on the row already chosen does what `Enter`
+does (a terminal reports presses, not double clicks), and the wheel scrolls the lists and steps
+whatever it is over in Tune. The table above is generated from the same key table the TUI reads
+its keys from, and so is the KEYS section of `eq man`; tests keep all three equal.
 
 Ctrl-Z hands the terminal back to the shell and `fg` brings the screen back as it was. The
 terminal is put back the same way when the TUI is closed with `kill`, loses its terminal, or

@@ -369,7 +369,7 @@ enum KeyTable {
                    label: "u", help: "undo the last change made in this session, back to how it started", bar: ("u", "undo"), rank: 11,
                    palette: "undo in this session"),
         KeyBinding(context: .global, group: "Every view", keys: chars("mM"), actions: [.mouse],
-                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, and the wheel scrolls a list or steps what it is over",
+                   label: "m", help: "mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, a second click on the chosen row is its Enter, and the wheel scrolls a list or steps what it is over",
                    bar: ("m", "mouse"), rank: 17, state: { $0.mouse ? "on" : "off" }, palette: "mouse"),
         KeyBinding(context: .global, group: "Every view", keys: chars("?hH"), actions: [.help],
                    label: "? h", help: "the list of every key; ?, Esc or q closes it", bar: ("?", "keys"), palette: "keys"),

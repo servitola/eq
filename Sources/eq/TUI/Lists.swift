@@ -220,31 +220,35 @@ extension MeterModel {
         }
     }
 
-    /// A click on a list's row selects it.
-    mutating func select(at mouse: Mouse) -> Bool {
+    /// A click on a list's row selects it; a click on the row already chosen is its Enter, as a
+    /// double click would be (a terminal reports only presses). nil when no row is under it.
+    mutating func select(at mouse: Mouse) -> [MeterCmd]? {
+        let row: Int?
         switch view {
-        case .presets:
-            guard let row = PresetsView.item(at: mouse.x, mouse.y, size: size, count: library.presetNames.count, selected: lists.preset) else { return false }
-            lists.preset = row
-        case .devices:
-            guard let row = DevicesView.item(at: mouse.x, mouse.y, size: size, library: library, selected: lists.device) else { return false }
-            lists.device = row
-        case .filters:
-            guard form == nil, let row = FiltersView.item(at: mouse.x, mouse.y, size: size, count: filters.count, selected: lists.filter) else { return false }
-            lists.filter = row
-        case .apps:
-            guard let row = AppsView.item(at: mouse.x, mouse.y, size: size, library: library, running: running.count, selected: lists.app) else { return false }
-            lists.app = row
-        case .system:
-            guard let scene = scene(), let row = SystemView.item(at: mouse.x, mouse.y, scene: scene) else { return false }
-            lists.check = row
-        case .history:
-            guard let row = HistoryView.item(at: mouse.x, mouse.y, size: size, count: versions.versions.count, selected: lists.version) else { return false }
-            lists.version = row
-        default:
-            return false
+        case .presets: row = PresetsView.item(at: mouse.x, mouse.y, size: size, count: library.presetNames.count, selected: lists.preset)
+        case .devices: row = DevicesView.item(at: mouse.x, mouse.y, size: size, library: library, selected: lists.device)
+        case .filters: row = form == nil ? FiltersView.item(at: mouse.x, mouse.y, size: size, count: filters.count, selected: lists.filter) : nil
+        case .apps: row = AppsView.item(at: mouse.x, mouse.y, size: size, library: library, running: running.count, selected: lists.app)
+        case .system: row = scene().flatMap { SystemView.item(at: mouse.x, mouse.y, scene: $0) }
+        case .history: row = HistoryView.item(at: mouse.x, mouse.y, size: size, count: versions.versions.count, selected: lists.version)
+        default: row = nil
         }
-        return true
+        guard let row else { return nil }
+        let again: Bool
+        switch view {
+        case .presets: (again, lists.preset) = (row == lists.preset, row)
+        case .devices: (again, lists.device) = (row == lists.device, row)
+        case .filters: (again, lists.filter) = (row == lists.filter, row)
+        case .apps: (again, lists.app) = (row == lists.app, row)
+        case .system: (again, lists.check) = (false, row)
+        default: (again, lists.version) = (row == lists.version, row)
+        }
+        guard again else { return [] }
+        switch view {
+        case .filters: return listAction(.editFields, in: .filters)
+        case .apps, .history: return pageAction(.primary, in: view.context)
+        default: return listAction(.primary, in: view.context)
+        }
     }
 
     mutating func listAction(_ action: WatchAction, in context: KeyContext) -> [MeterCmd] {

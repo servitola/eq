@@ -660,8 +660,8 @@ struct MeterModel: Program {
             }
         }
         if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left, modal == nil, !goMenu, palette == nil,
-           prompt == nil, rename == nil, confirm == nil, picker == nil, search == nil, child?.shown != true, select(at: mouse) {
-            return []
+           prompt == nil, rename == nil, confirm == nil, picker == nil, search == nil, child?.shown != true, let cmds = select(at: mouse) {
+            return cmds
         }
         if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left {
             guard mouse.y == 1, size.rows >= TabRow.minRows, palette == nil, prompt == nil,
