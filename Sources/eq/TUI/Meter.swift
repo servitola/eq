@@ -690,7 +690,8 @@ struct MeterModel: Program {
         case .tuneReset: return apply(.assign(tune.selected, 0))
         case .tuneEntry: entry = TextField()
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
-             .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign:
+             .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign,
+             .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .addFilter, .setFilter, .removeFilter:
             return apply(action)
         }
         return []

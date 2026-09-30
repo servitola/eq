@@ -31,6 +31,12 @@ enum WatchAction: Equatable {
     case tuneSelect(Int), tuneGroup(Int), nudge(Double), tuneReset, tuneEntry
     /// A control moved by a step in its own units, or set outright.
     case adjust(TuneControl, Double), assign(TuneControl, Double)
+    /// The list views' edits, each the change its `eq preset`, `eq device` or `eq filter` command makes.
+    case usePreset(String), renamePreset(String, String), removePreset(String)
+    /// `useDevice` takes a device's UID; it moves the system's output and saves nothing.
+    case useDevice(String), copyCurve(DeviceChoice)
+    /// Filters are numbered from 0 here, from 1 on the command line.
+    case addFilter(Filter), setFilter(Int, Filter), removeFilter(Int)
 }
 
 enum WatchKeys {

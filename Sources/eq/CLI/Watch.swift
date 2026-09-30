@@ -85,6 +85,12 @@ enum Watch {
     }
 }
 
+/// An output by its UID, with the name it is shown by.
+struct DeviceChoice: Equatable {
+    var uid: String
+    var name: String
+}
+
 /// The key list, drawn over the view until it is closed.
 enum WatchModal: Equatable {
     case help(scroll: Int)

@@ -766,15 +766,62 @@ enum CLI {
 
     /// The edits of one `eq watch`, on the same device `eq set` would edit. Only the session's first
     /// save backs up the file, so the whole session is one `eq undo` step; `u` walks back inside it
-    /// through the device profiles the session replaced.
+    /// through what each save replaced: device profiles, presets, app rules.
     final class WatchSession {
         struct Note: Error, CustomStringConvertible { let description: String }
 
+        /// The parts of the config one save changed, as they were before it.
+        struct Before {
+            var devices: [String: Profile?] = [:]
+            var presets: [String: Profile?] = [:]
+            /// There were no presets yet: undo leaves none, as `eq preset` found it.
+            var unseeded = false
+            var apps: [AppRule]?? = nil
+            var fallback: Profile? = nil
+
+            init?(_ original: Config, _ config: Config) {
+                for uid in Set(original.devices.keys).union(config.devices.keys) where original.devices[uid] != config.devices[uid] {
+                    devices[uid] = .some(original.devices[uid])
+                }
+                if original.presets == nil, config.presets != nil {
+                    unseeded = true
+                } else {
+                    for name in Set((original.presets ?? [:]).keys).union((config.presets ?? [:]).keys)
+                        where original.presets?[name] != config.presets?[name] {
+                        presets[name] = .some(original.presets?[name])
+                    }
+                }
+                if original.apps != config.apps { apps = .some(original.apps) }
+                if original.default != config.default { fallback = original.default }
+                guard !devices.isEmpty || !presets.isEmpty || unseeded || apps != nil || fallback != nil else { return nil }
+            }
+
+            func restore(_ config: inout Config) {
+                for (uid, profile) in devices { config.devices[uid] = profile }
+                if unseeded {
+                    config.presets = nil
+                } else if !presets.isEmpty {
+                    var all = config.presets ?? [:]
+                    for (name, profile) in presets { all[name] = profile }
+                    config.presets = all
+                }
+                if let apps { config.apps = apps }
+                if let fallback { config.default = fallback }
+            }
+        }
+
         private let ctx: CLIContext
-        private var history: [(uid: String, profile: Profile?)] = []
+        private var history: [Before] = []
         private var lastSaved: Config?
+        /// The device the Tune view edits when it is not the one playing; nil edits the current one.
+        var device: DeviceChoice?
 
         init(_ ctx: CLIContext) { self.ctx = ctx }
+
+        private func target() throws -> Target {
+            if let device { return (device.uid, device.name) }
+            return try currentDevice(ctx)
+        }
 
         func header() -> Watch.Header {
             guard let config = try? loadConfig(ctx), let target = try? currentDevice(ctx) else { return Watch.Header() }
@@ -784,11 +831,15 @@ enum CLI {
         }
 
         func apply(_ action: WatchAction) throws {
+            if case .useDevice(let uid) = action {
+                try CLI.useDevice([uid], ctx)
+                return
+            }
             let original = try loadConfig(ctx)
             var config = original
             if case .undo = action {
                 guard let last = history.popLast() else { throw Note(description: "nothing left to undo in this session") }
-                config.devices[last.uid] = last.profile
+                last.restore(&config)
                 try save(config, over: original)
                 return
             }
@@ -799,17 +850,28 @@ enum CLI {
                 if config != original { try save(config, over: original) }
                 return
             }
-            let target = try currentDevice(ctx)
-            let before = config.devices[target.uid]
-            if case .savePreset(let name) = action {
+            let target = try target()
+            switch action {
+            case .savePreset(let name):
                 try CLI.savePreset(name, on: target, in: &config)
-            } else {
+            case .usePreset(let name):
+                _ = config.seedPresetsIfNeeded()
+                try CLI.usePreset(name, on: target, in: &config)
+            case .renamePreset(let old, let new):
+                _ = config.seedPresetsIfNeeded()
+                _ = try CLI.renamePreset(old, to: new, in: &config)
+            case .removePreset(let name):
+                _ = config.seedPresetsIfNeeded()
+                _ = try CLI.removePreset(name, in: &config)
+            case .copyCurve(let to):
+                CLI.copyCurve(from: try currentDevice(ctx), to: (to.uid, to.name), in: &config)
+            default:
                 guard let profile = try edited(editableProfile(config, target), by: action, &config) else { return }
                 config.setProfile(profile, forDeviceUID: target.uid)
             }
             guard config != original else { return }
             try save(config, over: original)
-            if config.devices[target.uid] != before { history.append((target.uid, before)) }
+            if let before = Before(original, config) { history.append(before) }
         }
 
         /// The settings of the screen itself, which no undo walks back.
@@ -866,7 +928,19 @@ enum CLI {
                 try control.adjust(&profile, by: delta)
             case .assign(let control, let value):
                 try control.assign(&profile, value)
-            case .undo, .savePreset, .startSave, .zones, .help, .quit,
+            case .addFilter(let filter):
+                _ = CLI.addFilter(filter, to: &profile)
+            case .setFilter(let index, let filter):
+                _ = try CLI.setFilter(index, in: &profile) {
+                    $0.type = filter.type
+                    $0.frequency = filter.frequency
+                    $0.gain = filter.gain
+                    $0.q = filter.q
+                }
+            case .removeFilter(let index):
+                _ = try CLI.removeFilter(index, from: &profile)
+            case .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve,
+                 .undo, .savePreset, .startSave, .zones, .help, .quit,
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
                  .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
                  .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend,
