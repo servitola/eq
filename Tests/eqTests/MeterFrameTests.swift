@@ -48,4 +48,34 @@ final class MeterFrameTests: XCTestCase {
         XCTAssertTrue(abs(MeterFrame.round1(-0.04)) < 1e-9)
         XCTAssertEqual(MeterFrame.round1(4.85), 4.9)
     }
+
+    func testSpectrumRoundTripsAndIsLeftOutWhenAbsent() throws {
+        XCTAssertFalse(String(decoding: try MeterFrame.encodeLine(Self.sample), as: UTF8.self).contains("spectrum"))
+        var frame = Self.sample
+        frame.spectrum = (0..<31).map { -60 + Double($0) }
+        let line = try MeterFrame.encodeLine(frame)
+        XCTAssertTrue(String(decoding: line, as: UTF8.self).contains("\"spectrum\":[-60,-59,"))
+        XCTAssertEqual(try JSONDecoder().decode(MeterFrame.self, from: line.dropLast()), frame)
+    }
+
+    /// A frame from a daemon before the spectrum decodes with none; an eq before it reads a new
+    /// frame as it always did, the key unknown to it ignored.
+    func testFramesAcrossTheSpectrumDecodeBothWays() throws {
+        let old = #"{"enabled":true,"gains":[0],"in":[-30],"limiting":false,"out":[-28],"peak":-6,"preamp":0,"rate":44100,"solo":null,"t":1}"#
+        XCTAssertNil(try JSONDecoder().decode(MeterFrame.self, from: Data(old.utf8)).spectrum)
+
+        struct BeforeSpectrum: Decodable, Equatable {
+            var t: Double
+            var rate: Double
+            var `in`, out, gains: [Double]
+            var peak, preamp: Double
+            var limiting, enabled: Bool
+            var solo: SoloRange?
+        }
+        var frame = Self.sample
+        frame.spectrum = Array(repeating: -40, count: 31)
+        let seen = try JSONDecoder().decode(BeforeSpectrum.self, from: MeterFrame.encodeLine(frame).dropLast())
+        XCTAssertEqual(seen.out, frame.out)
+        XCTAssertEqual(seen.gains, frame.gains)
+    }
 }

@@ -22,6 +22,9 @@ struct MeterFrame: Codable, Equatable {
     var app: AppMatch? = nil
     /// The compressor's gain change in dB, 0 or below; absent while it is off.
     var comp: Double? = nil
+    /// The output's third octaves, 20 Hz to 20 kHz (`BandMeter.spectrumFrequencies`); absent from
+    /// a daemon or a plug-in before them.
+    var spectrum: [Double]? = nil
 
     // Written by hand only so an inactive solo goes out as an explicit `null`; the synthesized
     // encoder would omit the key.
@@ -40,6 +43,7 @@ struct MeterFrame: Codable, Equatable {
         try c.encode(solo, forKey: .solo)
         try c.encodeIfPresent(app, forKey: .app)
         try c.encodeIfPresent(comp, forKey: .comp)
+        try c.encodeIfPresent(spectrum, forKey: .spectrum)
     }
 
     private static let encoder: JSONEncoder = {

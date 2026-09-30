@@ -402,7 +402,8 @@ final class Daemon {
             // and the watch would blink SOLO off and on.
             solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: processor.sampleRate) },
             app: apps.overlay,
-            comp: compReduction(profile).map(MeterFrame.round1))
+            comp: compReduction(profile).map(MeterFrame.round1),
+            spectrum: processor.meter.spectrumDB.map(MeterFrame.round1))
     }
 
     /// The same frame from the plug-in's `eqMt`, read on the meter server's ticks, so only while a meter client listens.
@@ -424,7 +425,8 @@ final class Daemon {
             enabled: config.enabled,
             solo: solo.flatMap { EQProcessor.clampSolo(low: $0.low, high: $0.high, sampleRate: rate) },
             app: apps.overlay,
-            comp: config.enabled && profile?.dynamics?.comp != nil ? meter.map { MeterFrame.round1($0.compressorReductionDB) } : nil)
+            comp: config.enabled && profile?.dynamics?.comp != nil ? meter.map { MeterFrame.round1($0.compressorReductionDB) } : nil,
+            spectrum: meter.flatMap { $0.spectrumDB.isEmpty ? nil : $0.spectrumDB.map(MeterFrame.round1) })
     }
 
     private func heard(_ base: Profile) -> Profile {

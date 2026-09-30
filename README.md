@@ -77,7 +77,7 @@ coreaudiod's own, rewritten while it runs, and nothing reads the entry once the 
 | `eq tui [meter\|tune\|instruments\|presets\|devices\|filters\|apps\|system\|history\|events] [--zones] [--look LOOK] …` | the terminal UI, opened on the meter (the same screen as `eq watch`), the curve to edit, the instruments, the presets, the outputs, the filters, the app rules, the daemon and its doctor, the saved versions or the daemon's events; `;` opens a palette of every command |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
-| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
+| `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null`; `spectrum` the output's 31 third octaves from 20 Hz to 20 kHz in dBFS, absent while the daemon, or in driver mode the EQ driver, predates it |
 | `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app, mode, target; never meter ticks |
 
 Tune the curve:
