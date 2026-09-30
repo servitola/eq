@@ -67,6 +67,9 @@ enum ManPage {
             ".PP",
             escape("Bands are \(Config.bandLabels.joined(separator: " ")); gains \(Int(Config.gainRange.lowerBound)) to +\(Int(Config.gainRange.upperBound)) dB. "
                 + "DEVICE is any piece of a device's name, matched without regard to case."),
+        ]
+        lines += KeyHelp.man()
+        lines += [
             ".SH ENVIRONMENT",
             ".TP", ".B EQ_CONFIG", escape("The config file instead of ~/.config/eq/eq.json."),
             ".TP", ".B EQ_STATUS", escape("The daemon's status file instead of the default."),

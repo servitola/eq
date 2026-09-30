@@ -631,6 +631,21 @@ enum KeyHelp {
         }
     }
 
+    /// The man page's KEYS section from the same bindings, one subsection a place; checked by a test.
+    static func man() -> [String] {
+        var lines = [".SH KEYS", ManPage.escape("In eq tui and eq watch. A key on a Russian layout does what the same physical key does on a US one; "
+                                                  + "the twins are listed where they differ.")]
+        for context in contexts {
+            let place = place(context)
+            lines.append(".SS " + ManPage.escape(place.prefix(1).uppercased() + place.dropFirst()))
+            for binding in KeyTable.bindings(in: context) {
+                let twins = KeyTable.twins(binding).map(\.name).joined(separator: " ")
+                lines += [".TP", ".B " + ManPage.escape(binding.label), ManPage.escape(binding.help + (twins.isEmpty ? "" : " (Russian: \(twins))"))]
+            }
+        }
+        return lines
+    }
+
     /// The Markdown table under README "Keys", generated from the same bindings and checked by a test.
     static func markdown() -> String {
         var rows = ["| Key | Russian | Where | Action |", "| --- | --- | --- | --- |"]

@@ -136,6 +136,21 @@ final class KeyTableTests: XCTestCase {
                       "README \"Keys\" must be KeyHelp.markdown():\n" + KeyHelp.markdown())
     }
 
+    func testManKeysSectionIsTheTable() {
+        let page = ManPage.render(version: "2026.09.30")
+        XCTAssertTrue(page.contains("\n" + KeyHelp.man().joined(separator: "\n") + "\n.SH ENVIRONMENT\n"), "KEYS comes from KeyHelp.man(), before ENVIRONMENT")
+        for context in KeyHelp.contexts {
+            for binding in KeyTable.bindings(in: context) {
+                XCTAssertTrue(page.contains(".B " + ManPage.escape(binding.label) + "\n" + ManPage.escape(binding.help)), "\(context) \(binding.label)")
+            }
+        }
+        XCTAssertTrue(page.contains(".SS After g\n"))
+        XCTAssertTrue(page.contains(ManPage.escape("the command palette: any eq command, run beside the screen (Russian: ж)")))
+        XCTAssertFalse(page.split(separator: "\n").contains { $0.hasPrefix(".") && !$0.hasPrefix(".SH") && !$0.hasPrefix(".SS") && !$0.hasPrefix(".TP")
+            && !$0.hasPrefix(".B") && !$0.hasPrefix(".TH") && !$0.hasPrefix(".nf") && !$0.hasPrefix(".fi") && !$0.hasPrefix(".RS")
+            && !$0.hasPrefix(".RE") && !$0.hasPrefix(".br") && !$0.hasPrefix(".PP") && !$0.hasPrefix(".I") }, "no text line reads as a request")
+    }
+
     func testHelpListsTheViewsKeysThenEveryViewsAndTheMenus() {
         for view in TUIView.allCases {
             let lines = KeyHelp.lines(view: view.context)
