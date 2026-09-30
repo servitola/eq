@@ -348,6 +348,12 @@ struct eqc_meter {
     // on arm64, so a reader sees an old or a new value per band, never a torn one.
     double levels[2 * EQC_MAX_METER_BANDS];
     double peakLevel;
+    // The output's third octaves; bands from `spectrumBands` up lie past what the rate can carry.
+    int32_t spectrumBands;
+    eqc_biquad spectrumCoefficients[EQC_SPECTRUM_BANDS];
+    eqc_biquad_state spectrumStates[EQC_SPECTRUM_BANDS];
+    float spectrumEnvelopes[EQC_SPECTRUM_BANDS];
+    double spectrumLevels[EQC_SPECTRUM_BANDS];
 };
 
 static inline void store_level(double *cell, double value) { __atomic_store(cell, &value, __ATOMIC_RELAXED); }
@@ -360,7 +366,19 @@ static inline double load_level(const double *cell) {
 
 size_t eqc_meter_size(void) { return sizeof(eqc_meter); }
 
+// ISO 266's preferred numbers are the rounded values of these, the base-ten third octaves.
+double eqc_spectrum_frequency(int32_t band) { return 1000 * pow(10, (band - 17) / 10.0); }
+
+CLEARS static void spectrum_reset(eqc_meter *m) {
+    for (int32_t i = 0; i < EQC_SPECTRUM_BANDS; i++) {
+        m->spectrumStates[i] = (eqc_biquad_state){0, 0};
+        m->spectrumEnvelopes[i] = 0;
+        store_level(&m->spectrumLevels[i], EQC_METER_FLOOR_DB);
+    }
+}
+
 CLEARS void eqc_meter_reset(eqc_meter *m) {
+    spectrum_reset(m);
     for (int32_t i = 0; i < 2 * m->bandCount; i++) {
         m->states[i] = (eqc_biquad_state){0, 0};
         m->envelopes[i] = 0;
@@ -373,6 +391,14 @@ CLEARS void eqc_meter_reset(eqc_meter *m) {
 void eqc_meter_configure(eqc_meter *m, double sampleRate) {
     for (int32_t band = 0; band < m->bandCount; band++)
         m->coefficients[band] = eqc_design(EQC_BAND_PASS, m->frequencies[band], 0, 1.41, sampleRate);
+    // A third octave's Q: its edges, a sixth of an octave either side, are where it is 3 dB down,
+    // so neighbouring bands meet there and a sine anywhere reads within 3 dB of its level.
+    double ratio = pow(10, 0.1), q = sqrt(ratio) / (ratio - 1);
+    m->spectrumBands = 0;
+    while (m->spectrumBands < EQC_SPECTRUM_BANDS && eqc_spectrum_frequency(m->spectrumBands) < 0.49 * sampleRate) {
+        m->spectrumCoefficients[m->spectrumBands] = eqc_design(EQC_BAND_PASS, eqc_spectrum_frequency(m->spectrumBands), 0, q, sampleRate);
+        m->spectrumBands++;
+    }
     m->attack = (float)exp(-1 / (0.010 * sampleRate));
     m->release = (float)exp(-1 / (0.300 * sampleRate));
     eqc_meter_reset(m);
@@ -446,6 +472,33 @@ void eqc_meter_feed(eqc_meter *m, const eqc_channel *input, int32_t inputChannel
     meter_feed(m, in, inputChannels > 1 ? input[1] : in, out, outputChannels > 1 ? output[1] : out, frames);
 }
 
+static void spectrum_feed(eqc_meter *m, const float *first, const float *second, int32_t frames) {
+    int32_t bands = m->spectrumBands;
+    float attack = m->attack, release = m->release;
+    for (int32_t frame = 0; frame < frames; frame++)
+        meter_bands(0.5f * (first[frame] + second[frame]), m->spectrumStates, m->spectrumEnvelopes, m->spectrumCoefficients, bands,
+                    attack, release);
+    for (int32_t i = 0; i < bands; i++) {
+        eqc_biquad_state *state = &m->spectrumStates[i];
+        if (!isfinite(m->spectrumEnvelopes[i]) || !isfinite(state->z1) || !isfinite(state->z2)) {
+            m->spectrumEnvelopes[i] = 0;
+            *state = (eqc_biquad_state){0, 0};
+        }
+        flush(state);
+        if (m->spectrumEnvelopes[i] < FLT_MIN) m->spectrumEnvelopes[i] = 0;
+        store_level(&m->spectrumLevels[i], decibels(m->spectrumEnvelopes[i]));
+    }
+}
+
+void eqc_meter_feed_spectrum(eqc_meter *m, const eqc_channel *output, int32_t outputChannels, int32_t frames) {
+    if (outputChannels < 1) return;
+    spectrum_feed(m, output[0], outputChannels > 1 ? output[1] : output[0], frames);
+}
+
+void eqc_meter_read_spectrum(const eqc_meter *m, double *levels) {
+    for (int32_t i = 0; i < EQC_SPECTRUM_BANDS; i++) levels[i] = load_level(&m->spectrumLevels[i]);
+}
+
 int32_t eqc_meter_band_count(const eqc_meter *m) { return m->bandCount; }
 
 void eqc_meter_read(const eqc_meter *m, double *input, double *output, double *peak) {
@@ -502,8 +555,9 @@ struct eqc_engine {
     eqc_dynamics_state dynamicsState;
     eqc_biquad_state detector[2 * EQC_MAX_CHANNELS];
     float dc[2 * EQC_MAX_CHANNELS];
-    bool wasMetering;
+    bool wasMetering, wasSpectrum;
     int32_t metering;           // atomic
+    int32_t spectrum;           // atomic
     int32_t limiting;           // atomic
     float compressorReductionDB; // atomic
     eqc_meter meter;
@@ -544,7 +598,9 @@ void eqc_engine_init(eqc_engine *e, const double *meterFrequencies, int32_t mete
         e->dc[i] = 0;
     }
     e->wasMetering = false;
+    e->wasSpectrum = false;
     e->metering = 0;
+    e->spectrum = 0;
     e->limiting = 0;
     e->compressorReductionDB = 0;
     eqc_meter_init(&e->meter, meterFrequencies, meterBands);
@@ -618,6 +674,7 @@ void eqc_configure(eqc_engine *e, double sampleRate, int32_t channels) {
 }
 
 void eqc_set_metering(eqc_engine *e, bool enabled) { __atomic_store_n(&e->metering, enabled ? 1 : 0, __ATOMIC_RELAXED); }
+void eqc_set_spectrum(eqc_engine *e, bool enabled) { __atomic_store_n(&e->spectrum, enabled ? 1 : 0, __ATOMIC_RELAXED); }
 bool eqc_limiting(const eqc_engine *e) { return __atomic_load_n(&e->limiting, __ATOMIC_RELAXED) != 0; }
 
 float eqc_compressor_reduction_db(const eqc_engine *e) {
@@ -771,8 +828,11 @@ void eqc_process(eqc_engine *e, const eqc_channel *channels, int32_t channelCoun
     if (channelCount < 0) channelCount = 0;
     sanitize(channels, channelCount, frames);
     bool metering = __atomic_load_n(&e->metering, __ATOMIC_RELAXED) && frames <= EQC_METER_CAPACITY && channelCount > 0;
+    bool spectrum = metering && __atomic_load_n(&e->spectrum, __ATOMIC_RELAXED);
     if (metering && !e->wasMetering) eqc_meter_reset(&e->meter);
+    else if (spectrum && !e->wasSpectrum) spectrum_reset(&e->meter);
     e->wasMetering = metering;
+    e->wasSpectrum = spectrum;
     if (metering) {
         const float *left = channels[0];
         const float *right = channelCount > 1 ? channels[1] : left;
@@ -783,6 +843,7 @@ void eqc_process(eqc_engine *e, const eqc_channel *channels, int32_t channelCoun
     if (metering) {
         meter_feed(&e->meter, e->meterInput, e->meterInput, channels[0], channelCount > 1 ? channels[1] : channels[0], frames);
     }
+    if (spectrum) spectrum_feed(&e->meter, channels[0], channelCount > 1 ? channels[1] : channels[0], frames);
 }
 
 int32_t eqc_engine_render_state(const eqc_engine *e, float *out, int32_t capacity) {

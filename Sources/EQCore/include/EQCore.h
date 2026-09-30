@@ -26,6 +26,8 @@ extern "C" {
 /// The longest `eqc_process` call that is metered; a longer one plays but goes unmetered.
 #define EQC_METER_CAPACITY 4096
 #define EQC_METER_FLOOR_DB (-60.0)
+/// Third octaves from 20 Hz to 20 kHz.
+#define EQC_SPECTRUM_BANDS 31
 
 /// The detector's ITU-R BS.1770 K-weighting: a high shelf, then a high-pass.
 #define EQC_K_SHELF_FREQUENCY 1681.974450955533
@@ -147,6 +149,8 @@ void eqc_process(eqc_engine *engine, const eqc_channel *_Nonnull channels, int32
 /// makeup keeps what it learned.
 void eqc_reset_render_state(eqc_engine *engine);
 void eqc_set_metering(eqc_engine *engine, bool enabled);
+/// The meter's spectrum too, while metering is on.
+void eqc_set_spectrum(eqc_engine *engine, bool enabled);
 /// Whether the last `eqc_process` call limited.
 bool eqc_limiting(const eqc_engine *engine);
 /// The compressor's gain change in dB before makeup, 0 or below.
@@ -169,6 +173,15 @@ int32_t eqc_meter_band_count(const eqc_meter *meter);
 /// `output` hold `eqc_meter_band_count` values, in dB, floored at EQC_METER_FLOOR_DB.
 void eqc_meter_read(const eqc_meter *meter, double *input, double *output, double *peak);
 int32_t eqc_meter_render_state(const eqc_meter *meter, float *out, int32_t capacity);
+
+// Spectrum: the same envelopes on the output's mono sum, in third octaves.
+
+/// The centre of third octave `band`, 0 at 20 Hz to EQC_SPECTRUM_BANDS − 1 at 20 kHz.
+double eqc_spectrum_frequency(int32_t band);
+void eqc_meter_feed_spectrum(eqc_meter *meter, const eqc_channel *_Nonnull output, int32_t outputChannels, int32_t frames);
+/// Like `eqc_meter_read`: EQC_SPECTRUM_BANDS values in dB. A band at or above 0.49 × the sample
+/// rate reads the floor.
+void eqc_meter_read_spectrum(const eqc_meter *meter, double *levels);
 
 #pragma clang assume_nonnull end
 

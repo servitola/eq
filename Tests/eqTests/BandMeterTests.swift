@@ -152,4 +152,72 @@ final class BandMeterTests: XCTestCase {
         processor.process(channels: [bigLeft, bigRight], frameCount: oversized)
         XCTAssertEqual(processor.meter.outputDB[5], -60)
     }
+
+    /// A sine at `frequency`, amplitude 0.5 (−6 dBFS), for half a second into a fresh meter's spectrum.
+    private func spectrum(of frequency: Double, rate: Double = 48000) -> [Double] {
+        let meter = BandMeter(frequencies: Config.bandFrequencies)
+        meter.configure(sampleRate: rate)
+        for block in 0..<(Int(0.5 * rate) / frames) {
+            for i in 0..<frames {
+                left[i] = 0.5 * Float(sin(2 * Double.pi * frequency * Double(block * frames + i) / rate))
+            }
+            meter.feedSpectrum([left, left], frameCount: frames)
+        }
+        return meter.spectrumDB
+    }
+
+    func testSpectrumCentresAreTheThirdOctavesFrom20HzTo20kHz() {
+        let f = BandMeter.spectrumFrequencies
+        XCTAssertEqual(f.count, 31)
+        XCTAssertEqual(f[0], 19.95, accuracy: 0.01)
+        XCTAssertEqual(f[17], 1000, accuracy: 1e-9)
+        XCTAssertEqual(f[30], 19953, accuracy: 1)
+        for (a, b) in zip(f, f.dropFirst()) { XCTAssertEqual(b / a, pow(10, 0.1), accuracy: 1e-9) }
+    }
+
+    /// A single band-pass a third octave wide is 7 dB down at the next centre and 12.6 dB at the
+    /// one after, so a sine stands out by those margins, less the envelope's ripple.
+    func testSineAtEachCentreLandsInItsThirdOctave() {
+        for (band, frequency) in BandMeter.spectrumFrequencies.enumerated() {
+            let levels = spectrum(of: frequency)
+            XCTAssertEqual(levels[band], -6, accuracy: 1.5, "\(frequency) Hz")
+            XCTAssertEqual(levels.indices.max { levels[$0] < levels[$1] }, band, "\(frequency) Hz: \(levels)")
+            for other in levels.indices where abs(other - band) == 1 {
+                XCTAssertLessThanOrEqual(levels[other], levels[band] - 6, "\(frequency) Hz, band \(other)")
+            }
+            for other in levels.indices where abs(other - band) >= 2 {
+                XCTAssertLessThanOrEqual(levels[other], levels[band] - 11, "\(frequency) Hz, band \(other)")
+            }
+        }
+    }
+
+    func testSpectrumBetweenCentresReadsWithinThreeDB() {
+        let levels = spectrum(of: 1000 * pow(10, 0.05))
+        XCTAssertEqual(levels[17], -9, accuracy: 1.2)
+        XCTAssertEqual(levels[18], -9, accuracy: 1.2)
+    }
+
+    func testBandsPastWhatTheRateCarriesReadTheFloor() {
+        let levels = spectrum(of: 12589, rate: 32000)
+        XCTAssertEqual(levels[28], -6, accuracy: 1.5)
+        XCTAssertEqual(Array(levels[29...]), [-60, -60])
+        XCTAssertEqual(spectrum(of: 19953, rate: 44100)[30], -6, accuracy: 1.5)
+    }
+
+    func testSpectrumRunsOnlyWhileMetering() {
+        let off = makeProcessor(metering: false)
+        feedSine(off)
+        feedSine(off)
+        XCTAssertEqual(off.meter.spectrumDB, Array(repeating: -60, count: 31))
+        let on = makeProcessor(metering: true)
+        feedSine(on)
+        feedSine(on)
+        XCTAssertEqual(on.meter.spectrumDB[17], -6, accuracy: 1.5)
+        XCTAssertLessThanOrEqual(on.meter.spectrumDB[14], -18)
+        on.meteringEnabled = false
+        feedSine(on)
+        on.meteringEnabled = true
+        feedSilence(on)
+        XCTAssertEqual(on.meter.spectrumDB[17], -60, "a new client starts from silence, not the last one's levels")
+    }
 }

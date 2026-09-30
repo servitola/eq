@@ -32,6 +32,14 @@ final class BandMeter {
     var inputDB: [Double] { levels().input }
     var outputDB: [Double] { levels().output }
     var peakDB: Double { levels().peak }
+    /// The output's third octaves at `spectrumFrequencies`.
+    var spectrumDB: [Double] {
+        var levels = [Double](repeating: 0, count: Int(EQC_SPECTRUM_BANDS))
+        eqc_meter_read_spectrum(meter, &levels)
+        return levels
+    }
+
+    static let spectrumFrequencies = (0..<EQC_SPECTRUM_BANDS).map(eqc_spectrum_frequency)
 
     func configure(sampleRate: Double) { eqc_meter_configure(meter, sampleRate) }
 
@@ -47,6 +55,10 @@ final class BandMeter {
     /// Audio thread. `input`/`output` are the deinterleaved channels; mono = 0.5*(L+R).
     func feed(input: [UnsafeMutablePointer<Float>], output: [UnsafeMutablePointer<Float>], frameCount: Int) {
         eqc_meter_feed(meter, input, Int32(input.count), output, Int32(output.count), Int32(frameCount))
+    }
+
+    func feedSpectrum(_ output: [UnsafeMutablePointer<Float>], frameCount: Int) {
+        eqc_meter_feed_spectrum(meter, output, Int32(output.count), Int32(frameCount))
     }
 }
 

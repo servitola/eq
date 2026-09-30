@@ -28,7 +28,10 @@ final class EQProcessor {
 
     /// Written on the main queue, read once per callback on the audio thread.
     var meteringEnabled = false {
-        didSet { eqc_set_metering(core, meteringEnabled) }
+        didSet {
+            eqc_set_metering(core, meteringEnabled)
+            eqc_set_spectrum(core, meteringEnabled)
+        }
     }
     var limiting: Bool { eqc_limiting(core) }
     /// The compressor's current gain change in dB, 0 or below, before makeup. Written by the
