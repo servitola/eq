@@ -52,14 +52,14 @@ struct DoctorProbes {
     }
 }
 
-struct DoctorCheck: Encodable, Equatable {
+struct DoctorCheck: Codable, Equatable {
     var name: String
     var ok: Bool
     var detail: String
     var warning: Bool
 }
 
-struct DoctorReport: Encodable {
+struct DoctorReport: Codable, Equatable {
     var ok: Bool
     var checks: [DoctorCheck]
 }

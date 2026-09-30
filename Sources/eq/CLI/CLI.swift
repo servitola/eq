@@ -629,11 +629,11 @@ enum CLI {
     }
 
     /// Whole milliseconds once the daemon splits the path: the device is what a player compensates, the rest it cannot.
-    static func latencyText(_ status: Status) -> String? {
+    static func latencyText(_ status: Status, paint: Bool = Paint.enabled) -> String? {
         guard let total = status.latencyMs else { return nil }
-        guard let device = status.deviceLatencyMs else { return Paint.ink(.yellow, String(format: "%.1f ms", total)) }
-        let added = status.addedLatencyMs.map { ", eq adds " + Paint.ink(.yellow, Table.whole($0)) } ?? ""
-        return Paint.ink(.yellow, "\(Table.whole(total)) ms") + " (device \(Table.whole(device))\(added))"
+        guard let device = status.deviceLatencyMs else { return Paint.ink(.yellow, String(format: "%.1f ms", total), on: paint) }
+        let added = status.addedLatencyMs.map { ", eq adds " + Paint.ink(.yellow, Table.whole($0), on: paint) } ?? ""
+        return Paint.ink(.yellow, "\(Table.whole(total)) ms", on: paint) + " (device \(Table.whole(device))\(added))"
     }
 
     private static func stream(_ args: [String], _ ctx: CLIContext) throws -> Output {
@@ -1150,6 +1150,48 @@ enum CLI {
         return Output(heading + "\n" + table, report)
     }
 
+    /// One saved version as `eq history` lists it: the current device's profile in it, nil when
+    /// it cannot be read.
+    struct HistoryVersion: Equatable {
+        var index: Int
+        var url: URL
+        var date: Date
+        var config: Config?
+        var profile: Profile?
+    }
+
+    /// The versions `eq undo` and `eq redo` walk through, newest first, and where they sit; the
+    /// bookkeeping is reconciled first, which `note` then explains.
+    static func historyVersions(_ ctx: CLIContext) throws -> (position: Int, note: String?, versions: [HistoryVersion]) {
+        guard ctx.store.exists() else { return (0, nil, []) }
+        // Without it a hand edit mid-undo and a stash left by an interrupted step are missing from the list.
+        let note = try ctx.store.reconcileHistory()
+        let device = try? currentDevice(ctx)
+        func version(_ index: Int, _ url: URL, _ date: Date) -> HistoryVersion {
+            let config = try? ctx.store.load(at: url)
+            return HistoryVersion(index: index, url: url, date: date, config: config,
+                                  profile: config.flatMap { config in device.map { config.profile(forDeviceUID: $0.uid).profile } })
+        }
+        var versions = ctx.store.latestVersion().map { [version(0, $0.url, $0.date)] } ?? []
+        versions += ctx.store.backups().map { version($0.index, $0.url, $0.date) }
+        return (ctx.store.historyPosition(), note, versions)
+    }
+
+    /// Steps `eq undo` or `eq redo` takes, one at a time, until the live config is version `index`.
+    @discardableResult
+    static func restoreVersion(_ index: Int, _ ctx: CLIContext) throws -> (index: Int, date: Date)? {
+        try ctx.store.reconcileHistory()
+        var stepped: (index: Int, date: Date)?
+        while ctx.store.historyPosition() != index {
+            let back = ctx.store.historyPosition() < index
+            guard let step = try back ? ctx.store.stepBack() : ctx.store.stepForward() else {
+                throw back ? CLIError.noBackup : CLIError.noRedo
+            }
+            stepped = step
+        }
+        return stepped
+    }
+
     /// Position 0 is the latest edit, `.1`…`.10` the backup chain; `←` marks where `eq undo`/`eq redo`
     /// currently sit. `eq undo --list` is an alias kept for muscle memory.
     private static func history(_ args: [String], _ ctx: CLIContext) throws -> Output {
@@ -1158,17 +1200,12 @@ enum CLI {
             return Output(Paint.ink(.dim, "no history yet — the defaults are in use and nothing has been saved"),
                           HistoryReport(position: 0, entries: [], warning: nil))
         }
-        // Without it a hand edit mid-undo and a stash left by an interrupted step are missing from the list.
-        let note = try ctx.store.reconcileHistory()
-        let position = ctx.store.historyPosition()
-        let device = try? currentDevice(ctx)
+        let (position, note, versions) = try historyVersions(ctx)
         var lines: [String] = note.map { ["\(Paint.ink(.yellow, "warning:")) \($0)"] } ?? []
         var rows: [HistoryRow] = []
-
-        func row(_ index: Int, _ path: String, _ date: Date, _ config: Config?) {
-            let profile = config.flatMap { config in device.map { config.profile(forDeviceUID: $0.uid).profile } }
-            var line = String(format: "%3d  ", index) + Paint.ink(.dim, backupTime(date))
-            if let config, let profile {
+        for version in versions {
+            var line = String(format: "%3d  ", version.index) + Paint.ink(.dim, backupTime(version.date))
+            if let config = version.config, let profile = version.profile {
                 line += "  " + Table.compactGains(profile.bands)
                 line += "  preamp " + Paint.ink(Paint.gain(profile.preamp), Table.gain(profile.preamp))
                 if !profile.filters.isEmpty { line += Paint.ink(.cyan, "  +\(profile.filters.count) filters") }
@@ -1177,20 +1214,13 @@ enum CLI {
                 if let layer = profile.dynamics, !layer.isOff { line += "  " + Table.dynamics(layer) }
                 if !config.enabled { line += "  " + Paint.ink(.yellow, "off") }
                 if let mark = presetMark(profile, config) { line += "  " + Table.presetLabel(mark) }
-            } else if config == nil {
+            } else if version.config == nil {
                 line += "  " + Paint.ink(.red, "unreadable")
             }
-            if index == position { line += Paint.ink(.green, " ←") }
+            if version.index == position { line += Paint.ink(.green, " ←") }
             lines.append(line)
-            rows.append(HistoryRow(index: index, path: path, date: date, enabled: config?.enabled, profile: profile,
-                                   current: index == position))
-        }
-
-        if let latest = ctx.store.latestVersion() {
-            row(0, latest.url.path, latest.date, try? ctx.store.load(at: latest.url))
-        }
-        for backup in ctx.store.backups() {
-            row(backup.index, backup.url.path, backup.date, try? ctx.store.load(backup: backup.index))
+            rows.append(HistoryRow(index: version.index, path: version.url.path, date: version.date, enabled: version.config?.enabled,
+                                   profile: version.profile, current: version.index == position))
         }
         return Output(lines.joined(separator: "\n"), HistoryReport(position: position, entries: rows, warning: note))
     }

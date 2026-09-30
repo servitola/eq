@@ -37,13 +37,7 @@ extension CLI {
                     for assignment in operands.dropFirst() {
                         let parts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
                         guard parts.count == 2 else { throw CLIError.usage("expected <key>=<value>, got \"\(assignment)\" (keys: freq gain q type)") }
-                        switch parts[0].lowercased() {
-                        case "freq": filter.frequency = try filterFrequency(parts[1])
-                        case "gain": filter.gain = try filterGain(parts[1])
-                        case "q": filter.q = try filterQ(parts[1])
-                        case "type": filter.type = try filterType(parts[1])
-                        default: throw CLIError.usage("unknown key \"\(parts[0])\" (keys: freq gain q type)")
-                        }
+                        try assignFilter(parts[0], parts[1], to: &filter)
                     }
                 }
             }
@@ -119,6 +113,17 @@ extension CLI {
         let text = Paint.ink(.green, done) + "\n" + Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device",
                                           profile: profile, preset: presetMark(profile, config)?.name))
+    }
+
+    /// One `<key>=<value>` of `eq filter set`: freq, gain, q or type.
+    static func assignFilter(_ key: String, _ value: String, to filter: inout Filter) throws {
+        switch key.lowercased() {
+        case "freq": filter.frequency = try filterFrequency(value)
+        case "gain": filter.gain = try filterGain(value)
+        case "q": filter.q = try filterQ(value)
+        case "type": filter.type = try filterType(value)
+        default: throw CLIError.usage("unknown key \"\(key)\" (keys: freq gain q type)")
+        }
     }
 
     private static func filterType(_ token: String) throws -> FilterType {

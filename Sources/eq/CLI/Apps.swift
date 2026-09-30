@@ -57,22 +57,13 @@ extension CLI {
             return appList(config, ctx)
         case ("set", 3):
             let app = try resolveApp(args[1], ctx)
-            guard let preset = config.preset(named: args[2]) else { throw CLIError.noSuchPreset(args[2]) }
-            var rules = config.apps ?? []
-            let rule = AppRule(app: app.id, preset: preset.name)
-            if let at = rules.firstIndex(where: { $0.matches(app.id) }) { rules[at] = rule } else { rules.append(rule) }
-            config.apps = rules
+            let rule = try setAppRule(app, preset: args[2], in: &config)
             try ctx.store.save(config)
-            var lines = [Paint.ink(.green, "app ") + Paint.ink(.bold, app.name) + Paint.ink(.dim, " (\(app.id))") + " → " + Paint.ink(.bold, preset.name)]
+            var lines = [Paint.ink(.green, "app ") + Paint.ink(.bold, app.name) + Paint.ink(.dim, " (\(app.id))") + " → " + Paint.ink(.bold, rule.preset)]
             if !config.followsApps { lines.append(Paint.ink(.dim, "apps are off — eq app on to follow them")) }
             return Output(lines.joined(separator: "\n"), appsReport(config, ctx))
         case ("rm", 2):
-            var rules = config.apps ?? []
-            let query = args[1]
-            let id = rules.first(where: { $0.matches(query) })?.app ?? (try? resolveApp(query, ctx))?.id
-            guard let id, let at = rules.firstIndex(where: { $0.matches(id) }) else { throw CLIError.noSuchAppRule(query) }
-            let removed = rules.remove(at: at)
-            config.apps = rules.isEmpty ? nil : rules
+            let removed = try removeAppRule(args[1], in: &config, ctx)
             try ctx.store.save(config)
             return Output(Paint.ink(.green, "removed ") + Paint.ink(.bold, removed.app), appsReport(config, ctx))
         case ("on", 1), ("off", 1):
@@ -85,6 +76,27 @@ extension CLI {
         default:
             throw CLIError.usage(usage)
         }
+    }
+
+    /// The app plays `preset` from now on, replacing a rule it had.
+    @discardableResult
+    static func setAppRule(_ app: PlayingApp, preset name: String, in config: inout Config) throws -> AppRule {
+        guard let preset = config.preset(named: name) else { throw CLIError.noSuchPreset(name) }
+        var rules = config.apps ?? []
+        let rule = AppRule(app: app.id, preset: preset.name)
+        if let at = rules.firstIndex(where: { $0.matches(app.id) }) { rules[at] = rule } else { rules.append(rule) }
+        config.apps = rules
+        return rule
+    }
+
+    /// The rule of the app `query` names by bundle ID, or by the name of an app running or installed.
+    static func removeAppRule(_ query: String, in config: inout Config, _ ctx: CLIContext) throws -> AppRule {
+        var rules = config.apps ?? []
+        let id = rules.first(where: { $0.matches(query) })?.app ?? (try? resolveApp(query, ctx))?.id
+        guard let id, let at = rules.firstIndex(where: { $0.matches(id) }) else { throw CLIError.noSuchAppRule(query) }
+        let removed = rules.remove(at: at)
+        config.apps = rules.isEmpty ? nil : rules
+        return removed
     }
 
     /// A running app by bundle ID or name first, then an installed one; a bundle ID of an app not
