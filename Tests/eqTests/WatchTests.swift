@@ -77,8 +77,9 @@ final class WatchTests: XCTestCase {
         XCTAssertTrue(lines[0].hasPrefix(" ◉ BE-RCA  44.1 kHz │ preamp -1.5 dB"), lines[0])
         XCTAssertTrue(lines[0].hasSuffix(" peak -6.0 dB "), lines[0])
         XCTAssertTrue(lines[1].hasPrefix("  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events "), lines[1])
-        XCTAssertTrue(lines[2].hasPrefix("   ╭─ meter ─"), lines[2])
-        XCTAssertTrue(lines[2].contains(" dBFS · gain dB ╮"), lines[2])
+        XCTAssertTrue(lines[2].hasPrefix("   ╭ level dBFS ─"), lines[2])
+        XCTAssertTrue(lines[2].contains("─ meter ─"), lines[2])
+        XCTAssertTrue(lines[2].contains("─ EQ dB ╮"), lines[2])
         XCTAssertEqual(lines[g.liveY + 1].split(separator: " "), Config.bandLabels.map { Substring($0) })
         XCTAssertEqual(lines[g.liveY + 2].split(separator: " "), ["+12.0", "-12.0"] + Array(repeating: "0.0", count: 8))
         XCTAssertEqual(lines[28].trimmingCharacters(in: .whitespaces), "", "the message row is kept even when empty")
@@ -178,8 +179,9 @@ final class WatchTests: XCTestCase {
         gains[7] = -12
         let s = scene(frame(out: -60, gains: gains), depth: .truecolor)
         let screen = MeterScreens.screen(s)
-        let top = (g.top..<(g.top + g.rows)).first { y in (screen[g.centre(2), y].text.unicodeScalars.first?.value ?? 0) >= 0x2800 }!
-        let bottom = (g.top..<(g.top + g.rows)).last { y in (screen[g.centre(7), y].text.unicodeScalars.first?.value ?? 0) >= 0x2800 }!
+        func onCurve(_ x: Int, _ y: Int) -> Bool { screen[x, y].text == "●" || (screen[x, y].text.unicodeScalars.first?.value ?? 0) >= 0x2800 }
+        let top = (g.top..<(g.top + g.rows)).first { onCurve(g.centre(2), $0) }!
+        let bottom = (g.top..<(g.top + g.rows)).last { onCurve(g.centre(7), $0) }!
         XCTAssertLessThanOrEqual(top, g.top + 1, "+12 dB at 125 Hz reaches the top")
         XCTAssertGreaterThanOrEqual(bottom, g.top + g.rows - 2, "-12 dB at 4 kHz the bottom")
         let fill = Theme(palette: .ink, depth: .truecolor).p
@@ -276,7 +278,7 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(frames.count, 5)
         XCTAssertEqual(run.whole, [true, false, true, false, false], "the first frame, then only after the resize")
         XCTAssertTrue(frames[2].contains("BE-RCA"))
-        XCTAssertTrue(frames[4].components(separatedBy: "\n")[2].hasPrefix("   ╭─ meter"), "the new layout is centred for 100 columns")
+        XCTAssertTrue(frames[4].components(separatedBy: "\n")[2].hasPrefix("   ╭ level dBFS"), "the new layout is centred for 100 columns")
     }
 
     func testRunRendersTinyTerminal() throws {

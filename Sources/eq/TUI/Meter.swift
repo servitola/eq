@@ -105,6 +105,12 @@ struct MeterModel: Program {
     private var outputHold = 0
     /// Frames LIMIT stays lit after the daemon last reported limiting.
     private var limitLeft = 0
+    /// The third octaves as drawn: up at once, down no faster than `spectrumFall`; empty while
+    /// frames come without them.
+    var spectrum: [Double] = []
+    var spectrumPeaks: [Double] = []
+    private var spectrumHolds: [Int] = []
+    var motion = CurveMotion()
     let curve = CurveCache()
     let chainCurve = ChainCurve()
 
@@ -163,6 +169,8 @@ struct MeterModel: Program {
     /// IEC 60268-10 Type I return: 20 dB in 1.7 s. No standard names a hold; 1.5 s is the convention.
     static let peakHoldFrames = 45
     static let peakFall = 20 / 1.7 / 30
+    /// 20 dB a second, a little slower than the meter's own release, so a bar settles rather than drops.
+    static let spectrumFall = 20.0 / 30
     static let limitFrames = 10
     static let stackLimit = 16
 
@@ -335,6 +343,9 @@ struct MeterModel: Program {
         scene.prompt = prompt
         scene.listening = listening
         scene.peaks = look.peaks && peaks.count == scene.bands ? peaks : nil
+        scene.spectrum = spectrum.count == MeterScene.spectrumBands ? spectrum : nil
+        scene.spectrumPeaks = look.peaks && scene.spectrum != nil ? spectrumPeaks : nil
+        if motion.to.count == scene.bands { scene.curveGains = motion.gains }
         scene.outputPeak = look.peaks ? outputPeak : nil
         scene.live = meterOpen && last != nil
         scene.limiting = scene.live && (f.limiting || limitLeft > 0)
@@ -391,6 +402,23 @@ struct MeterModel: Program {
         }
         (outputPeak, outputHold) = Self.held(outputPeak, hold: outputHold, level: MeterScene.clampLevel(f.peak.isFinite ? f.peak : Watch.floorDB))
         limitLeft = f.limiting ? Self.limitFrames : max(limitLeft - 1, 0)
+        let levels = (f.spectrum ?? []).map(MeterScene.clampLevel)
+        guard levels.count == MeterScene.spectrumBands else {
+            (spectrum, spectrumPeaks, spectrumHolds) = ([], [], [])
+            return
+        }
+        if spectrum.count != levels.count {
+            (spectrum, spectrumPeaks) = (levels, levels)
+            spectrumHolds = Array(repeating: Self.peakHoldFrames, count: levels.count)
+        }
+        for i in levels.indices {
+            spectrum[i] = Self.released(spectrum[i], level: levels[i])
+            (spectrumPeaks[i], spectrumHolds[i]) = Self.held(spectrumPeaks[i], hold: spectrumHolds[i], level: levels[i])
+        }
+    }
+
+    static func released(_ shown: Double, level: Double) -> Double {
+        level >= shown ? level : max(level, shown - spectrumFall)
     }
 
     static func held(_ peak: Double, hold: Int, level: Double) -> (Double, Int) {
@@ -413,16 +441,18 @@ struct MeterModel: Program {
     }
 
     private mutating func frame(_ f: MeterFrame) -> [MeterCmd] {
-        let before = (flash, note, peaks, outputPeak, limitLeft > 0)
+        let before = (flash, note, peaks, outputPeak, limitLeft > 0, spectrum, spectrumPeaks, motion.moving)
         let same = last.map { var a = $0; a.t = f.t; return a == f } ?? false
         flash = flash.flatMap { $0.left > 0 ? Countdown(value: $0.value, left: $0.left - 1) : nil }
         note = note.flatMap { $0.left > 0 ? Countdown(value: $0.value, left: $0.left - 1) : nil }
         let hadSolo = last?.solo != nil
         last = f
         hold(f)
-        // Levels standing still, nothing counting down: the screen would be the same.
+        motion.advance(toward: MeterScene.clampedGains(f.gains))
+        // Levels standing still, nothing counting down or moving: the screen would be the same.
         needsRedraw = !(same && before.0 == nil && before.1 == nil && flash == nil && note == nil && before.2 == peaks
-            && before.3 == outputPeak && before.4 == (limitLeft > 0))
+            && before.3 == outputPeak && before.4 == (limitLeft > 0) && before.5 == spectrum && before.6 == spectrumPeaks
+            && !before.7 && !motion.moving)
         var cmds: [MeterCmd] = []
         // The daemon keeps a solo across a device switch, so only a frame without one asks again:
         // once per rate, or once when it vanished at a rate the range can play (refused at a 0 Hz

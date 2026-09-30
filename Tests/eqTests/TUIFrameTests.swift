@@ -75,7 +75,7 @@ final class TUIFrameTests: XCTestCase {
         XCTAssertTrue(r.drawn[3].contains("▸ ● kick"), r.drawn[3])
         XCTAssertTrue(r.drawn[4].contains("▸ ● bass"), "j moves the selection: \(r.drawn[4])")
         XCTAssertFalse(r.drawn[5].contains("╭─ instruments "), "Esc goes back to the meter")
-        XCTAssertTrue(r.drawn[5].contains("╭─ meter "), r.drawn[5])
+        XCTAssertTrue(r.drawn[5].contains("─ meter ─"), r.drawn[5])
     }
 
     func testMouseFollowsTheSetting() throws {
@@ -109,7 +109,7 @@ final class TUIFrameTests: XCTestCase {
         XCTAssertTrue(r.drawn[2].contains("╭─ go to "), r.drawn[2])
         XCTAssertTrue(r.drawn[3].contains("╭─ events "), r.drawn[3])
         XCTAssertFalse(r.drawn[5].contains("╭─ go to "), "1 closed the menu and did nothing else")
-        XCTAssertTrue(r.drawn[7].contains("╭─ meter "), "ь is m on a Russian layout: \(r.drawn[7])")
+        XCTAssertTrue(r.drawn[7].contains("─ meter ─"), "ь is m on a Russian layout: \(r.drawn[7])")
     }
 
     func testAResumeRedrawsInFullWithoutAFrame() throws {

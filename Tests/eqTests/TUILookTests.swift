@@ -13,12 +13,12 @@ final class TUILookTests: XCTestCase {
     /// The mocks' state: `mocks.py` `base_state`.
     static func scene(cols: Int, rows: Int, look: Look = .studio, depth: ColorDepth = .truecolor, palette: PaletteName? = nil,
                       zones: Bool = false, focus: String? = nil, modal: WatchModal? = nil, flash: Int? = nil,
-                      message: MeterScene.Message? = nil, solo: Bool = false, view: TUIView = .meter) -> MeterScene {
+                      message: MeterScene.Message? = nil, solo: Bool = false, view: TUIView = .meter, spectrum: Bool = true) -> MeterScene {
         let frame = MeterFrame(t: 0, device: "BE-RCA", rate: 44100,
                                in: [-7.0, -6.0, -9.5, -14.0, -19.0, -14.5, -22.0, -26.0, -31.0, -39.0],
                                out: [-9.0, -7.5, -11.0, -15.0, -19.0, -17.0, -22.0, -26.0, -29.0, -37.0], peak: -6, limiting: false,
                                gains: Config.screenshotCurve, preamp: -4.8, enabled: true,
-                               solo: solo ? SoloRange(low: 85, high: 9000) : nil, comp: -2.1)
+                               solo: solo ? SoloRange(low: 85, high: 9000) : nil, comp: -2.1, spectrum: spectrum ? Self.spectrum : nil)
         var scene = MeterScene(frame: frame, size: Size(cols: cols, rows: rows))
         scene.settings.look = look
         scene.settings.depth = depth
@@ -30,6 +30,7 @@ final class TUILookTests: XCTestCase {
         scene.message = message
         scene.listening = solo
         scene.peaks = [-4.2, -3.1, -7.0, -11.5, -15.0, -13.2, -18.0, -21.5, -25.0, -31.0]
+        scene.spectrumPeaks = scene.spectrum.map { $0.enumerated().map { j, level in min(level + [2.5, 4, 1.5, 6, 3][j % 5], 0) } }
         scene.outputPeak = -4.5
         scene.header = Watch.Header(preset: ("favourite", true), preference: Preference(bass: 1, treble: -0.5), knobs: ["voice": 3],
                                     dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
@@ -38,6 +39,11 @@ final class TUILookTests: XCTestCase {
         scene.events.entries = events
         return scene
     }
+
+    /// The mix's third octaves: a kick at 50–63 Hz, a dip in the low mids, presence at 2.5–3 kHz,
+    /// rolling off above 12 kHz.
+    static let spectrum: [Double] = [-31, -22, -14.5, -11, -8.5, -9.5, -13, -15.5, -17, -18.5, -20, -21.5, -23, -22, -21, -22.5, -24.5, -23,
+                                     -24, -25.5, -24, -21.5, -22.5, -25, -27.5, -29, -31, -33.5, -37, -42, -51]
 
     /// A morning's events as `eq events` would print them.
     static let events: [EventEntry] = [
@@ -105,6 +111,8 @@ final class TUILookTests: XCTestCase {
     static let cases: [(name: String, scene: MeterScene)] = Look.allCases.flatMap { look -> [(String, MeterScene)] in
         [("\(look)-meter-80x24", scene(cols: 80, rows: 24, look: look)),
          ("\(look)-meter-120x40", scene(cols: 120, rows: 40, look: look)),
+         ("\(look)-meter-120x40-bands", scene(cols: 120, rows: 40, look: look, spectrum: false)),
+         ("\(look)-meter-140x40", scene(cols: 140, rows: 40, look: look)),
          ("\(look)-zones-120x36", scene(cols: 120, rows: 36, look: look, zones: true, flash: 5, message: saved)),
          ("\(look)-focus-120x36", scene(cols: 120, rows: 36, look: look, zones: true, focus: "voice", flash: 5, message: listening,
                                         solo: true)),
@@ -377,7 +385,8 @@ final class TUILookTests: XCTestCase {
             .replacingOccurrences(of: #""paper-meter-120x36": "light palette 120×36" };"#,
                                   with: #""paper-meter-120x36": "light palette 120×36", "meter-120x40": "meter 120×40", "#
                                       + #""instruments-80x24": "instruments 80×24", "events-120x36": "events 120×36", "go-120x36": "g menu 120×36", "#
-                                      + #""palette-120x36": "palette 120×36", "output-120x36": "command output 120×36", "tune-80x24": "tune 80×24" };"#)
+                                      + #""palette-120x36": "palette 120×36", "output-120x36": "command output 120×36", "tune-80x24": "tune 80×24", "#
+                                      + #""meter-140x40": "meter 140×40", "meter-120x40-bands": "meter without a spectrum 120×40" };"#)
             .replacingOccurrences(of: "Mock screens from <code>docs/design/tui/mocks.py</code>",
                                   with: "Screens from the real renderer (<code>EQ_WRITE_SCREENSHOTS=1 swift test --filter TUILookTests</code>)")
         try page.write(to: Self.actual.appendingPathComponent("preview.html"), atomically: true, encoding: .utf8)

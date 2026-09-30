@@ -1,6 +1,6 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
   METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   APPS   SYSTEM   HISTORY   EVENTS               g go  ; cmd
-    ╭─ keys ─────────────────────────────────────────────────────────────────────────────────────────── meter view ╮──╮
+ dBF╭─ keys ─────────────────────────────────────────────────────────────────────────────────────────── meter view ╮──╮
    0│                                                                                                              │  │
   -6│  Tune ───────────────────────────────────────────────  Look ───────────────────────────────────────────────  │  │
     │   1 … 9 0   raise band 32 Hz … 16 kHz by 0.5 dB (0 is   y Y       next look: studio → console / next         │  │

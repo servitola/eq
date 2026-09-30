@@ -14,6 +14,12 @@ struct MeterScene {
     let gains: [Double]
     let outLevels: [Double]
     let inLevels: [Double]
+    /// The output's third octaves, when the frame has them: the studio draws them instead of the
+    /// ten bands' bars, the console in its strips.
+    var spectrum: [Double]?
+    var spectrumPeaks: [Double]?
+    /// The gains the curve is drawn with: `gains`, or on their way to them.
+    var curveGains: [Double]
     var strip = false
     var focus: Instrument?
     var modal: WatchModal?
@@ -75,9 +81,17 @@ struct MeterScene {
         self.frame = frame
         self.size = size
         let bands = Config.bandLabels.count
-        gains = Watch.padded(frame.gains, to: bands, with: 0).map { min(max($0, -12), 12) }
+        gains = Self.clampedGains(frame.gains)
+        curveGains = gains
         outLevels = Watch.padded(frame.out, to: bands, with: Watch.floorDB).map(Self.clampLevel)
         inLevels = Watch.padded(frame.in, to: bands, with: Watch.floorDB).map(Self.clampLevel)
+        spectrum = frame.spectrum.flatMap { $0.count == Self.spectrumBands ? $0.map(Self.clampLevel) : nil }
+    }
+
+    static let spectrumBands = BandMeter.spectrumFrequencies.count
+
+    static func clampedGains(_ gains: [Double]) -> [Double] {
+        Watch.padded(gains, to: Config.bandLabels.count, with: 0).map { min(max($0, -12), 12) }
     }
 
     var theme: Theme {
@@ -232,8 +246,13 @@ struct MeterGeometry {
     /// Where a zone row's instrument name goes, and whether it is the full name.
     var nameX: Int
     var fullNames: Bool
+    /// Columns a third-octave bar takes with its gap, when the spectrum is drawn: its 31 bars start
+    /// one pitch left of the bands' table, so that every third one sits under a band's centre.
+    var pitch: Int? = nil
 
     var tableWidth: Int { columns * cell }
+    var plotX0: Int { x0 - (pitch ?? 0) }
+    var plotWidth: Int { tableWidth + (pitch ?? 0) }
     var table: ClosedRange<Int> { x0...(x0 + max(tableWidth, 1) - 1) }
 
     /// A boxed bar sits in the middle of its cell; a compact one at its right end, under the
@@ -245,23 +264,29 @@ struct MeterGeometry {
     static let sideWidth = 27
 
     /// `tabs`: rows the tab row took from `size` above it; they come out of the meter, not the strip.
-    static func studio(_ size: Size, zones: Int, focus: Bool, tabs: Int = 0) -> MeterGeometry {
+    /// `spectrum`: 31 third-octave bars, three columns apart where the panel has room and two where
+    /// it has less; with less still, the ten bands as without.
+    static func studio(_ size: Size, zones: Int, focus: Bool, tabs: Int = 0, spectrum: Bool = false) -> MeterGeometry {
         let (w, h) = (size.cols, size.rows)
         guard w >= 60, h >= 12 else { return compact(size, zones: zones, focus: focus) }
         let sideWidth = w >= 110 ? Self.sideWidth : 0
         let panel = w - sideWidth
-        let cell = min(max((panel - 13) / 10, 4), 8)
-        let barWidth = cell >= 7 ? 5 : 3
-        let boxWidth = 13 + cell * 10
+        let pitch = spectrum ? [3, 2].first { panel - 13 >= 31 * $0 } : nil
+        let cell = pitch.map { 3 * $0 } ?? min(max((panel - 13) / 10, 4), 8)
+        let barWidth = pitch.map { $0 - 1 } ?? (cell >= 7 ? 5 : 3)
+        let lead = pitch ?? 0
+        let boxWidth = 13 + lead + cell * 10
         let px = max((panel - boxWidth) / 2, 0)
         let bracket = focus ? 1 : 0
         let zoneRows = focus ? min(zones, max(h + tabs - 17, 0)) : min(zones, max(h + tabs - 22, 0))
         let rows = max(h - 1 - 2 - bracket - 3 - zoneRows - 2, 1)
         let box = Rect(x: px, y: 1, width: boxWidth, height: rows + 2 + bracket)
-        return MeterGeometry(boxed: true, columns: Config.bandLabels.count, cell: cell, barWidth: barWidth, x0: px + 7, box: box,
-                             gutter: px + 1, axis: px + 7 + cell * 10, side: sideWidth > 0 ? Rect(x: w - sideWidth, y: 1, width: sideWidth, height: h - 3) : nil,
+        return MeterGeometry(boxed: true, columns: Config.bandLabels.count, cell: cell, barWidth: barWidth, x0: px + 7 + lead, box: box,
+                             gutter: px + 1, axis: px + 7 + lead + cell * 10,
+                             side: sideWidth > 0 ? Rect(x: w - sideWidth, y: 1, width: sideWidth, height: h - 3) : nil,
                              bracketY: focus ? 2 : nil, top: 2 + bracket, rows: rows, liveY: box.bottom, zoneY: box.bottom + 3,
-                             zoneRows: zoneRows, messageY: h - 2, keybarY: h - 1, shortLabels: cell < 6, nameX: px + 1, fullNames: false)
+                             zoneRows: zoneRows, messageY: h - 2, keybarY: h - 1, shortLabels: cell < 6, nameX: px + 1, fullNames: false,
+                             pitch: pitch)
     }
 
     /// The watch's own rows: header, bracket, bars, strip, live, labels, gains, message, keybar,

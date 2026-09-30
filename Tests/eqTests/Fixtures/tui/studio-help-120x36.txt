@@ -1,34 +1,34 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
   Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
-╭─ m╭─ keys ─────────────────────────────────────────────────────────────────────────────────────────── meter view ╮───╮
-│  0│                                                                                                              │6.0│
-│   │  Tune ───────────────────────────────────────────────  Look ───────────────────────────────────────────────  │   │
-│ -6│   1 … 9 0   raise band 32 Hz … 16 kHz by 0.5 dB (0 is   y Y       next look: studio → console / next         │───╯
-│   │             the tenth band, 16 kHz)                               palette: ink → paper → brass; saved as     │───╮
-│   │   ⇧1 … ⇧0   lower it by 0.5 dB: ! @ # $ % ^ & * ( )               tui.look and tui.palette                   │   │
-│-12│             on a US layout                                                                                   │2.1│
-│   │   + -       preamp ±0.5 dB (= and _ work too, no       Go to ──────────────────────────────────────────────  │0.3│
-│   │             Shift needed)                               g m       the meter                                  │───╯
-│   │   b B t T   bass / treble shelf +0.5 dB, with Shift     g t       the curve to edit: bands as sliders,       │───╮
-│   │             −0.5 dB                                               preamp, tone, dynamics                     │1.0│
-│-24│   p ↓ ↑     next preset (p, ↓) / previous one (↑),      g i       the instruments, their knobs and levels    │0.5│
-│   │             alphabetically, wrapping round              g p       the presets: apply, save as, rename,       │0.0│
-│   │   c         compressor: off → gentle → night → off                delete, compare                            │───╯
-│   │   v V       colour: off → tape → tube → off, starting   g d       the outputs and their curves: use one,     │───╮
-│   │             at 0.3 / raise the amount by 0.1, from 1              copy the curve to one, edit one            │0.0│
-│   │             back to 0.1                                 g f       the current device's parametric filters:   │0.0│
-│-36│   s         save the curve as a preset: type a name,              add, change, remove                        │0.0│
-│   │             Enter saves, Esc cancels                    g a       the app rules: which preset plays while    │0.0│
-│   │                                                                   an app does, and the routes                │0.0│
-│   │  Instruments ────────────────────────────────────────   g s       the daemon, the mode and the driver's      │3.0│
-│   │   z         the instrument strip, on and off                      health, and eq doctor                      │0.0│
-│-48│   i         the Instruments view: ranges in Hz, the     g h       the saved versions of eq.json: restore     │0.0│
-│   │             bands each touches, knob gains, levels;               one, step with undo and redo               │───╯
-│   │             Esc comes back                              g e       the daemon's events as they happen         │
-│   │   ] Tab [   focus the next / previous instrument        Esc       stay; any other key does too               │
-│   │   → ←       the focused instrument's knob ±0.5 dB (.                                                         │
-│-60│             and , work too, no Shift needed)           Command palette ────────────────────────────────────  │
-╰───│   l         listen to the focused instrument alone,     Enter     run the chosen line: an eq command as a    │
+    ╭─ keys ─────────────────────────────────────────────────────────────────────────────────────────── meter view ╮───╮
+    │                                                                                                              │6.0│
+    │  Tune ───────────────────────────────────────────────  Look ───────────────────────────────────────────────  │   │
+    │   1 … 9 0   raise band 32 Hz … 16 kHz by 0.5 dB (0 is   y Y       next look: studio → console / next         │───╯
+    │             the tenth band, 16 kHz)                               palette: ink → paper → brass; saved as     │───╮
+    │   ⇧1 … ⇧0   lower it by 0.5 dB: ! @ # $ % ^ & * ( )               tui.look and tui.palette                   │   │
+    │             on a US layout                                                                                   │2.1│
+    │   + -       preamp ±0.5 dB (= and _ work too, no       Go to ──────────────────────────────────────────────  │0.3│
+    │             Shift needed)                               g m       the meter                                  │───╯
+    │   b B t T   bass / treble shelf +0.5 dB, with Shift     g t       the curve to edit: bands as sliders,       │───╮
+    │             −0.5 dB                                               preamp, tone, dynamics                     │1.0│
+    │   p ↓ ↑     next preset (p, ↓) / previous one (↑),      g i       the instruments, their knobs and levels    │0.5│
+    │             alphabetically, wrapping round              g p       the presets: apply, save as, rename,       │0.0│
+    │   c         compressor: off → gentle → night → off                delete, compare                            │───╯
+    │   v V       colour: off → tape → tube → off, starting   g d       the outputs and their curves: use one,     │───╮
+    │             at 0.3 / raise the amount by 0.1, from 1              copy the curve to one, edit one            │0.0│
+    │             back to 0.1                                 g f       the current device's parametric filters:   │0.0│
+    │   s         save the curve as a preset: type a name,              add, change, remove                        │0.0│
+    │             Enter saves, Esc cancels                    g a       the app rules: which preset plays while    │0.0│
+    │                                                                   an app does, and the routes                │0.0│
+    │  Instruments ────────────────────────────────────────   g s       the daemon, the mode and the driver's      │3.0│
+    │   z         the instrument strip, on and off                      health, and eq doctor                      │0.0│
+    │   i         the Instruments view: ranges in Hz, the     g h       the saved versions of eq.json: restore     │0.0│
+    │             bands each touches, knob gains, levels;               one, step with undo and redo               │───╯
+    │             Esc comes back                              g e       the daemon's events as they happen         │
+    │   ] Tab [   focus the next / previous instrument        Esc       stay; any other key does too               │
+    │   → ←       the focused instrument's knob ±0.5 dB (.                                                         │
+    │             and , work too, no Shift needed)           Command palette ────────────────────────────────────  │
+    │   l         listen to the focused instrument alone,     Enter     run the chosen line: an eq command as a    │
     │             and back                                              child process, or a screen action          │
     │   Esc       leave the focus (and stop listening);       Tab       take the chosen suggestion into the line   │
     ╰───────────────────────────────────────────────── 1–29 of 54 ─────────────────────────────────────────────────╯

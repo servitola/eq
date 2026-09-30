@@ -23,7 +23,7 @@ struct StudioView {
         let tabs = scene.tabRows
         let size = Size(cols: scene.size.cols, rows: scene.size.rows - tabs)
         let g: MeterGeometry = compact ? .compact(size, zones: zones, focus: scene.focus != nil)
-            : .studio(size, zones: zones, focus: scene.focus != nil, tabs: tabs)
+            : .studio(size, zones: zones, focus: scene.focus != nil, tabs: tabs, spectrum: scene.spectrum != nil)
         return g.lowered(by: tabs)
     }
 
@@ -32,8 +32,9 @@ struct StudioView {
         StatusBar(scene: scene).studio(into: &screen, width: scene.size.cols)
         if scene.tabRows > 0 { TabRow.draw(scene, into: &screen) }
         if let box = g.box {
-            Boxes.draw(box, into: &screen, t, border: scene.focus != nil ? p.borderHi : p.border, title: "meter",
-                       right: scene.settings.scale ? "dBFS · gain dB" : nil)
+            let scale = scene.settings.scale
+            Boxes.draw(box, into: &screen, t, border: scene.focus != nil ? p.borderHi : p.border, title: scale ? nil : "meter")
+            if scale { titles(box, into: &screen) }
         }
         meter(g, into: &screen)
         if g.boxed, scene.settings.scale { scales(g, into: &screen) }
@@ -48,12 +49,63 @@ struct StudioView {
                                      widen: !g.boxed && g.columns < scene.bands, into: &screen)
     }
 
+    /// What each scale measures, over it and in its colour: the bars' at the left, the curve's at the right.
+    private func titles(_ box: Rect, into screen: inout Screen) {
+        let left = " level dBFS ", right = " EQ dB ", title = " meter "
+        screen.ink(left, x: box.x + 1, y: box.y, t.style(scaleInk(-18), nil, .bold))
+        screen.ink(right, x: box.right - 1 - right.count, y: box.y, t.style(p.curve, nil, .bold))
+        let x = box.x + (box.width - title.count) / 2
+        if x > box.x + left.count + 1, x + title.count < box.right - right.count - 1 {
+            screen.ink(title, x: x, y: box.y, t.style(p.text2, nil, .bold))
+        }
+    }
+
+    /// The level scale's labels: the bars' colour at that level, lifted a little toward the text so
+    /// the dark end still reads.
+    private func scaleInk(_ db: Double) -> Swatch { t.level(db).mixed(toward: p.text, 0.2) }
+
+    /// The row a level's scale label and grid line sit on.
+    private static func row(_ db: Double, rows: Int) -> Int {
+        rows - 1 - min(Int((db - Watch.floorDB) / -Watch.floorDB * Double(rows)), rows - 1)
+    }
+
+    static let gridLevels: [Double] = [0, -12, -24, -36, -48]
+
+    private struct Bar {
+        var x, width: Int
+        var level: Double
+        var ghost: Double?
+        var peak: Double?
+        var outside: Bool
+    }
+
+    /// The third octaves when the frame has them and the panel room for them; else the ten bands.
+    private func bars(_ g: MeterGeometry) -> [Bar] {
+        let inside = scene.inside
+        if let pitch = g.pitch, let spectrum = scene.spectrum {
+            return spectrum.indices.map { j in
+                let band = min(max(Int((Double(j - 2) / 3).rounded()), 0), scene.bands - 1)
+                return Bar(x: g.plotX0 + j * pitch, width: pitch - 1, level: spectrum[j], ghost: nil,
+                           peak: scene.spectrumPeaks?[j], outside: !inside.contains(band))
+            }
+        }
+        return (0..<g.columns).map { i in
+            Bar(x: g.barX(i), width: g.barWidth, level: scene.outLevels[i], ghost: scene.inLevels[i], peak: scene.peaks?[i],
+                outside: !inside.contains(i))
+        }
+    }
+
+    /// The boost or cut area `distance` rows from the curve: brightest at the line, the plain
+    /// tint from the fourth row on, so the curve's edge glows. Row 0 is the curve's own cell.
+    /// Sixteen colours and none paint no tint at all.
+    private static func fills(_ p: Palette, boost: Bool) -> [Swatch] {
+        let plain = boost ? p.boostFill : p.cutFill
+        return [0.58, 0.68, 0.74, 0.79].map { plain.mixed(toward: boost ? p.boost : p.cut, 1 - $0 / 0.84).with(sgr: nil, []) } + [plain]
+    }
 
     private func meter(_ g: MeterGeometry, into screen: inout Screen) {
-        let rows = g.rows, top = g.top, width = g.tableWidth
+        let rows = g.rows, top = g.top, x0 = g.plotX0, width = g.plotWidth
         guard rows > 0, width > 0 else { return }
-        let gains = scene.gains, out = scene.outLevels, input = scene.inLevels
-        let inside = scene.inside
         let leds = scene.settings.meterStyle == .leds
         let rowInk = (0..<rows).map { b -> (Swatch, Swatch) in
             let c = t.level(Watch.floorDB + (Double(b) + 0.5) / Double(rows) * -Watch.floorDB)
@@ -61,37 +113,48 @@ struct StudioView {
         }
         var under = [Swatch?](repeating: nil, count: width * rows)
         var tint = [Swatch?](repeating: nil, count: width * rows)
+        // The curve's own cells: lit in its side's colour where it has left the 0 dB line.
+        var glow = [Swatch?](repeating: nil, count: width * rows)
         let curve = scene.settings.showsCurve && g.columns >= 2
+        let zeroRow = Int((Double(rows * 4 - 1) / 2).rounded()) / 4
         if curve {
-            scene.curve.update(gains, rate: scene.frame.rate, centres: g.centres, x0: g.x0, width: width, rows: rows)
+            scene.curve.update(scene.curveGains, rate: scene.frame.rate, centres: g.centres, x0: x0, width: width, rows: rows, thick: g.boxed)
             let ys = scene.curve.ys
-            let zeroRow = Int((Double(rows * 4 - 1) / 2).rounded()) / 4
+            let lit = g.boxed && (t.depth == .truecolor || t.depth == .indexed)
+            let boost = lit ? Self.fills(p, boost: true) : [p.boostFill], cut = lit ? Self.fills(p, boost: false) : [p.cutFill]
             for cx in 0..<width where cx * 2 + 1 < ys.count {
                 let row = (ys[cx * 2] + ys[cx * 2 + 1]) / 2 / 4
-                for r in min(row, zeroRow)...max(row, zeroRow) where r != row {
-                    tint[r * width + cx] = row < zeroRow ? p.boostFill : p.cutFill
-                }
-            }
-            for cx in 0..<width {
-                screen.set(g.x0 + cx, top + zeroRow, Cell("┈", style: t.style(p.grid, tint[zeroRow * width + cx])))
-            }
-            for r in 0..<rows where r != zeroRow {
-                for cx in 0..<width where tint[r * width + cx] != nil {
-                    screen.set(g.x0 + cx, top + r, Cell(" ", style: t.style(nil, tint[r * width + cx])))
+                guard row != zeroRow else { continue }
+                let fills = row < zeroRow ? boost : cut
+                for r in min(row, zeroRow)...max(row, zeroRow) {
+                    let fill = fills[min(abs(r - row), fills.count - 1)]
+                    if r == row { glow[r * width + cx] = lit ? fill : nil } else { tint[r * width + cx] = fill }
                 }
             }
         }
-        for i in 0..<g.columns {
-            let bx = g.barX(i), outside = !inside.contains(i)
-            let outH = (out[i] - Watch.floorDB) / -Watch.floorDB * Double(rows)
-            let inH = (input[i] - Watch.floorDB) / -Watch.floorDB * Double(rows)
-            let peak = scene.peaks.map { min(Int(($0[i] - Watch.floorDB) / -Watch.floorDB * Double(rows)), rows - 1) }
+        let grid = g.boxed && scene.settings.scale ? Set(Self.gridLevels.map { Self.row($0, rows: rows) }) : []
+        let zeroInk = g.boxed ? p.curve.mixed(toward: p.bg, 0.72).with(sgr: nil, .dim) : p.grid
+        for r in 0..<rows {
+            let line = curve && r == zeroRow ? zeroInk : (grid.contains(r) ? p.grid : nil)
+            for cx in 0..<width {
+                let bg = tint[r * width + cx]
+                if let line {
+                    screen.set(x0 + cx, top + r, Cell("┈", style: t.style(line, bg)))
+                } else if let bg {
+                    screen.set(x0 + cx, top + r, Cell(" ", style: t.style(nil, bg)))
+                }
+            }
+        }
+        for bar in bars(g) {
+            let outH = (bar.level - Watch.floorDB) / -Watch.floorDB * Double(rows)
+            let inH = bar.ghost.map { ($0 - Watch.floorDB) / -Watch.floorDB * Double(rows) } ?? 0
+            let peak = bar.peak.map { min(Int(($0 - Watch.floorDB) / -Watch.floorDB * Double(rows)), rows - 1) }
             let full = Int(outH), fraction = outH - Double(full)
             for b in 0..<rows {
                 let r = rows - 1 - b, y = top + r
-                let ink = outside ? rowInk[b].1 : rowInk[b].0
-                for dx in 0..<g.barWidth {
-                    let col = bx - g.x0 + dx
+                let ink = bar.outside ? rowInk[b].1 : rowInk[b].0
+                for dx in 0..<bar.width {
+                    let col = bar.x - x0 + dx
                     guard col >= 0, col < width else { continue }
                     let bg = tint[r * width + col]
                     var cell: Cell?
@@ -99,7 +162,7 @@ struct StudioView {
                         let db = Watch.floorDB + (Double(b) + 0.5) / Double(rows) * -Watch.floorDB
                         let lit = b < Int(outH.rounded()) || b == peak
                         var c = t.led(db, lit: lit)
-                        if outside, lit { c = c.mixed(toward: p.bg, 0.6).with(sgr: nil, .dim) }
+                        if bar.outside, lit { c = c.mixed(toward: p.bg, 0.6).with(sgr: nil, .dim) }
                         cell = Cell("▆", style: t.style(c, bg))
                         if lit { under[r * width + col] = c }
                     } else if b < full {
@@ -111,12 +174,12 @@ struct StudioView {
                     } else if let peak, b == peak, peak >= full {
                         var tick = t.level(Watch.floorDB + (Double(b) + 0.5) / Double(rows) * -Watch.floorDB)
                             .mixed(toward: Swatch(0xFFFFFF), 0.35)
-                        if outside { tick = t.faded(tick) }
+                        if bar.outside { tick = t.faded(tick) }
                         cell = Cell("▔", style: t.style(tick, bg))
                     } else if Double(b) < inH {
                         cell = Cell("░", style: t.style(p.ghost, bg))
                     }
-                    if let cell { screen.set(g.x0 + col, y, cell) }
+                    if let cell { screen.set(x0 + col, y, cell) }
                 }
             }
         }
@@ -124,9 +187,13 @@ struct StudioView {
         for (col, column) in scene.curve.glyphs where col >= 0 && col < width {
             for (r, glyph) in column where r >= 0 && r < rows {
                 let below = under[r * width + col]
-                let style = t.style(p.curve, below ?? tint[r * width + col], solid: below != nil)
-                screen.set(g.x0 + col, top + r, Cell(String(glyph), style: style))
+                let bg = below ?? glow[r * width + col] ?? tint[r * width + col]
+                screen.set(x0 + col, top + r, Cell(String(glyph), style: t.style(p.curve, bg, g.boxed ? .bold : [], solid: below != nil)))
             }
+        }
+        guard g.boxed else { return }
+        CurveNodes.draw(scene, centres: g.centres, x0: x0, top: top, width: width, rows: rows, into: &screen) { col, r in
+            (under[r * width + col], glow[r * width + col] ?? tint[r * width + col])
         }
     }
 
@@ -134,17 +201,17 @@ struct StudioView {
         let rows = g.rows
         if let gx = g.gutter {
             for db in [0, -6, -12, -24, -36, -48, -60] {
-                let b = min(Int((Double(db) - Watch.floorDB) / -Watch.floorDB * Double(rows)), rows - 1)
-                let y = g.top + rows - 1 - b
-                screen.ink(String(format: "%3d", db), x: gx, y: y, t.style(p.text3))
+                let y = g.top + Self.row(Double(db), rows: rows)
+                screen.ink(String(format: "%3d", db), x: gx, y: y, t.style(scaleInk(Double(db))))
                 screen.ink("┤", x: gx + 4, y: y, t.style(p.border))
             }
         }
         if let ax = g.axis {
+            let faint = p.curve.mixed(toward: p.bg, 0.4).with(sgr: nil, [])
             for gain in [12, 6, 0, -6, -12] {
                 let y = g.top + Int((Double(12 - gain) / 24 * Double(rows - 1)).rounded())
                 screen.ink("├", x: ax, y: y, t.style(p.border))
-                screen.ink(gain == 0 ? " 0" : String(format: "%+d", gain), x: ax + 1, y: y, t.style(gain == 0 ? p.curve : p.text3))
+                screen.ink(gain == 0 ? " 0" : String(format: "%+d", gain), x: ax + 1, y: y, t.style(gain == 0 ? p.curve : faint, nil, gain == 0 ? .bold : []))
             }
         }
     }
@@ -272,6 +339,33 @@ enum Zones {
                     screen.ink(String(cell.glyph), x: segment.lo + i, y: y, style)
                 }
             }
+        }
+    }
+}
+
+/// A dot on the curve at each band's centre in its gain's colour, and on the band just edited a
+/// ring in the accent with its gain on a chip beside it. `ground` gives a cell's bar colour, if a
+/// bar is under it, and its background otherwise.
+enum CurveNodes {
+    static func draw(_ scene: MeterScene, centres: [Int], x0: Int, top: Int, width: Int, rows: Int, into screen: inout Screen,
+                     ground: (_ col: Int, _ row: Int) -> (bar: Swatch?, bg: Swatch?)) {
+        let t = scene.theme, p = t.p
+        let ys = scene.curve.ys, inside = scene.inside
+        let edited = scene.flash?.band
+        for (band, centre) in centres.enumerated() {
+            let col = centre - x0
+            guard col >= 0, col < width, col * 2 + 1 < ys.count else { continue }
+            let r = min((ys[col * 2] + ys[col * 2 + 1]) / 2 / 4, rows - 1)
+            let gain = scene.gains[band]
+            var ink = band == edited ? p.accent : (gain == 0 ? p.curve : t.gain(gain))
+            let (bar, bg) = ground(col, r)
+            // On a bar the gain's colour would be the bar's own: the curve's shows instead.
+            if bar != nil, band != edited { ink = p.curve }
+            if !inside.contains(band) { ink = t.faded(ink) }
+            screen.set(x0 + col, top + r, Cell(band == edited ? "◉" : "●", style: t.style(ink, bar ?? bg, .bold, solid: bar != nil)))
+            guard band == edited else { continue }
+            let text = " " + MeterScene.gainText(gain) + " "
+            screen.ink(text, x: x0 + col - text.count / 2, y: top + (r > 0 ? r - 1 : r + 1), t.style(p.onChip, p.accent, .bold, solid: true))
         }
     }
 }

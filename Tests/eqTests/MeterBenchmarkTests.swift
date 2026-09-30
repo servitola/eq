@@ -28,25 +28,37 @@ final class MeterBenchmarkTests: XCTestCase {
         }
     }
 
-    static func frames(_ count: Int, motion: Motion = .music) -> [MeterFrame] {
+    /// `spectrum`: the third octaves too, moving the same way around the bands' levels 4 dB down, as
+    /// the daemon sends them rounded to 0.1 dB.
+    static func frames(_ count: Int, motion: Motion = .music, spectrum: Bool = true) -> [MeterFrame] {
         var random = Random(state: 7)
         let base: [Double] = [-10, -8, -12, -16, -20, -18, -23, -27, -30, -38]
-        var shown = base
-        return (0..<count).map { n in
-            for i in 0..<10 {
-                switch motion {
-                case .stress:
-                    shown[i] = -60 + 59 * random.next()
-                case .music:
-                    let beat = i < 3 ? 6 * pow(max(0, sin(Double(n) / 30 * 2 * Double.pi * 2)), 4) : 0
-                    let target = base[i] + beat + random.gauss() * 3
-                    shown[i] = target > shown[i] ? target : max(target, shown[i] - 20.0 / 30 * 3)
-                }
+        let thirds = (0..<31).map { j -> Double in
+            let x = min(max(Double(j - 2) / 3, 0), 9), k = min(Int(x), 8)
+            return base[k] + (base[k + 1] - base[k]) * (x - Double(k)) - 4
+        }
+        var shown = base, shownThirds = thirds
+        func step(_ level: inout Double, base: Double, low: Bool, n: Int) {
+            switch motion {
+            case .stress:
+                level = -60 + 59 * random.next()
+            case .music:
+                let beat = low ? 6 * pow(max(0, sin(Double(n) / 30 * 2 * Double.pi * 2)), 4) : 0
+                let target = base + beat + random.gauss() * 3
+                level = target > level ? target : max(target, level - 20.0 / 30 * 3)
             }
+        }
+        return (0..<count).map { n in
+            for i in 0..<10 { step(&shown[i], base: base[i], low: i < 3, n: n) }
             let out = shown.map { min(max($0, -60), 0) }
-            return MeterFrame(t: Double(n) / 30, device: "BE-RCA", rate: 44100, in: out.map { min($0 + 1.5, -0.5) }, out: out,
-                              peak: (out.max()! * 10).rounded() / 10, limiting: false, gains: Config.screenshotCurve, preamp: -4.8,
-                              enabled: true, comp: -2.1)
+            var frame = MeterFrame(t: Double(n) / 30, device: "BE-RCA", rate: 44100, in: out.map { min($0 + 1.5, -0.5) }, out: out,
+                                   peak: (out.max()! * 10).rounded() / 10, limiting: false, gains: Config.screenshotCurve, preamp: -4.8,
+                                   enabled: true, comp: -2.1)
+            if spectrum {
+                for j in 0..<31 { step(&shownThirds[j], base: thirds[j], low: j < 9, n: n) }
+                frame.spectrum = shownThirds.map { (min(max($0, -60), 0) * 10).rounded() / 10 }
+            }
+            return frame
         }
     }
 
@@ -58,8 +70,7 @@ final class MeterBenchmarkTests: XCTestCase {
 
     /// Bytes a frame after the first, bytes of the first (a whole screen), and CPU a frame.
     static func measure(look: Look, depth: ColorDepth, motion: Motion, frames count: Int = 300,
-                        view: TUIView = .meter) -> (perFrame: Double, full: Int, ms: Double) {
-        let size = Size(cols: 120, rows: 40)
+                        view: TUIView = .meter, spectrum: Bool = true, size: Size = Size(cols: 120, rows: 40)) -> (perFrame: Double, full: Int, ms: Double) {
         var settings = LookSettings()
         settings.look = look
         settings.depth = depth
@@ -76,7 +87,7 @@ final class MeterBenchmarkTests: XCTestCase {
         var screen = Screen(size)
         var bytes = 0
         var full = 0
-        let frames = Self.frames(count + 1, motion: motion)
+        let frames = Self.frames(count + 1, motion: motion, spectrum: spectrum)
         let start = cpu()
         for (n, f) in frames.enumerated() {
             _ = model.update(.frame(f))
@@ -133,6 +144,20 @@ final class MeterBenchmarkTests: XCTestCase {
                                         m.perFrame, m.full, m.ms))
                     XCTAssertLessThan(m.perFrame, 4500, "research 08 §8: at most 60 % of the 7.6 KB a frame took before M2; \(look) \(depth) \(motion)")
                 }
+            }
+        }
+        for motion in Motion.allCases {
+            let m = Self.measure(look: .studio, depth: .truecolor, motion: motion, size: Size(cols: 140, rows: 40))
+            table.append(String(format: "| studio, 140×40 (bars 3 columns apart) | 24bit | %@ | %.0f | %d | %.2f |", motion.rawValue,
+                                m.perFrame, m.full, m.ms))
+            XCTAssertLessThan(m.perFrame, 4500, "the wider spectrum; \(motion)")
+        }
+        for look in Look.allCases {
+            for motion in Motion.allCases {
+                let m = Self.measure(look: look, depth: .truecolor, motion: motion, spectrum: false)
+                table.append(String(format: "| %@, ten bands (no spectrum) | 24bit | %@ | %.0f | %d | %.2f |", look.rawValue, motion.rawValue,
+                                    m.perFrame, m.full, m.ms))
+                XCTAssertLessThan(m.perFrame, 4500, "the fallback without a spectrum; \(look) \(motion)")
             }
         }
         for look in Look.allCases {

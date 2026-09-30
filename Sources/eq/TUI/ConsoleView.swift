@@ -70,9 +70,10 @@ struct ConsoleView {
             Zones.bracket(focus, y: l.top, centres: l.centres, table: l.table, scene: scene, into: &screen)
         }
         if scene.settings.scale {
+            screen.ink("dBFS", x: 1, y: l.tapeY, t.style(p.text3))
             for db in [0, -6, -18, -30, -42, -60] {
                 let b = min(Int((Double(db) - Watch.floorDB) / -Watch.floorDB * Double(l.ledRows)), l.ledRows - 1)
-                screen.ink(String(format: "%3d", db), x: 1, y: l.ledY + l.ledRows - 1 - b, t.style(p.text3))
+                screen.ink(String(format: "%3d", db), x: 1, y: l.ledY + l.ledRows - 1 - b, t.style(t.led(Double(db) - 0.5, lit: true)))
             }
         }
         for band in 0..<10 { strip(band, l, into: &screen) }
@@ -96,24 +97,31 @@ struct ConsoleView {
         label = String(repeating: " ", count: pad / 2) + label + String(repeating: " ", count: pad - pad / 2)
         screen.ink(label, x: x, y: l.tapeY, t.style(p.tapeFg, outside ? p.tapeBg.mixed(toward: p.surface, 0.55) : p.tapeBg, .bold, solid: true))
 
-        let litH = (level - Watch.floorDB) / -Watch.floorDB * Double(l.ledRows)
-        let peak = scene.peaks.map { min(Int(($0[band] - Watch.floorDB) / -Watch.floorDB * Double(l.ledRows)), l.ledRows - 1) }
+        // Three LED columns are the band's three third octaves, when the frame has them.
+        let thirds = l.ledWidth == 3 ? scene.spectrum.map { s in (0..<3).map { (s[3 * band + 1 + $0], scene.spectrumPeaks?[3 * band + 1 + $0]) } } : nil
+        let ladders = thirds ?? [(level, scene.peaks?[band])]
+        let ladderWidth = thirds == nil ? l.ledWidth : 1
         let bars = scene.settings.meterStyle == .bars
-        for b in 0..<l.ledRows {
-            let db = Watch.floorDB + (Double(b) + 0.5) / Double(l.ledRows) * -Watch.floorDB
-            let y = l.ledY + l.ledRows - 1 - b
-            let on = b < Int(litH.rounded()) || b == peak
-            let text = String(repeating: bars ? " " : "▆", count: l.ledWidth)
-            if bars {
-                guard on else { continue }
-                let c = outside ? t.faded(t.level(db)) : t.level(db)
-                screen.ink(b == peak && b >= Int(litH.rounded()) ? String(repeating: "▔", count: l.ledWidth) : text, x: l.ledX(band), y: y,
-                           b == peak && b >= Int(litH.rounded()) ? t.style(c) : t.style(nil, c, solid: true))
-                continue
+        for (k, ladder) in ladders.enumerated() {
+            let x = l.ledX(band) + k * ladderWidth
+            let litH = (ladder.0 - Watch.floorDB) / -Watch.floorDB * Double(l.ledRows)
+            let peak = ladder.1.map { min(Int(($0 - Watch.floorDB) / -Watch.floorDB * Double(l.ledRows)), l.ledRows - 1) }
+            for b in 0..<l.ledRows {
+                let db = Watch.floorDB + (Double(b) + 0.5) / Double(l.ledRows) * -Watch.floorDB
+                let y = l.ledY + l.ledRows - 1 - b
+                let on = b < Int(litH.rounded()) || b == peak
+                let text = String(repeating: bars ? " " : "▆", count: ladderWidth)
+                if bars {
+                    guard on else { continue }
+                    let c = outside ? t.faded(t.level(db)) : t.level(db)
+                    screen.ink(b == peak && b >= Int(litH.rounded()) ? String(repeating: "▔", count: ladderWidth) : text, x: x, y: y,
+                               b == peak && b >= Int(litH.rounded()) ? t.style(c) : t.style(nil, c, solid: true))
+                    continue
+                }
+                var c = t.led(db, lit: on && !outside)
+                if on, outside { c = t.led(db, lit: true).mixed(toward: p.surface, 0.6).with(sgr: nil, .dim) }
+                screen.ink(text, x: x, y: y, t.style(c))
             }
-            var c = t.led(db, lit: on && !outside)
-            if on, outside { c = t.led(db, lit: true).mixed(toward: p.surface, 0.6).with(sgr: nil, .dim) }
-            screen.ink(text, x: l.ledX(band), y: y, t.style(c))
         }
         let readout = level > Watch.floorDB ? String(format: "%5.1f", level) : "  -∞ "
         screen.ink(readout, x: x + (l.stripWidth - 1 - 5) / 2, y: l.lcdY, t.style(outside ? p.text3 : p.lcdFg, p.lcdBg))
@@ -140,11 +148,14 @@ struct ConsoleView {
 
     private func curve(_ l: Layout, into screen: inout Screen) {
         let width = l.table.count
-        scene.curve.update(scene.gains, rate: scene.frame.rate, centres: l.centres, x0: l.x0, width: width, rows: l.ledRows)
+        scene.curve.update(scene.curveGains, rate: scene.frame.rate, centres: l.centres, x0: l.x0, width: width, rows: l.ledRows, thick: true)
         for (col, column) in scene.curve.glyphs where col >= 0 && col < width {
             for (r, glyph) in column where r >= 0 && r < l.ledRows {
-                screen.ink(String(glyph), x: l.x0 + col, y: l.ledY + r, t.style(p.curve))
+                screen.ink(String(glyph), x: l.x0 + col, y: l.ledY + r, t.style(p.curve, nil, .bold))
             }
+        }
+        CurveNodes.draw(scene, centres: l.centres, x0: l.x0, top: l.ledY, width: width, rows: l.ledRows, into: &screen) { col, r in
+            (nil, p.surface)
         }
     }
 
