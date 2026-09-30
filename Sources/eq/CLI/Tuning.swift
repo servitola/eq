@@ -29,45 +29,60 @@ extension CLI {
             let type = try filterType(operands[0])
             let added = Filter(type: type, frequency: try filterFrequency(operands[1]), gain: try filterGain(operands[2]),
                                q: operands.count == 4 ? try filterQ(operands[3]) : defaultQ(for: type), origin: .hand)
-            return try editProfile(explicit, ctx) { profile in
-                profile.filters.append(added)
-                return "added filter \(profile.filters.count)"
-            }
+            return try editProfile(explicit, ctx) { addFilter(added, to: &$0) }
         case "set":
             guard operands.count >= 2 else { throw CLIError.usage("eq filter set <n> <key>=<value> … [--device DEVICE]") }
             return try editProfile(explicit, ctx) { profile in
-                let index = try filterIndex(operands[0], count: profile.filters.count)
-                for assignment in operands.dropFirst() {
-                    let parts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
-                    guard parts.count == 2 else { throw CLIError.usage("expected <key>=<value>, got \"\(assignment)\" (keys: freq gain q type)") }
-                    switch parts[0].lowercased() {
-                    case "freq": profile.filters[index].frequency = try filterFrequency(parts[1])
-                    case "gain": profile.filters[index].gain = try filterGain(parts[1])
-                    case "q": profile.filters[index].q = try filterQ(parts[1])
-                    case "type": profile.filters[index].type = try filterType(parts[1])
-                    default: throw CLIError.usage("unknown key \"\(parts[0])\" (keys: freq gain q type)")
+                try setFilter(try filterIndex(operands[0], count: profile.filters.count), in: &profile) { filter in
+                    for assignment in operands.dropFirst() {
+                        let parts = assignment.split(separator: "=", maxSplits: 1).map(String.init)
+                        guard parts.count == 2 else { throw CLIError.usage("expected <key>=<value>, got \"\(assignment)\" (keys: freq gain q type)") }
+                        switch parts[0].lowercased() {
+                        case "freq": filter.frequency = try filterFrequency(parts[1])
+                        case "gain": filter.gain = try filterGain(parts[1])
+                        case "q": filter.q = try filterQ(parts[1])
+                        case "type": filter.type = try filterType(parts[1])
+                        default: throw CLIError.usage("unknown key \"\(parts[0])\" (keys: freq gain q type)")
+                        }
                     }
                 }
-                return "changed filter \(index + 1)"
             }
         case "rm":
             guard operands.count == 1 else { throw CLIError.usage("eq filter rm <n>|all [--device DEVICE]") }
             return try editProfile(explicit, ctx) { profile in
-                let hadImported = profile.filters.contains { $0.origin == .import }
-                // A GraphicEQ import has no filters, so the label goes only with the last imported filter.
-                defer { if hadImported, !profile.filters.contains(where: { $0.origin == .import }) { profile.imported = nil } }
-                if operands[0].lowercased() == "all" {
-                    let count = profile.filters.count
-                    profile.filters = []
-                    return "removed \(count) filter" + (count == 1 ? "" : "s")
-                }
-                let index = try filterIndex(operands[0], count: profile.filters.count)
-                profile.filters.remove(at: index)
-                return "removed filter \(index + 1)"
+                if operands[0].lowercased() == "all" { return try removeFilter(nil, from: &profile) }
+                return try removeFilter(try filterIndex(operands[0], count: profile.filters.count), from: &profile)
             }
         default:
             throw CLIError.usage(filterUsage)
         }
+    }
+
+    static func addFilter(_ filter: Filter, to profile: inout Profile) -> String {
+        profile.filters.append(filter)
+        return "added filter \(profile.filters.count)"
+    }
+
+    /// `index` counts from 0; the filter keeps its origin, whatever changes.
+    static func setFilter(_ index: Int, in profile: inout Profile, _ edit: (inout Filter) throws -> Void) throws -> String {
+        guard profile.filters.indices.contains(index) else { throw CLIError.noSuchFilter(String(index + 1), profile.filters.count) }
+        try edit(&profile.filters[index])
+        return "changed filter \(index + 1)"
+    }
+
+    /// Filter `index` (from 0), or every one for nil.
+    static func removeFilter(_ index: Int?, from profile: inout Profile) throws -> String {
+        if let index, !profile.filters.indices.contains(index) { throw CLIError.noSuchFilter(String(index + 1), profile.filters.count) }
+        let hadImported = profile.filters.contains { $0.origin == .import }
+        // A GraphicEQ import has no filters, so the label goes only with the last imported filter.
+        defer { if hadImported, !profile.filters.contains(where: { $0.origin == .import }) { profile.imported = nil } }
+        guard let index else {
+            let count = profile.filters.count
+            profile.filters = []
+            return "removed \(count) filter" + (count == 1 ? "" : "s")
+        }
+        profile.filters.remove(at: index)
+        return "removed filter \(index + 1)"
     }
 
     private static func filterList(_ explicit: Target?, _ ctx: CLIContext) throws -> Output {

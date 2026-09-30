@@ -315,10 +315,18 @@ enum CLI {
         }
     }
 
-    private static func use(_ args: [String], _ ctx: CLIContext) throws -> Output {
+    /// Makes the device the system's output. In driver mode the daemon sees the default move to a
+    /// real device and points the EQ device at it, taking the default back.
+    @discardableResult
+    static func useDevice(_ args: [String], _ ctx: CLIContext) throws -> Target {
         let target = try useTarget(args, ctx)
-        let config = try loadConfig(ctx)
         try ctx.setDefaultOutput(target.uid)
+        return target
+    }
+
+    private static func use(_ args: [String], _ ctx: CLIContext) throws -> Output {
+        let config = try loadConfig(ctx)
+        let target = try useDevice(args, ctx)
         let resolved = config.profile(forDeviceUID: target.uid)
         let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
         let text = Paint.ink(.green, "output → ") + Paint.ink(.bold, target.name) + "\n"
@@ -335,13 +343,20 @@ enum CLI {
         guard let target, rest.isEmpty else { throw CLIError.usage(usage) }
         var config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
-        var profile = config.profile(forDeviceUID: current.uid).profile
-        profile.name = target.name
-        config.setProfile(profile, forDeviceUID: target.uid)
+        let profile = copyCurve(from: current, to: target, in: &config)
         try ctx.store.save(config)
         let copied = Paint.ink(.green, "copied ") + Paint.ink(.bold, current.name) + " → " + Paint.ink(.bold, target.name)
         let text = copied + "\n" + Table.profile(profile, header: target.name, preset: presetMark(profile, config))
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile))
+    }
+
+    /// `source`'s curve, whole, as `target`'s own profile.
+    @discardableResult
+    static func copyCurve(from source: Target, to target: Target, in config: inout Config) -> Profile {
+        var profile = config.profile(forDeviceUID: source.uid).profile
+        profile.name = target.name
+        config.setProfile(profile, forDeviceUID: target.uid)
+        return profile
     }
 
     private static func importCommand(_ args: [String], _ ctx: CLIContext) throws -> Output {
@@ -514,26 +529,28 @@ enum CLI {
 
     private static func devices(_ ctx: CLIContext) throws -> Output {
         let config = try loadConfig(ctx)
-        let connected = ctx.connectedDevices()
         let currentUID = (try? currentDevice(ctx))?.uid
-        var lines: [String] = []
-        var rows: [DeviceRow] = []
-        for device in connected {
-            let isCurrent = device.uid == currentUID
-            let marker = isCurrent ? Paint.ink(.green, "*") + " " : "  "
-            let name = Paint.ink(.bold, device.name)
-            let hasOwn = config.devices[device.uid] != nil
-            let profileLabel = hasOwn ? Paint.ink(.green, "own profile") : Paint.ink(.yellow, "default profile")
-            let transport = Paint.ink(.dim, "[\(device.transport)]")
-            lines.append("\(marker)\(name)  \(transport)  \(profileLabel)")
-            rows.append(DeviceRow(uid: device.uid, name: device.name, transport: device.transport, connected: true, profile: hasOwn ? "own" : "default"))
-        }
-        for (uid, profile) in config.devices.sorted(by: { ($0.value.name ?? $0.key) < ($1.value.name ?? $1.key) })
-            where !connected.contains(where: { $0.uid == uid }) {
-            lines.append("  \(Paint.ink(.bold, profile.name ?? uid))  \(Paint.ink(.dim, "[disconnected]"))  \(Paint.ink(.green, "own profile"))")
-            rows.append(DeviceRow(uid: uid, name: profile.name ?? uid, transport: nil, connected: false, profile: "own"))
+        let rows = deviceRows(config, connected: ctx.connectedDevices())
+        let lines = rows.map { row -> String in
+            let marker = row.uid == currentUID ? Paint.ink(.green, "*") + " " : "  "
+            let transport = Paint.ink(.dim, "[\(row.transport ?? "disconnected")]")
+            let profile = row.profile == "own" ? Paint.ink(.green, "own profile") : Paint.ink(.yellow, "default profile")
+            return "\(marker)\(Paint.ink(.bold, row.name))  \(transport)  \(profile)"
         }
         return Output(lines.joined(separator: "\n"), DevicesReport(current: currentUID, devices: rows))
+    }
+
+    /// The connected outputs in the system's order, then the devices with a profile that are not
+    /// connected, by name.
+    static func deviceRows(_ config: Config, connected: [CLIContext.ConnectedDevice]) -> [DeviceRow] {
+        let live = connected.map { device in
+            DeviceRow(uid: device.uid, name: device.name, transport: device.transport, connected: true,
+                      profile: config.devices[device.uid] != nil ? "own" : "default")
+        }
+        let known = config.devices.sorted { ($0.value.name ?? $0.key) < ($1.value.name ?? $1.key) }
+            .filter { uid, _ in !connected.contains { $0.uid == uid } }
+            .map { DeviceRow(uid: $0.key, name: $0.value.name ?? $0.key, transport: nil, connected: false, profile: "own") }
+        return live + known
     }
 
     private static func toggle(_ enabled: Bool, _ ctx: CLIContext) throws -> Output {
@@ -921,37 +938,57 @@ enum CLI {
                 + Table.profile(profile, header: target.name, preset: (name, false))
             return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile, preset: name))
         case ("use", 2):
-            let found = try existing(rest[1])
             let target = try target()
-            var profile = found.profile
-            profile.name = target.name
-            profile.preset = found.name
-            config.setProfile(profile, forDeviceUID: target.uid)
+            let (name, profile) = try usePreset(rest[1], on: target, in: &config)
             try ctx.store.save(config)
-            let table = Table.profile(profile, header: target.name, preset: (found.name, false))
-            return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile, preset: found.name))
+            let table = Table.profile(profile, header: target.name, preset: (name, false))
+            return Output(table, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name), source: "device", profile: profile, preset: name))
         case ("show", 2):
             let found = try existing(rest[1])
             return Output(Table.profile(found.profile, header: found.name), PresetShowReport(preset: found.name, profile: found.profile))
         case ("rm", 2):
-            let found = try existing(rest[1])
-            config.presets?[found.name] = nil
-            renamePresetReferences(&config, from: found.name, to: nil)
+            let name = try removePreset(rest[1], in: &config)
             try ctx.store.save(config)
-            return Output(Paint.ink(.green, "removed ") + Paint.ink(.bold, found.name), PresetRemovedReport(removed: found.name))
+            return Output(Paint.ink(.green, "removed ") + Paint.ink(.bold, name), PresetRemovedReport(removed: name))
         case ("rename", 3):
-            let found = try existing(rest[1])
-            let name = try validName(rest[2])
-            if let clash = config.preset(named: name), clash.name != found.name { throw CLIError.presetExists(clash.name) }
-            config.presets?[found.name] = nil
-            config.presets?[name] = found.profile
-            renamePresetReferences(&config, from: found.name, to: name)
+            let (from, to) = try renamePreset(rest[1], to: rest[2], in: &config)
             try ctx.store.save(config)
-            let text = Paint.ink(.green, "renamed ") + Paint.ink(.bold, found.name) + " → " + Paint.ink(.bold, name)
-            return Output(text, PresetRenamedReport(from: found.name, to: name))
+            let text = Paint.ink(.green, "renamed ") + Paint.ink(.bold, from) + " → " + Paint.ink(.bold, to)
+            return Output(text, PresetRenamedReport(from: from, to: to))
         default:
             throw CLIError.usage(usage)
         }
+    }
+
+    /// The preset, whole, as the target's curve, marked as using it.
+    @discardableResult
+    static func usePreset(_ query: String, on target: Target, in config: inout Config) throws -> (name: String, profile: Profile) {
+        guard let found = config.preset(named: query) else { throw CLIError.noSuchPreset(query) }
+        var profile = found.profile
+        profile.name = target.name
+        profile.preset = found.name
+        config.setProfile(profile, forDeviceUID: target.uid)
+        return (found.name, profile)
+    }
+
+    /// Its name as stored; a device that used it keeps the curve and loses the mark.
+    static func removePreset(_ query: String, in config: inout Config) throws -> String {
+        guard let found = config.preset(named: query) else { throw CLIError.noSuchPreset(query) }
+        config.presets?[found.name] = nil
+        renamePresetReferences(&config, from: found.name, to: nil)
+        return found.name
+    }
+
+    /// Devices and app rules that named it follow the new name.
+    static func renamePreset(_ query: String, to raw: String, in config: inout Config) throws -> (from: String, to: String) {
+        guard let found = config.preset(named: query) else { throw CLIError.noSuchPreset(query) }
+        let name = Config.normalizedPresetName(raw)
+        guard Config.isValidPresetName(name) else { throw CLIError.badPresetName(raw) }
+        if let clash = config.preset(named: name), clash.name != found.name { throw CLIError.presetExists(clash.name) }
+        config.presets?[found.name] = nil
+        config.presets?[name] = found.profile
+        renamePresetReferences(&config, from: found.name, to: name)
+        return (found.name, name)
     }
 
     private static func presetList(_ config: Config, _ ctx: CLIContext) -> Output {
