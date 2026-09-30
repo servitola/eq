@@ -594,3 +594,127 @@ behaves as the other lists.
 - Whether Zap under tmux sends Ctrl-P as 0x10 on a Russian layout (spec, Risks); `;` and `ж` do not
   depend on it.
 - An `eq route` command; until then routes are read-only in the TUI.
+
+## 10. The spectrum, the curve, the grid [measured]
+
+Asked after M6, from a screenshot of the studio Meter: a real spectrum analyser instead of ten
+bars, the curve as a solid glowing line that moves to a new curve instead of jumping, and a
+faint grid with each scale in the colour of what it measures. Screens from the real renderer are
+in `docs/design/tui/actual/` (`*-meter-120x40`, `*-meter-140x40`, `*-meter-80x24`, and
+`*-meter-120x40-bands`, the ten bands drawn when no spectrum comes), pinned by golden files.
+
+### What was built, and why
+
+- **A filter bank in EQCore, not an FFT.** 31 band-pass biquads at the base-ten third octaves
+  (1000 × 10^(n/10) Hz, n = −17…13: 19.95 Hz to 19.95 kHz, the values ISO 266 rounds), Q 4.33 so
+  neighbours meet 3 dB down, on the output's mono sum, with the band meter's own envelopes (10 ms
+  attack, 300 ms release). A sine at a centre reads its level ±1.5 dB, the next band is at least
+  6 dB below it (7 dB in theory), the one after at least 11 (12.6); a band at or above 0.49 × the
+  rate reads the floor. It runs only while metering runs (a meter client connected, as before) and
+  only when asked for (`eqc_set_spectrum`). An FFT would have taken the audio thread off the hook
+  but needed a sample ring and a reader thread in the daemon and in the plug-in, which has no
+  thread of its own for it (its properties are read on coreaudiod's HAL threads); the bank costs
+  what is measured below, and both modes read it exactly as they read the bands.
+- **The plug-in's record.** `eqMt` stays the 416-byte version 1 record every eq before this one
+  checks for (`size == sizeof(frame) && version == 1`); version 2 is that record with
+  `spectrumCount` and 31 doubles after it, on a property of its own, `eqMs`, which also turns the
+  plug-in's spectrum on for the next second. eq asks `AudioObjectHasProperty` for `eqMs` before
+  each read, so a plug-in without it costs no failed read (nor a line in coreaudiod's log) and
+  meters as before. `EQC_BLOB_VERSION`, the settings protocol, is unchanged: nothing about the
+  settings changed, and raising it would have made a new eq refuse an old plug-in.
+- **Frames** gain `spectrum` (31 values, 0.1 dB), left out when there is none; an older eq's
+  decoder ignores the key, and a frame without it decodes as before. A line grows from 306 to 502
+  bytes.
+- **Studio**: the bars are one pitch apart, 3 columns (2-wide bar and a gap) where the panel has 93
+  columns for them, 2 (a 1-wide bar) down to 62, and the ten bands below that; the 31 bars start a
+  pitch left of the bands' table so that every third one sits under a band's centre, and the band
+  numbers, labels and chips under the panel stay where they were. A bar rises at once and falls at
+  20 dB a second, a little slower than the envelope's own release; its tick holds and falls as the
+  bands' do. No input ghost: the spectrum is the output's only.
+- **The curve** is braille two dots thick, so the dots touch; bold; a dot `●` on each band's centre
+  in its gain's colour (the curve's own where it sits on a bar, whose colour it would otherwise
+  be), the band just edited `◉` in the accent with its gain on a chip above it for the edit flash's
+  24 frames. The boost and cut tints are brightest along the line and fade to the plain tint over
+  four rows, which is the glow a terminal can draw: a lighter background behind the braille itself
+  showed the cell edges as a grey band. A new curve is reached over 9 frames (300 ms at the
+  daemon's 30 a second), cubic ease-out, from wherever the line is drawn, so a second change
+  mid-way does not jump; no timer of its own. The chips show the new gains at once.
+- **Grid and scales**: `┈` in `grid` on the 0, −12, −24, −36 and −48 dBFS rows, the curve's 0 dB
+  line in the curve's colour faded; the level scale's numbers in the bars' gradient at their
+  level, lifted 20 % toward the text so −60 still reads, under `level dBFS` in the −18 dBFS
+  colour; the gain scale in the curve's colour (0 in full) under `EQ dB`. With `--no-scale`
+  neither grid nor labels.
+- **Console**: where the strip's ladder is three columns wide (strips of 7 columns and up), the
+  columns are the band's three third octaves, each with its own peak LED; 20 Hz, below the first
+  strip's, is not shown. The curve, when on, is the same solid line with nodes; the LED scale is
+  in the lit LED colours under `dBFS`. No grid: the ladders are one.
+
+### Audio thread
+
+`eqc_process` on 512-frame stereo callbacks of noise at 48 kHz with ten peaking bands and the
+limiter, best of 7 runs of 20 000 callbacks, EQCore compiled `-O2` as the plug-in is; the budget
+of such a callback is 10 667 µs. The first builds of the two versions differed by 1.4 µs with the
+meter off, which moved with code layout alone: built with every function and block aligned to 64
+bytes they are the same, so those are the numbers here.
+
+| Meter | Before | After |
+| --- | --- | --- |
+| off (no meter client) | 13.3 µs | 13.6 µs |
+| bands (an older eq, or `eqMt`) | 21.7 µs | 22.1 µs |
+| bands and spectrum | — | 33.5 µs |
+
+The spectrum adds 11.4 µs a 512-frame callback, 0.11 % of it (22 ns a frame, 0.7 ns a band and
+frame); 128- and 1024-frame callbacks scale with the frames. The plug-in runs the same code.
+
+### Bytes and CPU
+
+In process (`MeterBenchmarkTests`, release build, 300 frames at 120×40; the frames now carry a
+spectrum moving like the bands, "music" and "stress" as before):
+
+| Look, colours | M6 bytes a frame (music, stress) | Spectrum (music, stress) | Full frame | ms a frame |
+| --- | --- | --- | --- | --- |
+| studio, 24-bit | 1 181, 3 296 | 1 243, 1 244 | 20 582 | 0.28 |
+| studio, 256 | 895, — | 861, 936 | 15 131 | 0.27 |
+| studio, 16 | 692, — | 601, 664 | 9 757 | 0.26 |
+| studio, none | 597, — | 457, 494 | 9 053 | 0.26 |
+| studio, 24-bit, 140×40 (3-column pitch) | — | 1 367, 1 368 | 22 308 | 0.29 |
+| studio, 24-bit, no spectrum | 1 181, 3 296 | 1 257, 3 811 | 16 557 | 0.28 |
+| console, 24-bit | 386, 1 916 | 393, 408 | 29 894 | 0.30 |
+| console, 24-bit, no spectrum | 386, 1 916 | 386, 1 916 | 29 476 | 0.31 |
+
+With the spectrum the stress case writes less than the bands did: 31 bars one or two columns wide
+change fewer cells than ten five columns wide, and a bar falls a partial block a frame rather than
+jumping. The ten bands' stress case grew by 0.5 KB: bars moving through the grid rows and the
+graded tints rewrite those cells. The full frame (start, resize, `y`) grew by the grid and the
+glow, once. All rows are inside 4.5 KB.
+
+On a pty, the harness of §6 (release builds, 120×40, `TERM=xterm-256color`, `COLORTERM=truecolor`,
+a fake meter socket in a scratch directory sending 30 frames a second of "music" with the
+spectrum, `EQ_CONFIG`/`EQ_STATUS`/`EQ_CACHE` in it, never the live daemon), 30 s a run after 2.5 s
+of start-up, M6 (`6af7975`, which ignores the spectrum) and this build interleaved, load 3–4:
+
+| Build | Frames | Runs, CPU | Median | Frames/s written | Bytes a frame |
+| --- | --- | --- | --- | --- | --- |
+| M6 | with spectrum (ignored) | 6.30, 7.37, 6.90 % | 6.9 % | 30.0 | 1 187 |
+| spectrum | with spectrum | 6.60, 7.23, 6.43 % | 6.6 % | 30.0 | 1 244 |
+| spectrum | without (fallback) | 6.53, 6.63, 7.60 % | 6.6 % | 30.0 | 1 262 |
+
+The TUI costs what it did; as in §7 the Mac's load, not eq, put every build above the 5.7 %
+budget in this session. Frames whose levels, peaks and curve stand still still build no screen,
+so silence costs what it did.
+
+### Compatibility
+
+| eq | daemon | plug-in (driver mode) | Meter shows |
+| --- | --- | --- | --- |
+| this | this | this (build 17 and later) | spectrum |
+| this | this | build 16 and older (installed on the user's Macs: 14, 15) | ten bands (`eqMs` absent, `eqMt` read) |
+| this | older, still running | any | ten bands (no `spectrum` key) |
+| older | this | this | ten bands (the key ignored; `eqMt` unchanged) |
+| older | older | this | ten bands (`eqMt` is the same record) |
+| this, tap mode | this | — | spectrum |
+
+In driver mode the spectrum needs the plug-in this eq bundles: its revision counts every commit to
+the files built into it, and the commit that adds `eqMs` makes it 17, past the installed 15, so
+`eq doctor` reports a driver update and `eq mode driver` installs it, with an administrator
+password, as for any driver update.

@@ -3,6 +3,22 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- The Meter is a spectrum analyser: 31 third-octave bars from 20 Hz to 20 kHz with peak ticks,
+  rising at once and falling at 20 dB a second. `eq stream` frames carry them as `spectrum`. In
+  driver mode they need the EQ driver this eq bundles (`eq mode driver` updates it, with a
+  password); an older driver, or an older daemon still running, meters the ten bands as before.
+
+### Changed
+
+- The response curve on the Meter is a solid line with a dot on each band, the band just edited
+  labelled with its gain, and it moves to a new preset or edit over 300 ms instead of jumping.
+- Faint lines at 0, −12, −24, −36 and −48 dBFS; the level scale is in the bars' colours under
+  `level dBFS`, the gain scale in the curve's under `EQ dB`.
+
 ## 2026.09.30.1 — 2026-09-30
 
 ### Added

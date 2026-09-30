@@ -337,46 +337,53 @@ Devices and Filters views is the same change its `eq` command makes, and belongs
 
 ```
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events
-   ╭─ meter ─────────────────────────────────────────────── dBFS · gain dB ╮
-   │  0 ┤        ▔▔▔                                                  ├+12 │
-   │ -6 ┤  ▔▔▔   ▂▂▂   ▔▔▔                                                 │
-   │-12 ┤  ▇▇▇         ▃▃▃   ▔▔▔                                           │
-   │        ⡀    ⢀⡀          ▃▃▃   ▔▔▔   ▔▔▔                               │
-   │      ⡠⠊⠈⠑⠢⠔⠊⠁⠈⠑⠢⠔⠊⠉⠑⢄         ▃▃▃   ▇▇▇   ▔▔▔                    ├+6  │
-   │-24 ┤                 ⠉⠒⠒⠢⢄⡀               ▅▅▅   ▔▔▔  ⢀⠤⠤⡀   ⢀         │
-   │                           ⠈⠢⣀                   ▅▅▅⣀⠔⠁▔▔⠈⠢⠤⠤⠊⠱⡀       │
-   │      ┈   ┈┈┈   ┈┈┈   ┈┈┈   ┈┈⠉⠒⠤⣀┈┈┈   ┈┈⢀⣀⠤⠤⠤⠒⠒⠒⠉⠉┈┈┈▇▇▇┈┈┈▔▔⠑⠒⠒├ 0  │
-   │-36 ┤                             ⠉⠢⡀  ⢀⠔⠊⠁                            │
-   │                                    ⠈⠑⠊⠁                     ▇▇▇       │
-   │                                                                       │
-   │-48 ┤                                                             ├-6  │
-   │                                                                       │
-   │                                                                       │
-   │-60 ┤                                                             ├-12 │
-   ╰───────────────────────────────────────────────────────────────────────╯
-           -9    -8    -11   -15   -19   -17   -22   -26   -29   -37
-          32Hz  64Hz  125Hz 250Hz 500Hz 1kHz  2kHz  4kHz  8kHz  16kHz
-          +4.8  +4.0  +4.2  +2.3   0.0  -3.1   0.0   0.0  +3.1  +2.4
+  Meter  Tune Instruments Presets Devices Filters Apps System History Events
+  ╭ level dBFS ───────────────────── meter ────────────────────────── EQ dB ╮
+  │  0 ┤ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈├+12 │
+  │ -6 ┤       ▔ ▔ ▔                                                        │
+  │-12 ┤ ┈┈┈┈┈┈▃┈█┈▆┈▔┈┈┈▔┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈     │
+  │          ●    ⢀● ▇ ▂   ▔       ▔                                        │
+  │        ⣠⠞⠙⠳⢦⡴⠞⠋⠙⠳⢦⡴⠞⠛●⣄▄ ▔ ▔     ▔ ▔     ▔     ▔   ▔               ├+6  │
+  │-24 ┤ ⢀⡴⠃┈ ┈ ┈ ┈ ┈ ┈ ┈ ⠈⠛⠶⠶⢦●⡀▃┈▅┈▇┈▄┈▔┈▃┈┈┈▔┈▔┈▆┈▄┈┈┈┈┈⢀⣤●⡀┈┈┈⢀┈┈┈┈     │
+  │      ⠋                     ⠈⠙⢦⣀      █     ▆       ▇ ⣀⡴⠋ ▔⠙⢦⣤⣤⠞●⡀       │
+  │      ▃┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ⠉⠛⠶●⣀ ┈ ┈ ┈ ┈⢀⣀●⣤⣤⠶⠶⠶●⠛⠉┈▇┈▃┈▔┈▔┈┈⠳⠶⠶├ 0  │
+  │-36 ┤  ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ⠉⠛⢦⡀┈ ⢀⡴⠞⠋⠉ ┈ ┈ ┈ ┈ ┈ ┈ ┈▆┈┈┈┈┈┈┈     │
+  │                                      ⠙⠳●⠋                    ▇ ▔        │
+  │                                                                ▅        │
+  │-48 ┤  ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈ ┈┈┈├-6  │
+  │                                                                  ▃      │
+  │                                                                         │
+  │-60 ┤                                                               ├-12 │
+  ╰─────────────────────────────────────────────────────────────────────────╯
+            -9    -8    -11   -15   -19   -17   -22   -26   -29   -37
+           32Hz  64Hz  125Hz 250Hz 500Hz 1kHz  2kHz  4kHz  8kHz  16kHz
+           +4.8  +4.0  +4.2  +2.3   0.0  -3.1   0.0   0.0  +3.1  +2.4
 
  1…0  band   ⇧  down   z  zones off   i  instruments   ?  keys   q  quit
 ```
 
 `eq tui` is the terminal UI: ten views of one program, the keys on a bar at the bottom that never
-goes, `?` for all of them. `eq watch` is its Meter view, and draws all ten bands live at ~30 fps, in one of two looks (above as text; the bars are
+goes, `?` for all of them. `eq watch` is its Meter view, and draws the output live at ~30 fps, in one of two looks (above as text; the bars are
 painted cells, so `cat docs/design/tui/actual/studio-meter-120x40.ans` shows it in colour).
-**studio**, the default, puts the bands in a panel: each bar is painted by height, green below
-−18 dBFS, amber up to −6, red above, with `░` where the input reaches above the output (a cut)
-and a tick `▔` holding each band's peak for 1.5 s before it falls at the IEC Type I rate (20 dB
-in 1.7 s). Over the bars the EQ's response is drawn in braille from the band gains, as the daemon
-runs them (peaking filters, Q 1.41, at the device's rate), with the boost tinted green and the cut
-magenta against the 0 dB line; the dBFS scale is on the left and the gain scale on the right.
-Under the panel come each band's level in dBFS (`·` when silent), its label, and its gain as a
-chip. At 110 columns and wider a column of gauges sits beside it: output peak and limiter,
+**studio**, the default, puts a spectrum analyser in a panel: 31 bars, the third octaves from
+20 Hz to 20 kHz, two or three columns apart as the width allows, each painted by height, green
+below −18 dBFS, amber up to −6, red above, rising at once and falling at 20 dB a second, with a
+tick `▔` holding each one's peak for 1.5 s before it falls at the IEC Type I rate (20 dB in
+1.7 s). A daemon from before the spectrum, or in driver mode an EQ driver from before it (build
+16 and older), sends none; the panel then draws the ten bands' bars, with `░` where the input
+reaches above the output (a cut). Over the bars the EQ's response is a solid braille line from
+the band gains, as the daemon runs them (peaking filters, Q 1.41, at the device's rate), with a
+dot at each band's centre in its gain's colour and the band just edited a ring with its gain
+beside it; a preset switch or an edit moves the line to the new curve over 300 ms. The boost
+is tinted green and the cut magenta against the 0 dB line, brightest along the line. Faint lines
+mark 0, −12, −24, −36 and −48 dBFS; the level scale at the left is in the bars' colours under
+`level dBFS`, the curve's at the right in its colour under `EQ dB`. Under the panel come each
+band's level in dBFS (`·` when silent), its label, and its gain as a chip. At 110 columns and wider a column of gauges sits beside it: output peak and limiter,
 compressor reduction and colour, bass, treble and tilt, and the eight instrument knobs.
 **console** draws a mixing desk instead: a channel strip per band with a paper label, an LED
-ladder whose unlit segments stay faintly lit, an amber readout and a fader whose cap sits at the
-band's gain; SOLO, BYPASS and LIMIT are lamps in the header rail, and at 110 columns a master
+ladder whose unlit segments stay faintly lit (where the strip is wide enough and the spectrum
+comes, three narrow ones: the band's third octaves), an amber readout and a fader whose cap sits
+at the band's gain; SOLO, BYPASS and LIMIT are lamps in the header rail, and at 110 columns a master
 section shows the compressor's gain reduction as a needle in a backlit window, with its lamps,
 the peak, the preamp and a knob for tone and each instrument. `y` switches the look, `Y` the
 palette, and both are remembered.
