@@ -496,16 +496,20 @@ struct HistoryView {
         let beside = r.width >= 64
         let side = beside ? 26 : 0
         let lines = isLive ? Layers.lines(profile, mark: nil, t) : Layers.differences(live, profile, t, same: "the same curve as the live version")
-        let under = beside ? 0 : min(lines.count, max(r.height - 9, 0))
+        let rows = beside ? 0 : min(lines.count, max(r.height - 11, 0))
+        let under = rows > 0 ? rows + 2 : 0
         ResponsePanel(scene: scene).draw(Rect(x: r.x, y: r.y, width: r.width - side, height: r.height - under),
                                          title: "version \(chosen.index) · \(Self.time(chosen.date))", right: isLive ? "live" : "vs live, faint",
                                          bands: profile.engineBands, behind: isLive ? nil : live?.engineBands, into: &screen)
+        let title = label(isLive ? "layers" : "differs")
         if beside {
             let box = Rect(x: r.right - side + 1, y: r.y, width: side - 1, height: r.height)
-            Boxes.draw(box, into: &screen, t, border: p.border, title: label(isLive ? "layers" : "differs"), fill: console ? p.surface : nil)
+            Boxes.draw(box, into: &screen, t, border: p.border, title: title, fill: console ? p.surface : nil)
             Layers.draw(lines, x: box.x + 2, y: box.y + 1, width: box.width - 3, rows: box.height - 2, t, upper: console, into: &screen)
-        } else if under > 0 {
-            Layers.draw(lines, x: r.x + 2, y: r.bottom - under, width: r.width - 3, rows: under, t, upper: console, into: &screen)
+        } else if rows > 0 {
+            let box = Rect(x: r.x, y: r.bottom - under, width: r.width, height: under)
+            Boxes.draw(box, into: &screen, t, border: p.border, title: title, fill: console ? p.surface : nil)
+            Layers.draw(lines, x: box.x + 2, y: box.y + 1, width: box.width - 3, rows: rows, t, upper: console, into: &screen)
         }
     }
 }
