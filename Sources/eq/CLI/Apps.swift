@@ -90,6 +90,7 @@ extension CLI {
     }
 
     /// The rule of the app `query` names by bundle ID, or by the name of an app running or installed.
+    @discardableResult
     static func removeAppRule(_ query: String, in config: inout Config, _ ctx: CLIContext) throws -> AppRule {
         var rules = config.apps ?? []
         let id = rules.first(where: { $0.matches(query) })?.app ?? (try? resolveApp(query, ctx))?.id

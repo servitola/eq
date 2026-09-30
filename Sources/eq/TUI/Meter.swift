@@ -782,7 +782,8 @@ struct MeterModel: Program {
             return listAction(action, in: context)
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
              .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign,
-             .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .addFilter, .setFilter, .removeFilter:
+             .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .addFilter, .setFilter, .removeFilter,
+             .setAppRule, .removeAppRule, .followApps, .restoreVersion:
             return apply(action)
         }
         return []

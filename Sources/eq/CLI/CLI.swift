@@ -779,6 +779,7 @@ enum CLI {
             /// There were no presets yet: undo leaves none, as `eq preset` found it.
             var unseeded = false
             var apps: [AppRule]?? = nil
+            var experimental: Experimental?? = nil
             var fallback: Profile? = nil
 
             init?(_ original: Config, _ config: Config) {
@@ -794,8 +795,9 @@ enum CLI {
                     }
                 }
                 if original.apps != config.apps { apps = .some(original.apps) }
+                if original.experimental != config.experimental { experimental = .some(original.experimental) }
                 if original.default != config.default { fallback = original.default }
-                guard !devices.isEmpty || !presets.isEmpty || unseeded || apps != nil || fallback != nil else { return nil }
+                guard !devices.isEmpty || !presets.isEmpty || unseeded || apps != nil || experimental != nil || fallback != nil else { return nil }
             }
 
             func restore(_ config: inout Config) {
@@ -808,6 +810,7 @@ enum CLI {
                     config.presets = all
                 }
                 if let apps { config.apps = apps }
+                if let experimental { config.experimental = experimental }
                 if let fallback { config.default = fallback }
             }
         }
@@ -852,13 +855,19 @@ enum CLI {
                 if config != original { try save(config, over: original) }
                 return
             }
-            let target = try target()
+            if case .restoreVersion(let index) = action {
+                try CLI.restoreVersion(index, ctx)
+                // The live file is another version now: this session's steps no longer lead back from it.
+                history = []
+                lastSaved = nil
+                return
+            }
             switch action {
             case .savePreset(let name):
-                try CLI.savePreset(name, on: target, in: &config)
+                try CLI.savePreset(name, on: try target(), in: &config)
             case .usePreset(let name):
                 _ = config.seedPresetsIfNeeded()
-                try CLI.usePreset(name, on: target, in: &config)
+                try CLI.usePreset(name, on: try target(), in: &config)
             case .renamePreset(let old, let new):
                 _ = config.seedPresetsIfNeeded()
                 _ = try CLI.renamePreset(old, to: new, in: &config)
@@ -867,7 +876,14 @@ enum CLI {
                 _ = try CLI.removePreset(name, in: &config)
             case .copyCurve(let to):
                 CLI.copyCurve(from: try currentDevice(ctx), to: (to.uid, to.name), in: &config)
+            case .setAppRule(let query, let preset):
+                try CLI.setAppRule(try CLI.resolveApp(query, ctx), preset: preset, in: &config)
+            case .removeAppRule(let query):
+                try CLI.removeAppRule(query, in: &config, ctx)
+            case .followApps(let on):
+                config.setFollowsApps(on)
             default:
+                let target = try target()
                 guard let profile = try edited(editableProfile(config, target), by: action, &config) else { return }
                 config.setProfile(profile, forDeviceUID: target.uid)
             }
@@ -941,7 +957,7 @@ enum CLI {
                 }
             case .removeFilter(let index):
                 _ = try CLI.removeFilter(index, from: &profile)
-            case .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve,
+            case .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .setAppRule, .removeAppRule, .followApps, .restoreVersion,
                  .undo, .savePreset, .startSave, .zones, .help, .quit,
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
                  .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
@@ -1181,6 +1197,9 @@ enum CLI {
     @discardableResult
     static func restoreVersion(_ index: Int, _ ctx: CLIContext) throws -> (index: Int, date: Date)? {
         try ctx.store.reconcileHistory()
+        guard index == 0 || ctx.store.backups().contains(where: { $0.index == index }) else {
+            throw index > ctx.store.historyPosition() ? CLIError.noBackup : CLIError.noRedo
+        }
         var stepped: (index: Int, date: Date)?
         while ctx.store.historyPosition() != index {
             let back = ctx.store.historyPosition() < index

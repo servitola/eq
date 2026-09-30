@@ -41,6 +41,10 @@ enum WatchAction: Equatable {
     case useDevice(String), copyCurve(DeviceChoice)
     /// Filters are numbered from 0 here, from 1 on the command line.
     case addFilter(Filter), setFilter(Int, Filter), removeFilter(Int)
+    /// `eq app set` (an app by bundle ID or name), `eq app rm`, `eq app on|off`.
+    case setAppRule(String, String), removeAppRule(String), followApps(Bool)
+    /// `eq undo` or `eq redo` as many times as it takes to make version `n` of `eq history` the live one.
+    case restoreVersion(Int)
 }
 
 enum WatchKeys {

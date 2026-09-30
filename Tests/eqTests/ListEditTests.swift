@@ -1,8 +1,8 @@
 import XCTest
 @testable import eq
 
-/// The Presets, Devices and Filters views edit through the watch session; each edit must leave
-/// eq.json as its `eq` command does, and `u` must walk it back.
+/// The Presets, Devices, Filters, Apps and History views edit through the watch session; each edit
+/// must leave eq.json as its `eq` command does, and `u` must walk it back.
 final class ListEditTests: XCTestCase {
     override func setUp() { Paint.forced = false }
     override func tearDown() { Paint.forced = nil }
@@ -16,12 +16,13 @@ final class ListEditTests: XCTestCase {
 
     private func context(_ outputs: Outputs = Outputs()) throws -> CLIContext {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-lists-\(UUID().uuidString)")
-        let ctx = CLIContext(store: ConfigStore(url: dir.appendingPathComponent("eq.json")), statusURL: dir.appendingPathComponent("status.json"),
+        var ctx = CLIContext(store: ConfigStore(url: dir.appendingPathComponent("eq.json")), statusURL: dir.appendingPathComponent("status.json"),
                              connectedDevices: { [("SPK", "Speakers", "builtin"), ("BT", "AirPods", "bluetooth")] },
                              defaultOutput: { ("SPK", "Speakers") },
                              setDefaultOutput: { outputs.set.append($0) },
                              fetch: { _ in throw URLError(.notConnectedToInternet) },
                              cacheDirectory: dir.appendingPathComponent("cache"), today: { "2026-09-30" })
+        ctx.audioApps = { [PlayingApp(id: "com.spotify.client", name: "Spotify"), PlayingApp(id: "com.apple.Music", name: "Music")] }
         var config = try ctx.store.loadOrCreate(builtInUID: "SPK", builtInName: "Speakers")
         config.presets?["night"] = Profile(name: nil, preamp: -2, bands: [3, 2, 1, 0, 0, 0, 0, -1, -2, -3], dynamics: Dynamics(comp: .night))
         config.devices["SPK"]?.filters = Self.filters
@@ -45,6 +46,11 @@ final class ListEditTests: XCTestCase {
              .setFilter(0, Filter(type: .highShelf, frequency: 8000, gain: 2, q: 0.5, origin: .hand))),
             (["filter", "rm", "1"], .removeFilter(0)),
             (["filter", "rm", "2"], .removeFilter(1)),
+            (["app", "set", "Music", "flat"], .setAppRule("Music", "flat")),
+            (["app", "set", "com.spotify.client", "FLAT"], .setAppRule("com.spotify.client", "FLAT")),
+            (["app", "rm", "Spotify"], .removeAppRule("Spotify")),
+            (["app", "on"], .followApps(true)),
+            (["app", "off"], .followApps(false)),
         ]
         for (args, action) in cases {
             let cli = try context(), tui = try context()
@@ -62,6 +68,8 @@ final class ListEditTests: XCTestCase {
         XCTAssertThrowsError(try session.apply(.renamePreset("night", "a/b"))) { XCTAssertEqual($0 as? CLIError, .badPresetName("a/b")) }
         XCTAssertThrowsError(try session.apply(.removePreset("gone"))) { XCTAssertEqual($0 as? CLIError, .noSuchPreset("gone")) }
         XCTAssertThrowsError(try session.apply(.removeFilter(5))) { XCTAssertEqual($0 as? CLIError, .noSuchFilter("6", 2)) }
+        XCTAssertThrowsError(try session.apply(.setAppRule("Music", "gone"))) { XCTAssertEqual($0 as? CLIError, .noSuchPreset("gone")) }
+        XCTAssertThrowsError(try session.apply(.removeAppRule("com.apple.Music"))) { XCTAssertEqual($0 as? CLIError, .noSuchAppRule("com.apple.Music")) }
         XCTAssertThrowsError(try session.apply(.setFilter(0, Filter(type: .peak, frequency: 40000, gain: 0, q: 1)))) {
             XCTAssertTrue("\($0)".contains("outside the allowed range"), "\($0)")
         }
@@ -91,8 +99,10 @@ final class ListEditTests: XCTestCase {
         try session.apply(.removePreset("late"))
         try session.apply(.addFilter(Filter(type: .notch, frequency: 60, gain: 0, q: 10, origin: .hand)))
         try session.apply(.savePreset("mine"))
+        try session.apply(.followApps(true))
+        try session.apply(.setAppRule("Music", "mine"))
         XCTAssertEqual(ctx.store.backups().count, backups + 1, "one backup for the session")
-        for _ in 0..<5 { try session.apply(.undo) }
+        for _ in 0..<7 { try session.apply(.undo) }
         XCTAssertEqual(try ctx.store.load(), start, "presets, rules and AirPods' own profile are back")
         XCTAssertThrowsError(try session.apply(.undo))
     }
@@ -113,5 +123,40 @@ final class ListEditTests: XCTestCase {
         session.device = nil
         try session.apply(.undo)
         XCTAssertNil(try ctx.store.load().devices["BT"])
+    }
+
+    /// Restoring version n is `eq undo` (or `eq redo`) as many times as it takes: the same file, the
+    /// same place in the chain, the same stash for redo.
+    func testRestoringAVersionIsUndoOrRedoRepeated() throws {
+        let cli = try context(), tui = try context()
+        for ctx in [cli, tui] {
+            for gain in ["+1", "+2", "+3"] { XCTAssertEqual(CLI.run(["set", "64hz", gain], context: ctx).exitCode, 0) }
+        }
+        func state(_ ctx: CLIContext) throws -> (Config, Int, Data?) {
+            (try ctx.store.load(), ctx.store.historyPosition(), try? Data(contentsOf: ctx.store.redoURL))
+        }
+        for _ in 0..<2 { XCTAssertEqual(CLI.run(["undo"], context: cli).exitCode, 0) }
+        let session = CLI.WatchSession(tui)
+        try session.apply(.restoreVersion(2))
+        var (a, b) = (try state(cli), try state(tui))
+        XCTAssertEqual(a.0, b.0)
+        XCTAssertEqual(a.1, 2)
+        XCTAssertEqual(b.1, 2)
+        XCTAssertEqual(a.2, b.2)
+        XCTAssertEqual(try tui.store.load().devices["SPK"]?.bands[1], try CLI.historyVersions(tui).versions[2].profile?.bands[1])
+        XCTAssertThrowsError(try session.apply(.undo), "the session's own steps start over from the version restored")
+        XCTAssertEqual(CLI.run(["redo"], context: cli).exitCode, 0)
+        try session.apply(.restoreVersion(1))
+        (a, b) = (try state(cli), try state(tui))
+        XCTAssertEqual(a.0, b.0)
+        XCTAssertEqual(a.1, b.1)
+        XCTAssertThrowsError(try session.apply(.restoreVersion(9))) { XCTAssertEqual($0 as? CLIError, .noBackup) }
+        XCTAssertEqual(tui.store.historyPosition(), 1, "a version that is not there moves nothing")
+        try session.apply(.restoreVersion(0))
+        XCTAssertEqual(tui.store.historyPosition(), 0)
+        XCTAssertEqual(try tui.store.load().devices["SPK"]?.bands[1], 3)
+        try session.apply(.adjust(.band(0), 0.5))
+        try session.apply(.undo)
+        XCTAssertEqual(try tui.store.load().devices["SPK"]?.bands[1], 3, "an edit after a restore is a step of its own")
     }
 }
