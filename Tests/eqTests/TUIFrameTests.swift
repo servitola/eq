@@ -46,7 +46,7 @@ final class TUIFrameTests: XCTestCase {
         let open = r.drawn.map { $0.contains("╭─ keys ") }
         XCTAssertEqual(open, [false, false, true, true, true, true, true, true, false, false, true, false, false, true, false, false])
         XCTAssertEqual(r.code, 1, "q closed the overlay; the source ended, not a quit")
-        XCTAssertEqual(lastRow(r.drawn[2]), " ↑↓  scroll   Esc  close")
+        XCTAssertEqual(lastRow(r.drawn[2]), " ↑↓  scroll   /  filter   Esc  close")
     }
 
     func testKeysUnderTheHelpDoNotReachTheMeter() throws {
@@ -56,7 +56,7 @@ final class TUIFrameTests: XCTestCase {
     }
 
     func testHelpScrollStopsAtTheEnd() throws {
-        let down = Array(repeating: "j" as String?, count: 60)
+        let down = Array(repeating: "j" as String?, count: 120)
         let r = try run(["?"] + down + ["k"], size: (80, 24))
         let positions = r.drawn.compactMap { drawn -> [Int]? in
             drawn.range(of: #" \d+–\d+ of \d+ "#, options: .regularExpression)

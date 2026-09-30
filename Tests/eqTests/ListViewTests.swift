@@ -40,7 +40,8 @@ final class ListViewTests: XCTestCase {
         XCTAssertEqual(m.view, .filters)
         XCTAssertEqual(send(&m, key("пз")), [.refreshLibrary])
         XCTAssertEqual(m.view, .presets)
-        XCTAssertEqual(TUIView.allCases.map(\.title), ["Meter", "Tune", "Instruments", "Presets", "Devices", "Filters", "Events"])
+        XCTAssertEqual(TUIView.allCases.map(\.title), ["Meter", "Tune", "Instruments", "Presets", "Devices", "Filters", "Apps", "System", "History",
+                                                       "Events"])
         for name in ["go presets", "go devices", "go filters", "add filter"] { XCTAssertTrue(KeyTable.named.contains { $0.name == name }, name) }
     }
 

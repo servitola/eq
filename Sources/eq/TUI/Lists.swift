@@ -23,6 +23,14 @@ struct Library: Equatable {
     /// Set in driver mode, where the EQ device is the system's output and plays on its target.
     var driver: Driver?
     var apps: [AppRule] = []
+    var followsApps = false
+    /// The rule heard now, and one whose app plays while an edit is held; the status file's, then the events'.
+    var heard: AppMatch?
+    var held: AppMatch?
+    var routes: [RouteRule] = []
+    var followsRoutes = false
+    /// Where each app with a route rule and audio open plays, as the daemon last wrote it.
+    var routed: [Status.Route] = []
     var loaded = false
     var error: String?
 
@@ -55,14 +63,22 @@ extension CLI {
             library.devices = config.devices
             library.fallback = config.default
             library.apps = config.apps ?? []
+            library.followsApps = config.followsApps
+            library.routes = config.routes ?? []
+            library.followsRoutes = config.followsRoutes
             library.rows = deviceRows(config, connected: ctx.connectedDevices()).filter { Library.isTarget($0.uid) }
         } catch {
             library.error = "\(error)"
         }
         library.current = (try? currentDevice(ctx)).map { DeviceChoice(uid: $0.uid, name: $0.name) }
         library.output = ctx.defaultOutput()?.uid
-        if let status = Status.read(from: ctx.statusURL), status.isAlive(), status.mode == .driver, let driver = status.driver {
-            library.driver = Library.Driver(name: driver.deviceName, target: driver.target.map { DeviceChoice(uid: $0.uid, name: $0.name) })
+        if let status = Status.read(from: ctx.statusURL), status.isAlive() {
+            if status.mode == .driver, let driver = status.driver {
+                library.driver = Library.Driver(name: driver.deviceName, target: driver.target.map { DeviceChoice(uid: $0.uid, name: $0.name) })
+            }
+            library.heard = status.apps?.overlay
+            library.held = status.apps?.held
+            library.routed = status.routes ?? []
         }
         return library
     }
@@ -133,10 +149,16 @@ struct FilterForm: Equatable {
     var filter = Filter(type: .peak, frequency: 1000, gain: 0, q: CLI.defaultQ(for: .peak), origin: .hand)
     var field = FilterField.type
 
-    /// A new type takes its own default Q while the Q is still the old type's default.
     mutating func step(_ nudge: Double) {
+        var next = filter
+        field.step(&next, nudge)
+        set(next)
+    }
+
+    /// A new type takes its own default Q while the Q is still the old type's default.
+    mutating func set(_ next: Filter) {
         let before = filter.type
-        field.step(&filter, nudge)
+        filter = next
         if filter.type != before, filter.q == CLI.defaultQ(for: before) { filter.q = CLI.defaultQ(for: filter.type) }
     }
 }
@@ -153,6 +175,9 @@ struct Lists: Equatable {
     var preset = 0
     var device = 0
     var filter = 0
+    var app = 0
+    var check = 0
+    var version = 0
     var field: FilterField?
     var diff = false
     /// The name to select once the presets are read again: one just saved or renamed.
@@ -167,7 +192,7 @@ struct Lists: Equatable {
 /// The Presets, Devices and Filters views' keys, and Tune's other device.
 extension MeterModel {
     /// Presets and Devices list what the library read; Tune shows a device that is not playing from it.
-    var needsLibrary: Bool { view == .presets || view == .devices || (view == .tune && editing != nil) }
+    var needsLibrary: Bool { [.presets, .devices, .apps].contains(view) || (view == .tune && editing != nil) }
 
     var filters: [Filter] { header.profile?.filters ?? [] }
 
@@ -207,6 +232,15 @@ extension MeterModel {
         case .filters:
             guard form == nil, let row = FiltersView.item(at: mouse.x, mouse.y, size: size, count: filters.count, selected: lists.filter) else { return false }
             lists.filter = row
+        case .apps:
+            guard let row = AppsView.item(at: mouse.x, mouse.y, size: size, library: library, running: running.count, selected: lists.app) else { return false }
+            lists.app = row
+        case .system:
+            guard let scene = scene(), let row = SystemView.item(at: mouse.x, mouse.y, scene: scene) else { return false }
+            lists.check = row
+        case .history:
+            guard let row = HistoryView.item(at: mouse.x, mouse.y, size: size, count: versions.versions.count, selected: lists.version) else { return false }
+            lists.version = row
         default:
             return false
         }
@@ -294,6 +328,23 @@ extension MeterModel {
         guard let field = lists.field, filters.indices.contains(lists.filter) else { return [] }
         var filter = filters[lists.filter]
         field.step(&filter, size)
+        return filter == filters[lists.filter] ? [] : apply(.setFilter(lists.filter, filter))
+    }
+
+    /// A value typed for the chosen field, read as `eq filter set` reads its `<key>=<value>`.
+    mutating func typedFilterValue(_ text: String) -> [MeterCmd] {
+        guard let field = form?.field ?? lists.field else { return [] }
+        guard var filter = form?.filter ?? (filters.indices.contains(lists.filter) ? filters[lists.filter] : nil) else { return [] }
+        do {
+            try CLI.assignFilter(["type", "freq", "gain", "q"][field.rawValue], text.trimmingCharacters(in: .whitespaces), to: &filter)
+        } catch {
+            show("\(error)", .error)
+            return []
+        }
+        if form != nil {
+            form?.set(filter)
+            return []
+        }
         return filter == filters[lists.filter] ? [] : apply(.setFilter(lists.filter, filter))
     }
 

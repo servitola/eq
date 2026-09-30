@@ -74,7 +74,7 @@ coreaudiod's own, rewritten while it runs, and nothing reads the entry once the 
 | `eq` | the curve in effect on the current output |
 | `eq status [--json]` | is the daemon alive, on which device, at what rate |
 | `eq watch [--zones] [--look LOOK] …` | the live equalizer in the terminal; tune from the keyboard, `?` lists every key, `y` switches the look, `q` quits; the flags are under [Looks](#looks) |
-| `eq tui [meter\|tune\|instruments\|presets\|devices\|filters\|events] [--zones] [--look LOOK] …` | the terminal UI, opened on the meter (the same screen as `eq watch`), the curve to edit, the instruments, the presets, the outputs, the filters or the daemon's events; `;` opens a palette of every command |
+| `eq tui [meter\|tune\|instruments\|presets\|devices\|filters\|apps\|system\|history\|events] [--zones] [--look LOOK] …` | the terminal UI, opened on the meter (the same screen as `eq watch`), the curve to edit, the instruments, the presets, the outputs, the filters, the app rules, the daemon and its doctor, the saved versions or the daemon's events; `;` opens a palette of every command |
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null` |
@@ -333,7 +333,7 @@ A whole `eq watch` or `eq tui` session is one undo step: only its first save mak
 quitting, `eq undo` returns to the curve from before the session. Every change made in the Presets,
 Devices and Filters views is the same change its `eq` command makes, and belongs to that one step.
 
-## Watch
+## TUI
 
 ```
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
@@ -362,7 +362,8 @@ Devices and Filters views is the same change its `eq` command makes, and belongs
  1…0  band   ⇧  down   z  zones off   i  instruments   ?  keys   q  quit
 ```
 
-`eq watch` draws all ten bands live at ~30 fps, in one of two looks (above as text; the bars are
+`eq tui` is the terminal UI: ten views of one program, the keys on a bar at the bottom that never
+goes, `?` for all of them. `eq watch` is its Meter view, and draws all ten bands live at ~30 fps, in one of two looks (above as text; the bars are
 painted cells, so `cat docs/design/tui/actual/studio-meter-120x40.ans` shows it in colour).
 **studio**, the default, puts the bands in a panel: each bar is painted by height, green below
 −18 dBFS, amber up to −6, red above, with `░` where the input reaches above the output (a cut)
@@ -415,7 +416,7 @@ under everything, which the light `paper` palette needs on a dark terminal.
 
 Under the status bar a row of tabs names the views, the current one a solid chip and each other
 one with its letter underlined; `g` and that letter goes there, and a small menu over the keybar
-lists the letters after `g` (`п`, then `ь`, `е`, `ш`, `з`, `в`, `а` or `у` on a Russian layout). `Esc` with nothing
+lists the letters after `g` (`п`, then `ь`, `е`, `ш`, `з`, `в`, `а`, `ф`, `ы`, `р` or `у` on a Russian layout). `Esc` with nothing
 left to cancel goes back to the view before. `eq tui VIEW` opens on one (`eq tui events`); `eq
 watch` is the meter. Below 14 rows the tabs give their row to the meter, and below 60 columns only
 the current one shows.
@@ -468,13 +469,43 @@ the current one shows.
   filters' combined response, a dot on each, the chosen one's own response lit. `Enter` (or `→`)
   changes a filter in place: `←`/`→` pick the type, frequency, gain or Q, `↑`/`↓` step it (the
   next type, a sixth of an octave, 0.5 dB, Q 0.1), `⇧↑`/`⇧↓` an octave, 3 dB or Q 1, `Alt↑`/`Alt↓`
-  a 24th of an octave, 0.1 dB or Q 0.01, each step saved at once (`eq filter set`); `Esc` goes
-  back to moving between filters. `a` opens a row under the others for a new filter, set the same
-  way, which `Enter` adds (`eq filter add`); `d` removes one (`eq filter rm`) once `y` answers.
+  a 24th of an octave, 0.1 dB or Q 0.01, each step saved at once (`eq filter set`); `=` or a digit
+  types the field's value in the message row instead, read as `eq filter set` reads it (`3k`,
+  `-2,5`, `0.7`, `lowshelf`); `Esc` goes back to moving between filters. `a` opens a row under the
+  others for a new filter, set the same way, which `Enter` adds (`eq filter add`); `d` removes one
+  (`eq filter rm`) once `y` answers.
+- **Apps** (`g a`): the app rules (`eq app list`), each with its preset, the one heard now marked
+  `◉` and said so, a rule whose preset is gone in yellow; under them the apps with audio open now,
+  each with its rule or none. `a` adds a rule: pick an app with audio open (typing narrows the
+  list, and an app that is not playing is taken as typed, as a bundle ID or an installed app's
+  name), then its preset (`eq app set`); `Enter` gives a rule another preset; `d` removes it once
+  `y` answers (`eq app rm`); `o` follows the rules or not (`eq app on`, `eq app off`). The status
+  bar and the mark follow the daemon's `app` events. When eq.json has routes, they show under the
+  rest as the daemon plays them (the outputs in order, where the app plays now, and why), read
+  only, since no command edits them yet; in driver mode the note says that no route runs there.
+- **System** (`g s`): the daemon (`eq status`): its state and pid, the mode eq.json asks for and
+  the one it runs, the device, rate and latency, slips, the compressor, the app heard, this eq's
+  version and the daemon's, the launch agent; in driver mode the driver's health beside it
+  (`eq driver status`): target, IO, EQ, slips, clock, whether it is the default output, and the
+  writer check. Beside them `eq doctor`, run as a child when the view opens and again on `r`,
+  each check as `✓`, `!` or `✗` with its detail, the chosen one's whole text under the list. `o`
+  switches to the other mode: `eq mode … --dry-run` says first what it would do, `y` then runs
+  `eq mode` with its output in the command pane. A switch that would install or update the driver
+  asks macOS for an administrator password, so the TUI says so and leaves it to a shell.
+- **History** (`g h`): `eq history` for the current device: each saved version with its time, its
+  ten gains as a spark, its preamp and preset, the live one marked `◉`; beside them the chosen
+  one's curve over the live one's, faint, and what differs. `Enter` makes it the live config by
+  stepping `eq undo` or `eq redo` as many times as it takes, so the chain ends as the commands
+  leave it and nothing is lost; `←` and `→` step one version, as `eq undo` and `eq redo` do.
 - **Events** (`g e`): the daemon's `eq events` as a log, newest at the bottom, each kind in its
   colour: device, rate, preset, bypass, solo, app, mode. `Space` pauses it while events keep
   arriving (the panel counts them), `/` filters by kind or text, `PgUp`/`PgDn`/`Home`/`End`
   scroll. The status bar follows these events on every view.
+
+On Presets, Devices, Apps and System `/` jumps to the first row that has what you type, `Enter`
+stays there and `Esc` goes back to where it was; in the key list `/` shows only the keys that
+have it. `Esc` goes back to the view before only when there is one, and the keybar offers it only
+then.
 
 The meter connection is held only while a view that draws levels is on screen, or a solo sounds:
 on the Events view the daemon stops its meter work, and the status bar leaves out the peak and
@@ -498,7 +529,7 @@ the same instead. `eq …` in front names the command when a screen action has t
 
 | Key | Russian | Where | Action |
 | --- | --- | --- | --- |
-| `g` | `п` `П` | every view | go to a view: m meter, t tune, i instruments, p presets, d devices, f filters, e events; a menu lists them |
+| `g` | `п` `П` | every view | go to a view: m meter, t tune, i instruments, p presets, d devices, f filters, a apps, s system, h history, e events; a menu lists them |
 | `;` `Ctrl-P` | `ж` | every view | the command palette: any eq command, run beside the screen |
 | `u` | `г` `Г` | every view | undo the last change made in this session, back to how it started |
 | `m` | `ь` `Ь` | every view | mouse on and off, remembered as tui.mouse in eq.json; on, a click on a tab opens it, a click on a band or a control in Tune or on a list's row selects it, and the wheel scrolls a list or steps what it is over |
@@ -546,12 +577,14 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `r` | `к` `К` | Presets | rename it; devices and app rules that name it follow |
 | `d` | `в` `В` | Presets | delete it once y answers the question in the message row; devices that used it keep the curve |
 | `v` | `м` `М` | Presets | compare it with the current device's curve: both drawn, and what differs listed |
+| `/` | `.` | Presets | jump to the first preset whose name has what you type |
 | `Esc` |  | Presets | back to the view before |
 | `↑` `↓` `j` `k` | `л` `о` | Devices | move between the outputs and the profiles of devices not connected |
 | `PgUp` `PgDn` `Home` `End` |  | Devices | a page up / down, the first / the last |
 | `Enter` |  | Devices | make it the system's output, as eq device use does; in driver mode the EQ device plays on it instead |
 | `c` | `с` `С` | Devices | copy the current device's curve to it, as eq device copy --to does |
 | `e` | `у` `У` | Devices | edit its curve in Tune, whether it plays or not |
+| `/` | `.` | Devices | jump to the first device whose name has what you type |
 | `Esc` |  | Devices | back to the view before |
 | `↑` `↓` `j` `k` | `л` `о` | Filters | move between the filters |
 | `PgUp` `PgDn` `Home` `End` |  | Filters | a page up / down, the first / the last |
@@ -564,11 +597,35 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `⇧↑` `⇧↓` `PgUp` `PgDn` |  | a filter's fields | an octave, 3 dB, Q 1 |
 | `Alt↑` `Alt↓` |  | a filter's fields | a 24th of an octave, 0.1 dB, Q 0.01 |
 | `Enter` `Esc` |  | a filter's fields | done: ↑ ↓ move between the filters again |
+| `=` `0` … `9` | `ю` | a filter's fields | type the field's value in the message row, as eq filter set takes it: 3k, -2.5, 0.7, lowshelf; Enter sets it |
 | `←` `→` `Tab` |  | new filter | the type, the frequency, the gain or Q |
 | `↑` `↓` `k` `j` | `л` `о` | new filter | change it: the next type, a sixth of an octave, 0.5 dB, Q 0.1 |
 | `⇧↑` `⇧↓` `Alt↑` `Alt↓` |  | new filter | coarse: an octave, 3 dB, Q 1; fine: a 24th of an octave, 0.1 dB, Q 0.01 |
+| `=` `0` … `9` | `ю` | new filter | type the field's value: 3k, -2.5, 0.7, lowshelf |
 | `Enter` |  | new filter | add it, as eq filter add does |
 | `Esc` |  | new filter | cancel |
+| `↑` `↓` `j` `k` | `л` `о` | Apps | move between the app rules |
+| `PgUp` `PgDn` `Home` `End` |  | Apps | a page up / down, the first / the last |
+| `Enter` |  | Apps | give the app another preset: pick one, Enter sets it, as eq app set does |
+| `a` | `ф` `Ф` | Apps | add a rule: pick an app with audio open, or type its bundle ID or an installed app's name, then its preset |
+| `d` | `в` `В` | Apps | remove the rule once y answers the question in the message row, as eq app rm does |
+| `o` | `щ` `Щ` | Apps | follow the rules or not, as eq app on and eq app off do (experimental) |
+| `/` | `.` | Apps | jump to the first rule whose app or preset has what you type |
+| `Esc` |  | Apps | back to the view before |
+| `Enter` |  | an app or preset to pick | take the chosen one; letters typed narrow the list, and an app not in it is taken as typed |
+| `↑` `↓` |  | an app or preset to pick | choose |
+| `Esc` |  | an app or preset to pick | cancel |
+| `↑` `↓` `j` `k` | `л` `о` | System | move between the doctor's checks; the chosen one's whole text shows under them |
+| `PgUp` `PgDn` `Home` `End` |  | System | a page up / down, the first / the last |
+| `r` | `к` `К` | System | read the daemon's status again and run eq doctor again, beside the screen |
+| `o` | `щ` `Щ` | System | switch to the other mode, as eq mode tap or eq mode driver does, once y answers what a dry run says; a switch that must install the driver first is left to a shell, where its password prompt belongs |
+| `/` | `.` | System | jump to the first check whose name or text has what you type |
+| `Esc` |  | System | back to the view before |
+| `↑` `↓` `j` `k` | `л` `о` | History | move between the saved versions, newest first |
+| `PgUp` `PgDn` `Home` `End` |  | History | a page up / down, the newest / the oldest |
+| `Enter` |  | History | make it the live config: eq undo or eq redo as many times as it takes, so nothing is lost and → comes back |
+| `←` `→` |  | History | one version older / newer, as eq undo / eq redo do |
+| `Esc` |  | History | back to the view before |
 | `↑` `↓` `j` `k` | `л` `о` | Events | scroll the log |
 | `PgUp` `PgDn` `Home` `End` |  | Events | a page up / down, the oldest / the newest |
 | `Space` |  | Events | pause the log and go on; events keep arriving underneath, the panel counts them |
@@ -580,6 +637,9 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `g` `p` | `з` | after g | the presets: apply, save as, rename, delete, compare |
 | `g` `d` | `в` | after g | the outputs and their curves: use one, copy the curve to one, edit one |
 | `g` `f` | `а` | after g | the current device's parametric filters: add, change, remove |
+| `g` `a` | `ф` | after g | the app rules: which preset plays while an app does, and the routes |
+| `g` `s` | `ы` | after g | the daemon, the mode and the driver's health, and eq doctor |
+| `g` `h` | `р` | after g | the saved versions of eq.json: restore one, step with undo and redo |
 | `g` `e` | `у` | after g | the daemon's events as they happen |
 | `Esc` |  | after g | stay; any other key does too |
 | `Enter` |  | palette | run the chosen line: an eq command as a child process, or a screen action |
@@ -589,6 +649,9 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `↑` `↓` `j` `k` | `л` `о` | command output | scroll |
 | `Ctrl-C` |  | command output | stop the command |
 | `Esc` `q` | `й` `Й` | command output | close it; a command still running is stopped |
+| `↑` `↓` `j` `k` | `л` `о` | the key list | scroll |
+| `/` | `.` | the key list | show only the keys whose name or text has what you type |
+| `?` `Esc` `q` | `,` `р` `Р` `й` `Й` | the key list | close |
 
 The bottom row is the keybar: the keys of the view on screen, then those every view shares,
 most useful first, whole entries dropped from the right when the terminal is narrow, `? keys` and

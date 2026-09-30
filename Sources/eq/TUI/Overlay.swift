@@ -25,7 +25,7 @@ struct Overlay {
     /// Rows of content and how many show at once, for scrolling to stop where the last one shows.
     static func metrics(_ modal: WatchModal, size: Size, view: KeyContext) -> (rows: Int, visible: Int) {
         let box = self.box(modal, size: size)
-        return (HelpLayout(width: box.width, view: view).rows.count, max(box.height - 3, 1))
+        return (HelpLayout(width: box.width, view: view, filter: modal.filter).rows.count, max(box.height - 3, 1))
     }
 
     static func box(_ modal: WatchModal, size: Size) -> Rect {
@@ -49,16 +49,18 @@ struct Overlay {
         let (rows, visible) = Self.metrics(modal, size: size, view: scene.view.context)
         let start = min(max(modal.scroll, 0), max(rows - visible, 0))
         let position = rows > visible ? " \(start + 1)–\(start + visible) of \(rows) " : nil
-        Boxes.draw(box, into: &screen, t, border: p.borderHi, title: "keys", right: scene.view.title.lowercased() + " view",
+        let filter = modal.filter.isEmpty ? "" : "“\(modal.filter)” · "
+        Boxes.draw(box, into: &screen, t, border: p.borderHi, title: "keys", right: filter + scene.view.title.lowercased() + " view",
                    titleInk: p.title, fill: p.surface)
-        help(box, start: start, visible: visible, into: &screen)
+        help(box, filter: modal.filter, start: start, visible: visible, into: &screen)
         if let position, box.width >= position.count + 4 {
             screen.ink(position, x: box.x + (box.width - position.count) / 2, y: box.bottom - 1, t.style(p.text3, p.surface))
         }
     }
 
-    private func help(_ box: Rect, start: Int, visible: Int, into screen: inout Screen) {
-        let layout = HelpLayout(width: box.width, view: scene.view.context)
+    private func help(_ box: Rect, filter: String, start: Int, visible: Int, into screen: inout Screen) {
+        let layout = HelpLayout(width: box.width, view: scene.view.context, filter: filter)
+        if layout.rows.isEmpty { screen.ink("no key has “\(filter)”", x: box.x + 3, y: box.y + 2, t.style(p.text3, p.surface), limit: box.width - 6) }
         for (i, row) in layout.rows.dropFirst(start).prefix(visible).enumerated() {
             let y = box.y + 2 + i
             for (column, item) in row.enumerated() {
@@ -93,8 +95,8 @@ struct HelpLayout {
     let keyWidth: Int
     let rows: [[Item?]]
 
-    init(width: Int, view: KeyContext = .meter) {
-        let entries = KeyHelp.lines(view: view)
+    init(width: Int, view: KeyContext = .meter, filter: String = "") {
+        let entries = KeyHelp.lines(view: view, filter: filter)
         keyWidth = entries.filter { !$0.text.isEmpty }.map { TerminalText.width($0.key) }.max() ?? 0
         let inner = width - 6
         let two = inner >= 2 * 44

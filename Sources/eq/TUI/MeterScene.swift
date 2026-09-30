@@ -59,6 +59,14 @@ struct MeterScene {
     /// The device Tune edits when it is not the one playing.
     var editing: DeviceChoice?
     var previews = PreviewCurves()
+    var running: [PlayingApp] = []
+    var picker: Picker?
+    var search: ListSearch?
+    var system = SystemInfo()
+    var doctor = DoctorState()
+    var versions = HistoryList()
+    /// There is a view to go back to.
+    var back = false
 
     static let fadeFrames = 15
     static let flashBlendFrames = 9
@@ -101,9 +109,13 @@ struct MeterScene {
             case .presets: PresetsView(scene: self).draw(into: &screen)
             case .devices: DevicesView(scene: self).draw(into: &screen)
             case .filters: FiltersView(scene: self).draw(into: &screen)
+            case .apps: AppsView(scene: self).draw(into: &screen)
+            case .system: SystemView(scene: self).draw(into: &screen)
+            case .history: HistoryView(scene: self).draw(into: &screen)
             case .events: EventsView(scene: self).draw(into: &screen)
             }
         }
+        if let picker { PickerView(scene: self, picker: picker).draw(into: &screen) }
         if let child, child.shown { OutputPane(scene: self, child: child).draw(into: &screen) }
         if let palette { PaletteView(scene: self, palette: palette).draw(into: &screen) }
         if goMenu { GoMenu.draw(self, keybarY: size.rows - 1, into: &screen) }
@@ -128,25 +140,28 @@ struct MeterScene {
 
     var keyState: KeyState {
         KeyState(strip: strip, focused: focus != nil, listening: listening, mouse: header.mouse, paused: events.paused != nil,
-                 running: child?.status == nil, diff: lists.diff, editing: editing != nil)
+                 running: child?.status == nil, diff: lists.diff, editing: editing != nil,
+                 back: back || (view == .events && !events.filter.isEmpty), following: library.followsApps, driver: system.mode == .driver)
     }
 
     var keyContext: KeyContext {
-        Self.context(prompt: prompt, entry: entry, rename: rename, filter: filterField, confirm: confirm, palette: palette, go: goMenu,
-                     pane: child?.shown == true, modal: modal, form: form, fields: lists.field != nil, view: view)
+        Self.context(prompt: prompt, entry: entry, rename: rename, filter: filterField, confirm: confirm, palette: palette, picker: picker,
+                     search: search, go: goMenu, pane: child?.shown == true, modal: modal, form: form, fields: lists.field != nil, view: view)
     }
 
     /// Searched top-down: the text field or question of the moment, the menus, the output pane,
     /// the overlay, a form or a filter's fields, then the view.
     static func context(prompt: TextField?, entry: TextField? = nil, rename: TextField? = nil, filter: TextField?, confirm: Confirm? = nil,
-                        palette: CommandPalette?, go: Bool, pane: Bool, modal: WatchModal?, form: FilterForm? = nil, fields: Bool = false,
-                        view: TUIView) -> KeyContext {
+                        palette: CommandPalette?, picker: Picker? = nil, search: ListSearch? = nil, go: Bool, pane: Bool, modal: WatchModal?,
+                        form: FilterForm? = nil, fields: Bool = false, view: TUIView) -> KeyContext {
         if prompt != nil { return .prompt }
         if entry != nil { return .entry }
         if rename != nil { return .rename }
         if filter != nil { return .filter }
         if confirm != nil { return .confirm }
         if palette != nil { return .palette }
+        if picker != nil { return .picker }
+        if search != nil { return .search }
         if go { return .go }
         if pane { return .pane }
         if let modal { return modal.context }

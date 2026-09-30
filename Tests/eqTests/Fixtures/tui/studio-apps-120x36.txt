@@ -1,0 +1,36 @@
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
+  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
+ ╭─ app rules ───────────────────────────────────────────────────────────────────────────────── on · experimental · 4 ╮
+ │    app               bundle ID                       preset                                        now             │
+ │  ◉ Spotify           com.spotify.client            → night                                         heard now       │
+ │▸   com.apple.Music   com.apple.Music               → late jazz                                                     │
+ │    Chrome            com.google.Chrome             → podcast                                       has audio       │
+ │    com.example.Gone  com.example.Gone              → vinyl                                         no such preset  │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ╭─ with audio open ─────────────────────────────────────────────────────────────────────────────────────────────── 3 ╮
+ │  ● Spotify           com.spotify.client            → night                                                         │
+ │  ● Chrome            com.google.Chrome             → podcast                                                       │
+ │  ● Safari            com.apple.Safari              no rule — a adds one                                            │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ╭─ routes · read-only ───────────────────────────────────────────────────────────────────────────────── on · eq.json ╮
+ │    app               outputs, first available                                   plays on              why          │
+ │    Chrome            AirPods › BE-RCA                                           AirPods               first        │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ ↑↓  move   Enter  preset   a  add   d  delete   o  follow on   /  search   Esc  back   u  undo   ?  keys   q  quit

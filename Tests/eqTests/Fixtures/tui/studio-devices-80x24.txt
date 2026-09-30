@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events
+ Meter Tune Instruments Presets  Devices  Filters Apps System History Events
  ╭─ devices ───────────────────────╮ ╭─ MacBook Pro Speakers ─────────────────╮
  │      output          curve      │ │ +12                                    │
  │   EQ BE-RCA · EQ system output  │ │                                        │
@@ -21,4 +21,4 @@
  │                                 │   dynamics off
  ╰─────────────────────────────────╯   filters  none
 
- ↑↓  move   Enter  use   c  copy here   e  edit   Esc  back   ?  keys   q  quit
+ ↑↓  move   Enter  use   c  copy here   e  edit   /  search   ?  keys   q  quit

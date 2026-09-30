@@ -1,0 +1,36 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   APPS   SYSTEM   HISTORY   EVENTS               g go  ; cmd
+ ╭─ DAEMON ───────────────────────────────────────╮ ╭─ DOCTOR ────────────────────────── 2 warnings · r runs it again ╮
+ │ DAEMON   running · pid 4312                    │ │  ✓ macOS           26.0.0                                       │
+ │ MODE     driver · BE-RCA · EQ                  │ │  ✓ config          ok                                           │
+ │ DEVICE   BE-RCA [usb] 44100 Hz · own profile   │ │  ✓ hooks           none                                         │
+ │ LATENCY  12 ms, reported to players            │ │  ✓ apps            listening, 4 rules; heard now: Spotify → ni… │
+ │ AUDIO    on                                    │ │  ✓ output          BE-RCA · EQ, 2 ch                            │
+ │ COMP     -2.1 dB                               │ │  ✓ daemon          running, pid 4312, v2026.09.30               │
+ │ APP      Spotify → night                       │ │  ✓ permission      not needed (driver mode)                     │
+ │ EQ       2026.09.30                            │ │  ✓ launch agent    bundled (login item "EQ")                    │
+ │ AGENT    ✓ bundled (login item "EQ")           │ │  ✓ binary          /Applications/EQ.app/Contents/MacOS/eq       │
+ ╰────────────────────────────────────────────────╯ │  ✓ audio           skipped (driver mode: see driver IO)         │
+ ╭─ DRIVER ────────────────────────── BE-RCA · EQ ╮ │  ✓ engine          running                                      │
+ │ TARGET   BE-RCA [usb]                          │ │  ✓ tap             skipped (driver mode)                        │
+ │ IO       running                               │ │  ✓ latency         the EQ device reports 12 ms, which players … │
+ │ EQ       active                                │ │  ✓ ring            skipped (driver mode: see driver slips)      │
+ │ SLIPS    0 underruns, 2 overruns               │ │  ✓ filters         stable at 44100 Hz                           │
+ │ CLOCK    +1.8 ppm                              │ │  ✓ driver          installed, protocol 3, 2026.09.30            │
+ │ DEFAULT  the EQ device                         │ │▸ ! driver update   EQ.app carries 2026.09.30.1, coreaudiod run… │
+ │ WRITER   ✓ writes accepted (identifier com.ser │ │  ✓ driver target   BE-RCA (be)                                  │
+ ╰────────────────────────────────────────────────╯ │  ✓ driver IO       running                                      │
+                                                    │  ! driver slips    0 underruns, 2 overruns in 1 s (0, 2 since … │
+                                                    │  ✓ driver clock    +1.8 ppm                                     │
+                                                    │  ✓ driver EQ       playing the curve eq sent (serial 179074500… │
+                                                    │  ✓ driver writer   writes accepted (identifier com.servitola.e… │
+                                                    │  ✓ default output  the EQ device                                │
+                                                    │                                                                 │
+                                                    │                                                                 │
+                                                    ├─────────────────────────────────────────────────────────────────┤
+                                                    │  driver update — EQ.app carries 2026.09.30.1, coreaudiod runs   │
+                                                    │  2026.09.30 — eq mode driver updates it                         │
+                                                    │                                                                 │
+                                                    ╰─────────────────────────────────────────────────────────────────╯
+
+ ↑↓  move   r  refresh   o  mode → tap   /  search   Esc  back   u  undo   y  look   m  mouse off   ?  keys   q  quit

@@ -1,0 +1,24 @@
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+ Meter Tune Instruments Presets Devices Filters Apps  System  History Events
+ ╭─ daemon ───────────────────────────────────────────────────────────────────╮
+ │ daemon   running · pid 4312                                                │
+ │ mode     tap                                                               │
+ │ device   BE-RCA [usb] 44100 Hz · own profile                               │
+ │ latency  23 ms (device 12, eq adds 11)                                     │
+ │ audio    on · 3 underruns, 1 overrun                                       │
+ │ eq       2026.09.30 · daemon 2026.09.29.5                                  │
+ │ agent    ✓ bundled (login item "EQ")                                       │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ doctor ───────────────────────────────────── 2 warnings · r runs it again ╮
+ │  ✓ binary        /Applications/EQ.app/Contents/MacOS/eq                    │
+ │  ! audio         callbacks 1204 → 1290 (daemon v2026.09.29.5, this eq v20… │
+ │  ✓ engine        running                                                   │
+ │  ✓ tap           audio arriving                                            │
+ │▸ ! ring          3 underruns, 1 overrun — the tap and the output slipped,… │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │  ring — 3 underruns, 1 overrun — the tap and the output slipped, audio     │
+ │  had gaps; the daemon rebuilds the engine if it keeps happening            │
+ │                                                                            │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+
+ ↑↓  move   r  refresh   o  mode → driver   /  search   ?  keys   q  quit

@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   APPS   SYSTEM   HISTORY   EVENTS               g go  ; cmd
  ╭─ FILTERS · BE-RCA ──────────────────────────────────────────────────────────── 4 of 32 · imported: AutoEq · HD 600 ╮
  │  #   TYPE       FREQUENCY   GAIN      Q      SOURCE                                                                │
  │   1  lowshelf      105 Hz   +4.0 dB   0.70   import                                                                │
@@ -33,4 +33,4 @@
  │         32         64         125        250        500        1k         2k         4k         8k         16k     │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  gain — ↑↓ 0.5 dB, ⇧↑↓ 3 dB, Alt↑↓ 0.1 dB
- ← →  field   ↑ ↓  change   Esc  done   ⇧↑↓  coarse   Alt↑↓  fine   u  undo   y  look   m  mouse off   ?  keys   q  quit
+ ← →  field   ↑ ↓  change   Esc  done   ⇧↑↓  coarse   Alt↑↓  fine   =  type   u  undo   y  look   ?  keys   q  quit

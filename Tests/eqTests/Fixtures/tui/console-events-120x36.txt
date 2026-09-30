@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   APPS   SYSTEM   HISTORY   EVENTS               g go  ; cmd
  ╭─ EVENT LOG ─────────────────────────────────────────────────────────────────────────────────────── live · 11 of 11 ╮
  │                                                                                                                    │
  │                                                                                                                    │
@@ -33,4 +33,4 @@
  │  09:52:30  ROUTE    Chrome → AirPods (first)                                                                       │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
- ↑↓  scroll   Space  pause   /  filter   Esc  back   u  undo   y  look   m  mouse off   g  go   ?  keys   q  quit
+ ↑↓  scroll   Space  pause   /  filter   u  undo   y  look   m  mouse off   g  go   ;  cmd   ?  keys   q  quit

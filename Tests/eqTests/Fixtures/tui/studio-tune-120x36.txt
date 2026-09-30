@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events                                         g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
  ╭─ response ─────────────────────────────────────── ! clips +1.9 dB — lower the preamp ─╮ ╭─ chain ──────────────────╮
  │ +12                                                                                   │ │                          │
  │         ⣀●⣀    ⣀⣀●⡀                                                                   │ │ preamp  ┄┄┄●━┼┄┄┄┄  -4.8 │

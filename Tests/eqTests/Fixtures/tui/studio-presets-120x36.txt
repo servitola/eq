@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events                                         g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
  ╭─ presets ─────────────────────────────────── 5 ╮ ╭─ night ──────────────────────── curve ╮ ╭─ layers ──────────────╮
  │   preset                    curve      preamp  │ │ +12                                   │ │ preamp   -2.0 dB      │
  │ ◆ favourite*                ▆▆▆▅▅▄▅▅▅▅    0.0  │ │                                       │ │ tone     flat         │
@@ -33,4 +33,4 @@
  │                                                │ │     32     125   500    2k     8k     │ │                       │
  ╰────────────────────────────────────────────────╯ ╰───────────────────────────────────────╯ ╰───────────────────────╯
 
- ↑↓  move   Enter  apply   s  save as   r  rename   d  delete   v  diff off   Esc  back   u  undo   ?  keys   q  quit
+ ↑↓  move   Enter  apply   s  save as   r  rename   d  delete   v  diff off   /  search   u  undo   ?  keys   q  quit

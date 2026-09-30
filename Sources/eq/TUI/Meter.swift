@@ -22,6 +22,13 @@ enum MeterMsg {
     case eventsConnectFailed
     case completions(Completions.Kind, [String])
     case library(Library)
+    /// The apps with audio open, for the Apps view's picker and names.
+    case running([PlayingApp])
+    case system(SystemInfo)
+    case history(HistoryList)
+    case jobOutput(MeterJob, String)
+    case jobClosed(MeterJob)
+    case jobExit(MeterJob, Int32)
     case childOutput(String)
     /// The command's output ended; the runtime reaps it next.
     case childClosed
@@ -51,6 +58,12 @@ enum MeterCmd: Equatable {
     case saveHistory([String])
     /// Reads the presets, the devices and the outputs again for the list views.
     case refreshLibrary
+    case refreshApps
+    case refreshSystem
+    case refreshHistory
+    /// `eq` with these words as a child of the TUI's own, read whole when it ends.
+    case job(MeterJob, [String])
+    case reapJob(MeterJob)
     /// The device the session edits: another than the playing one, or nil for that one.
     case target(DeviceChoice?)
     case quit(Int32)
@@ -124,6 +137,15 @@ struct MeterModel: Program {
     /// Tune's `d` waits for the devices to be read again, then steps this far.
     var pendingDevice: Int?
     let previews = PreviewCurves()
+    var running: [PlayingApp] = []
+    var picker: Picker?
+    var search: ListSearch?
+    var system = SystemInfo()
+    var doctor = DoctorState()
+    var versions = HistoryList()
+    var jobLines: [MeterJob: [String]] = [:]
+    /// The mode a switch was asked for, while its dry run runs.
+    var modePlan: AudioMode?
     /// Whether the last update changed what the screen shows.
     private(set) var needsRedraw = true
 
@@ -156,7 +178,7 @@ struct MeterModel: Program {
         needsRedraw = true
         switch msg {
         case .start:
-            return syncMouse() + [.connectEvents] + (needsLibrary ? [.refreshLibrary] : [])
+            return syncMouse() + [.connectEvents] + (needsLibrary ? [.refreshLibrary] : []) + arrive()
         case .frame(let f):
             return frame(f)
         case .input(let event):
@@ -176,10 +198,10 @@ struct MeterModel: Program {
                 lists.follow = nil
             } else if let band = Self.band(action) {
                 flash = Countdown(value: band, left: Watch.flashFrames + MeterScene.flashBlendFrames)
-            } else if let text = done(action) {
+            } else if let text = done(action) ?? donePage(action) {
                 show(text, .ok)
             }
-            return [.refreshHeader] + (needsLibrary ? [.refreshLibrary] : [])
+            return [.refreshHeader] + refreshes
         case .library(let new):
             library = new
             if let follow = lists.follow, let at = library.presetNames.firstIndex(where: { $0.lowercased() == follow.lowercased() }) {
@@ -188,9 +210,30 @@ struct MeterModel: Program {
             }
             lists.preset = min(lists.preset, max(library.presetNames.count - 1, 0))
             lists.device = min(lists.device, max(library.rows.count - 1, 0))
+            lists.app = min(lists.app, max(library.apps.count - 1, 0))
             guard let step = pendingDevice else { return [] }
             pendingDevice = nil
             return otherDevice(step)
+        case .running(let apps):
+            running = apps
+            return []
+        case .system(let info):
+            system = info
+            return []
+        case .history(let list):
+            let first = !versions.loaded
+            versions = list
+            if first, let at = list.versions.firstIndex(where: { $0.index == list.position }) { lists.version = at }
+            lists.version = min(lists.version, max(list.versions.count - 1, 0))
+            if first, let note = list.note { show(note) }
+            return []
+        case .jobOutput(let job, let line):
+            jobLines[job, default: []].append(line)
+            return []
+        case .jobClosed(let job):
+            return [.reapJob(job)]
+        case .jobExit(let job, let code):
+            return jobEnded(job, code: code)
         case .sendFailed:
             // A failed send most likely means the socket is gone, and the daemon clears the solo then.
             show(Watch.listenFailed, .error)
@@ -316,6 +359,13 @@ struct MeterModel: Program {
         scene.rename = rename
         scene.editing = editing
         scene.previews = previews
+        scene.running = running
+        scene.picker = picker
+        scene.search = search
+        scene.system = system
+        scene.doctor = doctor
+        scene.versions = versions
+        scene.back = !stack.isEmpty
         return scene
     }
 
@@ -447,14 +497,14 @@ struct MeterModel: Program {
         if stack.count > Self.stackLimit { stack.removeFirst() }
         if next == .instruments { selected = focus ?? selected }
         view = next
-        return left + syncMeter() + (needsLibrary ? [.refreshLibrary] : [])
+        return left + syncMeter() + (needsLibrary ? [.refreshLibrary] : []) + arrive()
     }
 
     private mutating func back() -> [MeterCmd] {
         guard let previous = stack.popLast() else { return [] }
         let left = leave()
         view = previous
-        return left + syncMeter() + (needsLibrary ? [.refreshLibrary] : [])
+        return left + syncMeter() + (needsLibrary ? [.refreshLibrary] : []) + arrive()
     }
 
     /// What a view had open goes with it; Tune goes back to the playing device's curve.
@@ -462,6 +512,8 @@ struct MeterModel: Program {
         form = nil
         confirm = nil
         rename = nil
+        picker = nil
+        search = nil
         lists.field = nil
         guard view == .tune, editing != nil else { return [] }
         editing = nil
@@ -483,9 +535,14 @@ struct MeterModel: Program {
         case .solo(let range): last?.solo = range
         case .profile:
             // Gains and preamp come only with frames: a view without levels takes one more.
-            return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : []) + (needsLibrary ? [.refreshLibrary] : [])
+            return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : []) + refreshes
+        case .app(let match):
+            last?.app = match
+            library.heard = match
+        case .daemon:
+            return refreshes
         }
-        if case .device = effect, needsLibrary { return [.refreshLibrary] }
+        if case .device = effect { return refreshes }
         return []
     }
 
@@ -584,7 +641,7 @@ struct MeterModel: Program {
             show(line.isEmpty ? fallback : line, code == 0 ? .ok : .error)
             child = nil
         }
-        return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : []) + (needsLibrary ? [.refreshLibrary] : [])
+        return [.refreshHeader] + (!wantsMeter && !meterOpen ? [.connect] : []) + refreshes + (view == .system ? runDoctor() : [])
     }
 
     // MARK: Keys
@@ -603,7 +660,7 @@ struct MeterModel: Program {
             }
         }
         if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left, modal == nil, !goMenu, palette == nil,
-           prompt == nil, rename == nil, confirm == nil, child?.shown != true, select(at: mouse) {
+           prompt == nil, rename == nil, confirm == nil, picker == nil, search == nil, child?.shown != true, select(at: mouse) {
             return []
         }
         if case .mouse(let mouse) = event, mouse.action == .press, mouse.button == .left {
@@ -612,6 +669,8 @@ struct MeterModel: Program {
             return goTo(target)
         }
         if palette != nil { return paletteInput(event) }
+        if picker != nil { return pickerInput(event) }
+        if search != nil { return searchInput(event) }
         if var field = prompt {
             switch field.handle(event) {
             case .editing: prompt = field
@@ -643,7 +702,7 @@ struct MeterModel: Program {
                 confirm = nil
                 let yes: [Character] = ["y", "Y", "н", "Н", "\r", "\n"]
                 guard press.modifiers.isEmpty, yes.map(KeyCode.char).contains(press.code) else { return [] }
-                return apply(asked.action)
+                return act(asked.action)
             case .mouse(let mouse) where mouse.action == .press:
                 confirm = nil
                 return []
@@ -658,6 +717,7 @@ struct MeterModel: Program {
             case .submit(let text):
                 entry = nil
                 guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+                if view == .filters { return typedFilterValue(text) }
                 guard let value = tune.selected.parse(text) else {
                     show("not a value for \(tune.selected.name): \"\(text)\"", .error)
                     return []
@@ -671,11 +731,15 @@ struct MeterModel: Program {
             switch field.handle(event) {
             case .editing:
                 filterField = field
-                events.filter = field.text
-                events.scroll = 0
+                if modal != nil {
+                    modal = .help(scroll: 0, filter: field.text)
+                } else {
+                    events.filter = field.text
+                    events.scroll = 0
+                }
             case .cancel:
                 filterField = nil
-                events.filter = ""
+                if modal != nil { modal = .help(scroll: 0) } else { events.filter = "" }
             case .submit:
                 filterField = nil
             case .ignored: break
@@ -684,7 +748,8 @@ struct MeterModel: Program {
         }
         guard let key = Key(event) else { return [] }
         let context = MeterScene.context(prompt: prompt, entry: entry, rename: rename, filter: filterField, confirm: confirm, palette: palette,
-                                         go: goMenu, pane: child?.shown == true, modal: modal, form: form, fields: lists.field != nil, view: view)
+                                         picker: picker, search: search, go: goMenu, pane: child?.shown == true, modal: modal, form: form,
+                                         fields: lists.field != nil, view: view)
         let action = KeyTable.action(for: key, in: context)
         if goMenu {
             guard case .go? = action else {
@@ -735,7 +800,7 @@ struct MeterModel: Program {
             let cmds = refocus(selected)
             return cmds + goTo(.meter)
         case .pause: events.togglePause()
-        case .filter: filterField = TextField(events.filter)
+        case .filter: filterField = TextField(context == .help ? modal?.filter ?? "" : events.filter)
         case .stop:
             guard child?.status == nil, child != nil else {
                 child = nil
@@ -778,8 +843,14 @@ struct MeterModel: Program {
             return apply(.adjust(tune.selected, tune.selected.delta(size)))
         case .tuneReset: return apply(.assign(tune.selected, 0))
         case .tuneEntry: entry = TextField()
+        case .primary where context == .apps || context == .history, .startAdd where context == .apps, .startDelete where context == .apps:
+            return pageAction(action, in: context)
         case .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice:
             return listAction(action, in: context)
+        case .toggleApps, .switchMode, .refresh, .historyStep, .search:
+            return pageAction(action, in: context)
+        case .fieldEntry(let text): entry = TextField(text)
+        case .run(let words): return run(words.joined(separator: " "), action: nil)
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
              .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign,
              .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .addFilter, .setFilter, .removeFilter,
@@ -815,6 +886,12 @@ struct MeterModel: Program {
             lists.device = min(max(lists.device + delta, 0), max(library.rows.count - 1, 0))
         case .filters:
             lists.filter = min(max(lists.filter + delta, 0), max(filters.count - 1, 0))
+        case .apps:
+            lists.app = min(max(lists.app + delta, 0), max(library.apps.count - 1, 0))
+        case .system:
+            lists.check = min(max(lists.check + delta, 0), max((doctor.report?.checks.count ?? 0) - 1, 0))
+        case .history:
+            lists.version = min(max(lists.version + delta, 0), max(versions.versions.count - 1, 0))
         case .events:
             let page = EventsView.visible(size)
             events.scroll(by: -(abs(delta) == 10 ? delta / 10 * max(page - 1, 1) : delta), visible: page)

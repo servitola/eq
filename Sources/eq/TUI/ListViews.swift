@@ -85,14 +85,14 @@ struct SplitLayout {
     var list: Rect
     var preview: Rect?
 
-    init(_ size: Size) {
+    init(_ size: Size, wide: Int = 50) {
         let body = Chrome.body(size)
         guard body.width >= 60 else {
             list = body
             preview = nil
             return
         }
-        let w = body.width >= 110 ? 50 : max(body.width * 9 / 20, 30)
+        let w = body.width >= 110 ? wide : max(body.width * 9 / 20, 30)
         list = Rect(x: body.x, y: body.y, width: w, height: body.height)
         preview = Rect(x: body.x + w + 1, y: body.y, width: body.width - w - 1, height: body.height)
     }
@@ -137,6 +137,39 @@ enum Layers {
         lines.append(("filters", filters == 0 ? [("none", p.text3)]
             : [("\(filters)", p.text)] + (profile.imported.map { [(" · " + $0, p.text3)] } ?? [])))
         return lines
+    }
+
+    /// What `current` has that `preset` does not, a line each: `32 Hz +4.8 → +3.0`; `same` when nothing.
+    static func differences(_ current: Profile?, _ preset: Profile, _ t: Theme, same: String) -> [Line] {
+        let p = t.p
+        guard let current else { return [("", [("the current curve is not read yet", p.text3)])] }
+        var lines: [Line] = []
+        func change(_ label: String, _ before: String, _ after: String, _ ink: Swatch) {
+            lines.append((label, [(before.leftPadded(to: 5), p.text3), (" → ", p.text3), (after.leftPadded(to: 5), ink)]))
+        }
+        for (i, (a, b)) in zip(current.bands, preset.bands).enumerated() where a != b {
+            change(Table.shortLabels[i] + (i < 5 ? " Hz" : ""), MeterScene.gainText(a), MeterScene.gainText(b), t.gain(b))
+        }
+        if current.preamp != preset.preamp { change("preamp", MeterScene.gainText(current.preamp), MeterScene.gainText(preset.preamp), t.gain(preset.preamp)) }
+        let a = current.preference ?? Preference(), b = preset.preference ?? Preference()
+        for (name, x, y) in [("bass", a.bass, b.bass), ("treble", a.treble, b.treble), ("tilt", a.tilt, b.tilt)] where x != y {
+            change(name, MeterScene.gainText(x), MeterScene.gainText(y), t.gain(y))
+        }
+        for instrument in Instruments.all {
+            let x = current.instruments?[instrument.name] ?? 0, y = preset.instruments?[instrument.name] ?? 0
+            if x != y { change(instrument.name, MeterScene.gainText(x), MeterScene.gainText(y), t.gain(y)) }
+        }
+        if current.dynamics?.comp != preset.dynamics?.comp {
+            change("comp", current.dynamics?.comp?.rawValue ?? "off", preset.dynamics?.comp?.rawValue ?? "off", p.accent)
+        }
+        if current.dynamics?.color != preset.dynamics?.color {
+            func colour(_ d: Dynamics?) -> String { d?.color.map { "\($0.kind.rawValue) \(String(format: "%g", $0.amount))" } ?? "off" }
+            change("colour", colour(current.dynamics), colour(preset.dynamics), p.accent)
+        }
+        if !current.filters.elementsEqual(preset.filters, by: { $0.sounds(like: $1) }) {
+            change("filters", "\(current.filters.count)", "\(preset.filters.count)", p.text)
+        }
+        return lines.isEmpty ? [("", [(same, p.ok)])] : lines
     }
 
     static func draw(_ lines: [Line], x: Int, y: Int, width: Int, rows: Int, _ t: Theme, upper: Bool, into screen: inout Screen) {
@@ -249,7 +282,8 @@ struct PresetsView {
         let device = scene.frame.device ?? "the current device"
         let beside = r.width >= 64
         let side = beside ? 26 : 0
-        let lines = diff ? differences(preset) : Layers.lines(preset, mark: nil, t).map { ($0.label, $0.runs) }
+        let lines = diff ? Layers.differences(current, preset, t, same: "the same curve as the current device")
+            : Layers.lines(preset, mark: nil, t).map { ($0.label, $0.runs) }
         let under = beside ? 0 : min(lines.count, max(r.height - 9, 0))
         let curve = Rect(x: r.x, y: r.y, width: r.width - side, height: r.height - under)
         ResponsePanel(scene: scene).draw(curve, title: name, right: diff ? "vs \(device), faint" : "curve",
@@ -261,38 +295,6 @@ struct PresetsView {
         } else if under > 0 {
             Layers.draw(lines, x: r.x + 2, y: curve.bottom, width: r.width - 3, rows: under, t, upper: console, into: &screen)
         }
-    }
-
-    /// What the current device's curve has that the preset does not, a line each: `32 Hz +4.8 → +3.0`.
-    private func differences(_ preset: Profile) -> [Layers.Line] {
-        guard let current else { return [("", [("the current curve is not read yet", p.text3)])] }
-        var lines: [Layers.Line] = []
-        func change(_ label: String, _ before: String, _ after: String, _ ink: Swatch) {
-            lines.append((label, [(before.leftPadded(to: 5), p.text3), (" → ", p.text3), (after.leftPadded(to: 5), ink)]))
-        }
-        for (i, (a, b)) in zip(current.bands, preset.bands).enumerated() where a != b {
-            change(Table.shortLabels[i] + (i < 5 ? " Hz" : ""), MeterScene.gainText(a), MeterScene.gainText(b), t.gain(b))
-        }
-        if current.preamp != preset.preamp { change("preamp", MeterScene.gainText(current.preamp), MeterScene.gainText(preset.preamp), t.gain(preset.preamp)) }
-        let a = current.preference ?? Preference(), b = preset.preference ?? Preference()
-        for (name, x, y) in [("bass", a.bass, b.bass), ("treble", a.treble, b.treble), ("tilt", a.tilt, b.tilt)] where x != y {
-            change(name, MeterScene.gainText(x), MeterScene.gainText(y), t.gain(y))
-        }
-        for instrument in Instruments.all {
-            let x = current.instruments?[instrument.name] ?? 0, y = preset.instruments?[instrument.name] ?? 0
-            if x != y { change(instrument.name, MeterScene.gainText(x), MeterScene.gainText(y), t.gain(y)) }
-        }
-        if current.dynamics?.comp != preset.dynamics?.comp {
-            change("comp", current.dynamics?.comp?.rawValue ?? "off", preset.dynamics?.comp?.rawValue ?? "off", p.accent)
-        }
-        if current.dynamics?.color != preset.dynamics?.color {
-            func colour(_ d: Dynamics?) -> String { d?.color.map { "\($0.kind.rawValue) \(String(format: "%g", $0.amount))" } ?? "off" }
-            change("colour", colour(current.dynamics), colour(preset.dynamics), p.accent)
-        }
-        if !current.filters.elementsEqual(preset.filters, by: { $0.sounds(like: $1) }) {
-            change("filters", "\(current.filters.count)", "\(preset.filters.count)", p.text)
-        }
-        return lines.isEmpty ? [("", [("the same curve as the current device", p.ok)])] : lines
     }
 }
 

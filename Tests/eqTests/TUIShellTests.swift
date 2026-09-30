@@ -96,7 +96,7 @@ final class TUIShellTests: XCTestCase {
 
     func testTheTabRowAndItsHint() {
         let lines = model().lines()!
-        XCTAssertTrue(lines[1].hasPrefix("  Meter   Tune   Instruments   Presets   Devices   Filters   Events "), lines[1])
+        XCTAssertTrue(lines[1].hasPrefix("  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events "), lines[1])
         XCTAssertTrue(lines[1].hasSuffix("g go  ; cmd "), lines[1])
         let short = model(size: Size(cols: 80, rows: 13)).lines()!
         XCTAssertFalse(short[1].contains("Instruments"), "below 14 rows the meter keeps the row")

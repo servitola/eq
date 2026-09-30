@@ -1,0 +1,24 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
+ METER TUNE INSTRUMENTS PRESETS DEVICES FILTERS APPS SYSTEM  HISTORY  EVENTS
+ ╭─ HISTORY · BE-RCA ──────────────╮ ╭─ VERSION 2 · 09-30 09:12:12 ───── live ╮
+ │    #  SAVED       CURVE         │ │ +12 ⢀⣀                                 │
+ │     0 09-30 09:41 ▆▆▆▅▅▄▅▅▆▅    │ │     ⠁ ⠑⠊⠉⠱⡀                            │
+ │     1 09-30 09:40 ▆▆▆▅▅▄▅▅▅▅    │ │           ⠈⠑⢄                          │
+ │▸ ◉  2 09-30 09:12 ▆▆▆▅▅▄▅▅▅▅    │ │             ⠈⢆                         │
+ │     3 09-29 22:03 ▆▆▆▅▅▄▅▅▅▅    │ │              ⠈⠑⠢⡀             ⢀⠜⠑⠤⡠⠜⢱  │
+ │     4 09-29 21:58 ▅▅▅▅▅▅▅▅▅▅    │ │                 ⠈⠢⣀         ⡔⠒⠁      ⠁ │
+ │     5 09-29 21:57 ▅▅▅▅▅▅▅▅▅▅    │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠑⢄┈┈┈┈┈┈⡎┈┈┈┈┈┈┈┈┈┈ │
+ │     6 09-28 18:20 unreadable    │ │                      ⠑⠔⠉⠉⠑⠊            │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │ -12                                    │
+ │                                 │ │     32     125    500    2k    8k      │
+ │                                 │ ╰────────────────────────────────────────╯
+ │                                 │   PREAMP   -4.8 dB
+ │                                 │   TONE     bass +1  treble -0.5
+ │                                 │   KNOBS    ● voice +3
+ │                                 │   DYNAMICS night comp  tape 0.3
+ ╰─────────────────────────────────╯   FILTERS  4 · AutoEq · HD 600
+
+ ↑↓  move   Enter  restore   ← →  undo/redo   Esc  back   ?  keys   q  quit

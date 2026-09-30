@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS
+ METER TUNE INSTRUMENTS  PRESETS  DEVICES FILTERS APPS SYSTEM HISTORY EVENTS
  ╭─ PRESETS ──────────────────── 5 ╮ ╭─ LATE JAZZ ────────── vs BE-RCA, faint ╮
  │   PRESET                PREAMP  │ │ +12 ⠔⠢⠤⠤⠤⢄⡀                            │
  │ ◆ favourite*               0.0  │ │     ⢀⣀⣀⣀⡠⣀⠈⠉⠢⡀                         │

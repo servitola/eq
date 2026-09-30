@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS
+ METER TUNE INSTRUMENTS PRESETS  DEVICES  FILTERS APPS SYSTEM HISTORY EVENTS
  ╭─ DEVICES ───────────────────────╮ ╭─ MACBOOK PRO SPEAKERS ─────────────────╮
  │      OUTPUT          CURVE      │ │ +12                                    │
  │   EQ BE-RCA · EQ system output  │ │                                        │
@@ -21,4 +21,4 @@
  │                                 │   DYNAMICS off
  ╰─────────────────────────────────╯   FILTERS  none
 
- ↑↓  move   Enter  use   c  copy here   e  edit   Esc  back   ?  keys   q  quit
+ ↑↓  move   Enter  use   c  copy here   e  edit   /  search   ?  keys   q  quit

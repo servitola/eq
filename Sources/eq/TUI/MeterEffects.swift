@@ -25,6 +25,11 @@ struct MeterEffects {
     var children: ChildRunner?
     var saveHistory: ([String]) -> Void = { _ in }
     var library: () -> Library = { Library(loaded: true) }
+    var apps: () -> [PlayingApp] = { [] }
+    var system: () -> SystemInfo = { SystemInfo(loaded: true) }
+    var history: () -> HistoryList = { HistoryList(loaded: true) }
+    /// One runner per job, each on the source and timer numbered by the job.
+    var jobs: [MeterJob: ChildRunner] = [:]
     /// Points the session's edits at a device other than the playing one, or back at it.
     var target: (DeviceChoice?) -> Void = { _ in }
 
@@ -93,6 +98,25 @@ struct MeterEffects {
             return []
         case .refreshLibrary:
             return [.library(library())]
+        case .refreshApps:
+            return [.running(apps())]
+        case .refreshSystem:
+            return [.system(system())]
+        case .refreshHistory:
+            return [.history(history())]
+        case .job(let job, let words):
+            guard let runner = jobs[job], let fd = runner.start(words, columns: 200) else {
+                return [.jobOutput(job, "error: eq could not be started"), .jobExit(job, 127)]
+            }
+            runtime.watch(fd: fd, id: job.rawValue)
+            return []
+        case .reapJob(let job):
+            guard let runner = jobs[job] else { return [] }
+            guard let code = runner.reap() else {
+                runtime.after(0.05, id: job.rawValue)
+                return []
+            }
+            return [.jobExit(job, code)]
         case .target(let device):
             target(device)
             return []
@@ -117,6 +141,8 @@ struct MeterEffects {
         case .timer(eventsTimer): return .eventsRetry
         case .resize(let size): return .resize(size)
         case .signal: return .signal
+        case .line(let source, let line): return MeterJob(rawValue: source).map { .jobOutput($0, line) }
+        case .closed(let id), .timer(let id): return MeterJob(rawValue: id).map(MeterMsg.jobClosed)
         default: return nil
         }
     }

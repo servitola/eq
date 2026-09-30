@@ -93,19 +93,26 @@ struct DeviceChoice: Equatable {
 
 /// The key list, drawn over the view until it is closed.
 enum WatchModal: Equatable {
-    case help(scroll: Int)
+    /// `filter`: only the keys that have it, typed after `/`.
+    case help(scroll: Int, filter: String = "")
 
     var context: KeyContext { .help }
 
     var scroll: Int {
         switch self {
-        case .help(let scroll): return scroll
+        case .help(let scroll, _): return scroll
+        }
+    }
+
+    var filter: String {
+        switch self {
+        case .help(_, let filter): return filter
         }
     }
 
     /// Stops where the last line comes into view, so ↑ answers at once after too many ↓.
     func scrolled(by delta: Int, size: Size, view: KeyContext) -> WatchModal {
         let (rows, visible) = Overlay.metrics(self, size: size, view: view)
-        return .help(scroll: min(max(scroll + delta, 0), max(rows - visible, 0)))
+        return .help(scroll: min(max(scroll + delta, 0), max(rows - visible, 0)), filter: filter)
     }
 }

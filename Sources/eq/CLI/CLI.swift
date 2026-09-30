@@ -715,7 +715,11 @@ enum CLI {
         var childEnvironment = environment
         // The child writes to a pipe: it paints only when told, and not at all when the TUI does not.
         if settings.depth == .none { childEnvironment["NO_COLOR"] = "1" } else { childEnvironment["CLICOLOR_FORCE"] = "1" }
-        let children = ChildRunner(executable: Bundle.main.executablePath ?? CommandLine.arguments[0], environment: childEnvironment)
+        let executable = Bundle.main.executablePath ?? CommandLine.arguments[0]
+        let children = ChildRunner(executable: executable, environment: childEnvironment)
+        var jobEnvironment = environment
+        jobEnvironment["NO_COLOR"] = "1"
+        let jobs = Dictionary(uniqueKeysWithValues: MeterJob.allCases.map { ($0, ChildRunner(executable: executable, environment: jobEnvironment)) })
         let historyURL = ctx.stateDirectory.appendingPathComponent("tui-history")
         let history = ((try? String(contentsOf: historyURL, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init).reversed()
         let effects = MeterEffects(edit: session.apply, header: session.header, send: client.send, mouse: Terminal.setMouse,
@@ -741,6 +745,10 @@ enum CLI {
                                        try? (lines.reversed().joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
                                    },
                                    library: { CLI.library(ctx) },
+                                   apps: ctx.audioApps,
+                                   system: { CLI.systemInfo(ctx) },
+                                   history: { CLI.historyList(ctx) },
+                                   jobs: jobs,
                                    target: { session.device = $0 })
         Terminal.enter()
         let size = Terminal.size() ?? Size(cols: terminal.cols, rows: terminal.rows)
@@ -752,6 +760,7 @@ enum CLI {
         let exitCode = runtime.run()
         Terminal.leave()
         children.finish()
+        jobs.values.forEach { $0.finish() }
         client.close()
         events.close()
         // Dying of SIGTERM or SIGHUP tells the parent why; Ctrl-C from kill ends like q.
@@ -963,7 +972,8 @@ enum CLI {
                  .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
                  .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend,
                  .tuneSelect, .tuneGroup, .nudge, .tuneReset, .tuneEntry,
-                 .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice:
+                 .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice,
+                 .fieldEntry, .toggleApps, .switchMode, .refresh, .historyStep, .search, .run:
                 return nil
             }
             return profile == before ? nil : profile

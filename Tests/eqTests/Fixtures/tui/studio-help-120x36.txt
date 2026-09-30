@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events                                         g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
 ╭─ m╭─ keys ─────────────────────────────────────────────────────────────────────────────────────────── meter view ╮───╮
 │  0│                                                                                                              │6.0│
 │   │  Tune ───────────────────────────────────────────────  Look ───────────────────────────────────────────────  │   │
@@ -18,19 +18,19 @@
 │   │             at 0.3 / raise the amount by 0.1, from 1              copy the curve to one, edit one            │0.0│
 │   │             back to 0.1                                 g f       the current device's parametric filters:   │0.0│
 │-36│   s         save the curve as a preset: type a name,              add, change, remove                        │0.0│
-│   │             Enter saves, Esc cancels                    g e       the daemon's events as they happen         │0.0│
-│   │                                                         Esc       stay; any other key does too               │0.0│
-│   │  Instruments ────────────────────────────────────────                                                        │3.0│
-│   │   z         the instrument strip, on and off           Command palette ────────────────────────────────────  │0.0│
-│-48│   i         the Instruments view: ranges in Hz, the     Enter     run the chosen line: an eq command as a    │0.0│
-│   │             bands each touches, knob gains, levels;               child process, or a screen action          │───╯
-│   │             Esc comes back                              Tab       take the chosen suggestion into the line   │
-│   │   ] Tab [   focus the next / previous instrument        ↑ ↓       choose a suggestion; with the line empty,  │
-│   │   → ←       the focused instrument's knob ±0.5 dB (.              the last commands run come first           │
-│-60│             and , work too, no Shift needed)            Esc       close it                                   │
-╰───│   l         listen to the focused instrument alone,                                                          │
-    │             and back                                   Command output ─────────────────────────────────────  │
-    │   Esc       leave the focus (and stop listening);       ↑ ↓ j k   scroll                                     │
-    ╰───────────────────────────────────────────────── 1–29 of 51 ─────────────────────────────────────────────────╯
+│   │             Enter saves, Esc cancels                    g a       the app rules: which preset plays while    │0.0│
+│   │                                                                   an app does, and the routes                │0.0│
+│   │  Instruments ────────────────────────────────────────   g s       the daemon, the mode and the driver's      │3.0│
+│   │   z         the instrument strip, on and off                      health, and eq doctor                      │0.0│
+│-48│   i         the Instruments view: ranges in Hz, the     g h       the saved versions of eq.json: restore     │0.0│
+│   │             bands each touches, knob gains, levels;               one, step with undo and redo               │───╯
+│   │             Esc comes back                              g e       the daemon's events as they happen         │
+│   │   ] Tab [   focus the next / previous instrument        Esc       stay; any other key does too               │
+│   │   → ←       the focused instrument's knob ±0.5 dB (.                                                         │
+│-60│             and , work too, no Shift needed)           Command palette ────────────────────────────────────  │
+╰───│   l         listen to the focused instrument alone,     Enter     run the chosen line: an eq command as a    │
+    │             and back                                              child process, or a screen action          │
+    │   Esc       leave the focus (and stop listening);       Tab       take the chosen suggestion into the line   │
+    ╰───────────────────────────────────────────────── 1–29 of 54 ─────────────────────────────────────────────────╯
 
- ↑↓  scroll   Esc  close
+ ↑↓  scroll   /  filter   Esc  close

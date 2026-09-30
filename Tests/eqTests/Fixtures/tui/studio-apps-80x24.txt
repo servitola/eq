@@ -1,0 +1,24 @@
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+ Meter Tune Instruments Presets Devices Filters  Apps  System History Events
+ ╭─ app rules ───────────────────────────────────────── on · experimental · 4 ╮
+ │    app                 preset                              now             │
+ │▸ ◉ Spotify           → night                               heard now       │
+ │    com.apple.Music   → late jazz                                           │
+ │    Chrome            → podcast                             has audio       │
+ │    com.example.Gone  → vinyl                               no such preset  │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ with audio open ─────────────────────────────────────────────────────── 3 ╮
+ │  ● Spotify           → night                                               │
+ │  ● Chrome            → podcast                                             │
+ │  ● Safari            no rule — a adds one                                  │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ an app with audio open ──────────────────────────────────────────────── 3 ╮
+ │  Spotify       com.spotify.client · → night                                │
+ │▸ Safari        com.apple.Safari                                            │
+ │  “s”           as typed: a bundle ID or an installed app's name            │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ app: s▏
+ ↑↓  choose   Enter  pick   Esc  cancel

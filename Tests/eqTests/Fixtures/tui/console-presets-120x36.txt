@@ -1,5 +1,5 @@
  DEVICE BE-RCA   RATE 44.1k   PRESET favourite*   VOICE +3.0                                 ● SOLO  ● BYPASS  ● LIMIT
-  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   EVENTS                                         g go  ; cmd
+  METER   TUNE   INSTRUMENTS   PRESETS   DEVICES   FILTERS   APPS   SYSTEM   HISTORY   EVENTS               g go  ; cmd
  ╭─ PRESETS ─────────────────────────────────── 5 ╮ ╭─ NIGHT ──────────────────────── curve ╮ ╭─ LAYERS ──────────────╮
  │   PRESET                    CURVE      PREAMP  │ │ +12                                   │ │ PREAMP   -2.0 dB      │
  │ ◆ favourite*                ▆▆▆▅▅▄▅▅▅▅    0.0  │ │                                       │ │ TONE     flat         │
@@ -33,4 +33,4 @@
  │                                                │ │     32     125   500    2k     8k     │ │                       │
  ╰────────────────────────────────────────────────╯ ╰───────────────────────────────────────╯ ╰───────────────────────╯
 
- ↑↓  move   Enter  apply   s  save as   r  rename   d  delete   v  diff off   Esc  back   u  undo   ?  keys   q  quit
+ ↑↓  move   Enter  apply   s  save as   r  rename   d  delete   v  diff off   /  search   u  undo   ?  keys   q  quit

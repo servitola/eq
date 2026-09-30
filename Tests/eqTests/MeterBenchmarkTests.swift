@@ -66,8 +66,8 @@ final class MeterBenchmarkTests: XCTestCase {
         let header = Watch.Header(preset: ("favourite", true), preference: Preference(bass: 1, treble: -0.5), knobs: ["voice": 3],
                                   dynamics: Dynamics(comp: .night, color: .init(kind: .tape, amount: 0.3)))
         var model = MeterModel(size: size, header: header, look: settings, view: view)
-        if [.presets, .devices, .filters].contains(view) {
-            _ = model.update(.library(TUILookTests.library))
+        if Self.lists.contains(view) {
+            load(&model)
             var listed = header
             listed.profile = TUILookTests.playing
             _ = model.update(.header(listed))
@@ -88,6 +88,18 @@ final class MeterBenchmarkTests: XCTestCase {
         return (Double(bytes) / Double(count), full, (cpu() - start) / Double(count + 1) * 1000)
     }
 
+    static let lists: [TUIView] = [.presets, .devices, .filters, .apps, .system, .history]
+
+    /// What the list views read, as the goldens have it.
+    private static func load(_ model: inout MeterModel) {
+        let data = TUILookTests.pages(TUILookTests.scene(cols: 120, rows: 40)) { _ in }
+        _ = model.update(.library(data.library))
+        _ = model.update(.running(data.running))
+        _ = model.update(.system(data.system))
+        _ = model.update(.history(data.versions))
+        model.doctor = data.doctor
+    }
+
     /// A list view with nothing but keys: `j` and `k` in turn, each moving the selection and its preview.
     static func measureKeys(look: Look, depth: ColorDepth, view: TUIView, presses count: Int = 300) -> (perKey: Double, full: Int) {
         let size = Size(cols: 120, rows: 40)
@@ -95,7 +107,7 @@ final class MeterBenchmarkTests: XCTestCase {
         settings.look = look
         settings.depth = depth
         var model = MeterModel(size: size, look: settings, view: view)
-        _ = model.update(.library(TUILookTests.library))
+        load(&model)
         _ = model.update(.header(Watch.Header(preset: ("favourite", true), profile: TUILookTests.playing)))
         var renderer = Renderer()
         var screen = Screen(size)
@@ -141,7 +153,7 @@ final class MeterBenchmarkTests: XCTestCase {
                 }
             }
         }
-        for view in [TUIView.presets, .devices, .filters] {
+        for view in Self.lists {
             for look in Look.allCases {
                 for depth in ColorDepth.allCases {
                     let m = Self.measure(look: look, depth: depth, motion: .stress, view: view)

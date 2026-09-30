@@ -4,7 +4,7 @@ import Foundation
 /// The views the TUI switches between; each is reached by `g` and its letter, a click on its
 /// tab, or `go …` in the palette.
 enum TUIView: String, CaseIterable {
-    case meter, tune, instruments, presets, devices, filters, events
+    case meter, tune, instruments, presets, devices, filters, apps, system, history, events
 
     var title: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
     var letter: Character { rawValue.first! }
@@ -17,6 +17,9 @@ enum TUIView: String, CaseIterable {
         case .presets: return .presets
         case .devices: return .devices
         case .filters: return .filters
+        case .apps: return .apps
+        case .system: return .system
+        case .history: return .history
         case .events: return .events
         }
     }
@@ -58,18 +61,27 @@ enum TabRow {
     static let hint = "g go  ; cmd"
     static let minRows = 14
 
-    /// Where each tab sits, for drawing and for a click.
-    static func layout(width: Int, current: TUIView) -> [(view: TUIView, columns: Range<Int>)] {
+    typealias Tab = (view: TUIView, columns: Range<Int>, title: String, padded: Bool)
+
+    /// Where each tab sits, for drawing and for a click: every tab a padded chip while they fit,
+    /// then only the current one padded, then the others cut to three letters. Below 60 columns
+    /// only the current one.
+    static func layout(width: Int, current: TUIView) -> [Tab] {
         let views = width < 60 ? [current] : TUIView.allCases
-        var x = 1
-        var result: [(TUIView, Range<Int>)] = []
-        for view in views {
-            let w = view.title.count + 2
-            guard x + w <= width else { break }
-            result.append((view, x..<(x + w)))
-            x += w + 1
+        var result: [Tab] = []
+        for fit in 0..<3 {
+            var x = 1
+            result = views.map { view in
+                let here = view == current
+                let title = fit == 2 && !here ? String(view.title.prefix(3)) : view.title
+                let padded = fit == 0 || here
+                let w = title.count + (padded ? 2 : 0)
+                defer { x += w + 1 }
+                return (view, x..<(x + w), title, padded)
+            }
+            if x - 1 <= width { break }
         }
-        return result
+        return result.filter { $0.columns.upperBound <= width }
     }
 
     static func view(at column: Int, width: Int, current: TUIView) -> TUIView? {
@@ -81,15 +93,17 @@ enum TabRow {
         let width = scene.size.cols
         let console = scene.settings.look == .console
         let tabs = layout(width: width, current: scene.view)
-        for (view, columns) in tabs {
-            let title = console ? view.title.uppercased() : view.title
-            if view == scene.view {
-                screen.ink(" " + title + " ", x: columns.lowerBound, y: y, t.style(p.onChip, p.accent, .bold, solid: true))
+        for tab in tabs {
+            let title = console ? tab.title.uppercased() : tab.title
+            let x = tab.columns.lowerBound
+            if tab.view == scene.view {
+                screen.ink(" " + title + " ", x: x, y: y, t.style(p.onChip, p.accent, .bold, solid: true))
             } else {
                 let bg: Swatch? = console ? p.keyBg : nil
-                screen.ink(" ", x: columns.lowerBound, y: y, t.style(nil, bg))
-                screen.ink(String(title.prefix(1)), x: columns.lowerBound + 1, y: y, t.style(p.accent, bg, .underline))
-                screen.ink(String(title.dropFirst()) + " ", x: columns.lowerBound + 2, y: y, t.style(console ? p.text2 : p.text3, bg))
+                let pad = tab.padded ? 1 : 0
+                if tab.padded { screen.ink(" ", x: x, y: y, t.style(nil, bg)) }
+                screen.ink(String(title.prefix(1)), x: x + pad, y: y, t.style(p.accent, bg, .underline))
+                screen.ink(String(title.dropFirst()) + (tab.padded ? " " : ""), x: x + pad + 1, y: y, t.style(console ? p.text2 : p.text3, bg))
             }
         }
         let end = tabs.last?.columns.upperBound ?? 0

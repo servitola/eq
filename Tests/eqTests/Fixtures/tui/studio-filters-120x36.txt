@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events                                         g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
  ╭─ filters · BE-RCA ──────────────────────────────────────────────────────────── 4 of 32 · imported: AutoEq · HD 600 ╮
  │  #   type       frequency   gain      Q      source                                                                │
  │   1  lowshelf      105 Hz   +4.0 dB   0.70   import                                                                │
@@ -33,4 +33,4 @@
  │         32         64         125        250        500        1k         2k         4k         8k         16k     │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  gain — ↑↓ 0.5 dB, ⇧↑↓ 3 dB, Alt↑↓ 0.1 dB
- ← →  field   ↑ ↓  change   Esc  done   ⇧↑↓  coarse   Alt↑↓  fine   u  undo   y  look   m  mouse off   ?  keys   q  quit
+ ← →  field   ↑ ↓  change   Esc  done   ⇧↑↓  coarse   Alt↑↓  fine   =  type   u  undo   y  look   ?  keys   q  quit

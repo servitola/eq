@@ -6,6 +6,10 @@ struct EventEntry: Equatable {
     enum Tone { case plain, accent, boost, cut, ok, warn, danger, solo }
     enum Effect: Equatable {
         case device(String, rate: Double), rate(Double), enabled(Bool), solo(SoloRange?), profile
+        /// The app rule heard now, or none.
+        case app(AppMatch?)
+        /// The daemon started or stopped, or its mode or the driver's target moved.
+        case daemon
     }
 
     var time: String
@@ -64,16 +68,20 @@ struct EventEntry: Equatable {
             let state = string("state") ?? "?"
             entry.text = [state, string("version").map { "eq \($0)" }, string("error")].compactMap { $0 }.joined(separator: " · ")
             entry.tone = state == "running" ? .ok : (state == "starting" || state == "bypassed" ? .warn : .danger)
+            entry.effect = .daemon
         case "app":
             let name = string("name") ?? string("app") ?? "?"
             entry.text = string("preset").map { "\(name) plays, preset \($0)" } ?? "\(name) stopped"
             entry.tone = .cut
+            entry.effect = .app(string("preset").map { AppMatch(app: string("app") ?? name, name: name, preset: $0) })
         case "mode":
             entry.text = [string("mode"), string("target").map { "on \($0)" }, string("reason")].compactMap { $0 }.joined(separator: " · ")
             entry.tone = .warn
+            entry.effect = .daemon
         case "target":
             entry.text = "the EQ device plays on \(device)"
             entry.tone = .accent
+            entry.effect = .daemon
         case "route":
             let name = string("name") ?? string("app") ?? "?"
             entry.text = "\(name) → \(string("targetName") ?? string("target") ?? "the main path") (\(string("reason") ?? "?"))"

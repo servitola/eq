@@ -82,8 +82,10 @@ final class KeyTableTests: XCTestCase {
     func testBarLabelsFitTwelveColumns() {
         for binding in KeyTable.bindings {
             guard let bar = binding.bar else { continue }
-            let longest = [bar.text] + (binding.state.map { [$0(KeyState()), $0(KeyState(strip: true, listening: true, mouse: true))] } ?? [])
-            XCTAssertLessThanOrEqual(TerminalText.width(bar.key + " " + longest.joined(separator: " ")), 16, binding.label)
+            let states = binding.state.map { [$0(KeyState()), $0(KeyState(strip: true, listening: true, mouse: true, following: true, driver: true))] }
+            for state in states ?? [""] {
+                XCTAssertLessThanOrEqual(TerminalText.width(([bar.key, bar.text, state]).filter { !$0.isEmpty }.joined(separator: " ")), 16, binding.label)
+            }
             XCTAssertLessThanOrEqual(TerminalText.width(bar.text), 12, binding.label)
         }
     }
@@ -108,14 +110,14 @@ final class KeyTableTests: XCTestCase {
         XCTAssertTrue(focused.contains("z zones on"), focused)
         XCTAssertTrue(focused.contains("← → knob  l listen on  Esc unfocus"), focused)
         XCTAssertFalse(Keybar.line(.meter, state: KeyState(), width: 400).contains("listen"), "l needs a focus")
-        XCTAssertEqual(Keybar.line(.help, state: KeyState(), width: 80), "↑↓ scroll  Esc close")
+        XCTAssertEqual(Keybar.line(.help, state: KeyState(), width: 80), "↑↓ scroll  / filter  Esc close")
         XCTAssertEqual(Keybar.line(.prompt, state: KeyState(), width: 80), "Enter save  Esc cancel")
-        XCTAssertEqual(Keybar.line(.go, state: KeyState(), width: 100),
-                       "m meter  t tune  i instruments  p presets  d devices  f filters  e events  Esc cancel")
+        XCTAssertEqual(Keybar.line(.go, state: KeyState(), width: 200),
+                       "m meter  t tune  i instruments  p presets  d devices  f filters  a apps  s system  h history  e events  Esc cancel")
         XCTAssertEqual(Keybar.line(.palette, state: KeyState(), width: 80), "Tab complete  ↑↓ choose  Enter run  Esc close")
-        XCTAssertEqual(Keybar.line(.instruments, state: KeyState(), width: 200),
+        XCTAssertEqual(Keybar.line(.instruments, state: KeyState(back: true), width: 200),
                        "↑↓ move  Enter focus  ← → knob  l listen off  Esc back  u undo  y look  m mouse off  g go  ; cmd  ? keys  q quit")
-        XCTAssertEqual(Keybar.line(.events, state: KeyState(paused: true), width: 80),
+        XCTAssertEqual(Keybar.line(.events, state: KeyState(paused: true, back: true), width: 80),
                        "↑↓ scroll  Space pause  / filter  Esc back  u undo  y look  ? keys  q quit")
         XCTAssertTrue(Keybar.line(.pane, state: KeyState(running: true), width: 80).contains("Ctrl-C stop"))
         XCTAssertFalse(Keybar.line(.pane, state: KeyState(), width: 80).contains("Ctrl-C"), "only while it runs")

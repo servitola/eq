@@ -1,0 +1,24 @@
+ DEVICE BE-RCA   RATE 44.1k   PRESET favourite*      ● SOLO  ● BYPASS  ● LIMIT
+ METER TUNE INSTRUMENTS PRESETS DEVICES FILTERS  APPS  SYSTEM HISTORY EVENTS
+ ╭─ APP RULES ───────────────────────────────────────── on · experimental · 4 ╮
+ │    APP                 PRESET                              NOW             │
+ │▸ ◉ Spotify           → night                               heard now       │
+ │    com.apple.Music   → late jazz                                           │
+ │    Chrome            → podcast                             has audio       │
+ │    com.example.Gone  → vinyl                               no such preset  │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ WITH AUDIO OPEN ─────────────────────────────────────────────────────── 3 ╮
+ │  ● Spotify           → night                                               │
+ │  ● Chrome            → podcast                                             │
+ │  ● Safari            no rule — a adds one                                  │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ ╭─ an app with audio open ──────────────────────────────────────────────── 3 ╮
+ │  Spotify       com.spotify.client · → night                                │
+ │▸ Safari        com.apple.Safari                                            │
+ │  “s”           as typed: a bundle ID or an installed app's name            │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ app: s▏
+ ↑↓  choose   Enter  pick   Esc  cancel

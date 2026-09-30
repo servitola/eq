@@ -1,0 +1,24 @@
+ ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite*                peak -6.0 dB
+ Meter Tune Instruments Presets Devices Filters Apps System  History  Events
+ ╭─ history · BE-RCA ──────────────╮ ╭─ version 2 · 09-30 09:12:12 ───── live ╮
+ │    #  saved       curve         │ │ +12 ⢀⣀                                 │
+ │     0 09-30 09:41 ▆▆▆▅▅▄▅▅▆▅    │ │     ⠁ ⠑⠊⠉⠱⡀                            │
+ │     1 09-30 09:40 ▆▆▆▅▅▄▅▅▅▅    │ │           ⠈⠑⢄                          │
+ │▸ ◉  2 09-30 09:12 ▆▆▆▅▅▄▅▅▅▅    │ │             ⠈⢆                         │
+ │     3 09-29 22:03 ▆▆▆▅▅▄▅▅▅▅    │ │              ⠈⠑⠢⡀             ⢀⠜⠑⠤⡠⠜⢱  │
+ │     4 09-29 21:58 ▅▅▅▅▅▅▅▅▅▅    │ │                 ⠈⠢⣀         ⡔⠒⠁      ⠁ │
+ │     5 09-29 21:57 ▅▅▅▅▅▅▅▅▅▅    │ │   0 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⠑⢄┈┈┈┈┈┈⡎┈┈┈┈┈┈┈┈┈┈ │
+ │     6 09-28 18:20 unreadable    │ │                      ⠑⠔⠉⠉⠑⠊            │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │                                        │
+ │                                 │ │ -12                                    │
+ │                                 │ │     32     125    500    2k    8k      │
+ │                                 │ ╰────────────────────────────────────────╯
+ │                                 │   preamp   -4.8 dB
+ │                                 │   tone     bass +1  treble -0.5
+ │                                 │   knobs    ● voice +3
+ │                                 │   dynamics night comp  tape 0.3
+ ╰─────────────────────────────────╯   filters  4 · AutoEq · HD 600
+
+ ↑↓  move   Enter  restore   ← →  undo/redo   Esc  back   ?  keys   q  quit

@@ -35,6 +35,13 @@ enum WatchAction: Equatable {
     /// preset diff, copy here, edit in Tune, a new filter, a filter's fields and a step between
     /// them; `otherDevice` is Tune's next or previous device to edit.
     case primary, startRename, startDelete, toggleDiff, copyHere, editInTune, startAdd, editFields, field(Int), otherDevice(Int)
+    /// A filter field's value typed in the message row, starting with `text`.
+    case fieldEntry(String)
+    /// Apps: rules on and off. System: the other mode, asked first; `refresh` reads the status and
+    /// runs the doctor again. History: one version older (+1) or newer (-1). `/`: jump to a row.
+    case toggleApps, switchMode, refresh, historyStep(Int), search
+    /// An `eq` command in the output pane, once a question was answered.
+    case run([String])
     /// The list views' edits, each the change its `eq preset`, `eq device` or `eq filter` command makes.
     case usePreset(String), renamePreset(String, String), removePreset(String)
     /// `useDevice` takes a device's UID; it moves the system's output and saves nothing.

@@ -1,5 +1,5 @@
  ◉ BE-RCA  44.1 kHz │ preamp -4.8 dB │ ◆ favourite* │ ● voice +3.0 │ bass +1 treble -0.5                   peak -6.0 dB
-  Meter   Tune   Instruments   Presets   Devices   Filters   Events                                         g go  ; cmd
+  Meter   Tune   Instruments   Presets   Devices   Filters   Apps   System   History   Events               g go  ; cmd
  ╭─ events ────────────────────────────────────────────────────────────────────────────────────────── live · 11 of 11 ╮
  │                                                                                                                    │
  │                                                                                                                    │
@@ -33,4 +33,4 @@
  │ 09:52:30  route    Chrome → AirPods (first)                                                                        │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
- ↑↓  scroll   Space  pause   /  filter   Esc  back   u  undo   y  look   m  mouse off   g  go   ?  keys   q  quit
+ ↑↓  scroll   Space  pause   /  filter   u  undo   y  look   m  mouse off   g  go   ;  cmd   ?  keys   q  quit
