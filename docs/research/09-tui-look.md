@@ -417,3 +417,88 @@ less than the meter. As in §6, the Mac's state put every build above the 5.7 % 
 session, M3 included; bytes stay far inside 4.5 KB. The same pty run with keys (`↓`, `→`×5,
 `оооо`, `⇧↑`, `Enter -2,5 Enter`, `Tab`, `u`×3) changed the scratch eq.json at each step, wrote
 one backup for the whole session, and walked back with `u`.
+
+## 8. M5 as built: Presets, Devices, Filters [measured]
+
+The three list views in both looks, between Instruments and Events on the tab row. Screens from
+the real renderer are in `docs/design/tui/actual/` (`*-presets-*`, `*-devices-*`, `*-filters-*`,
+at 120×36 and 80×24), pinned by golden files; every other screen gained the three tabs. There were
+no mocks for these views; they reuse the looks' parts: rounded panels, the selection on `sel` with
+`▸`, the braille response over boost and cut tints (a backlit window in console), keycaps.
+
+What was decided while building:
+- **One edit path.** Every list action is a `WatchAction` the watch session applies through the
+  CLI's own functions (`CLI.usePreset`, `renamePreset`, `removePreset`, `copyCurve`, `useDevice`,
+  `addFilter`, `setFilter`, `removeFilter`, extracted from the commands without changing their
+  output). A test runs each command and each action against two scratch stores and compares
+  eq.json. The session's `u` now restores whatever a save changed (device profiles, presets, app
+  rules, the default), since a rename or a copy to another device touches more than the playing
+  device's profile.
+- **Confirm in the message row**: `d` puts the question there with what a dry run would say
+  (which devices keep the preset's curve unmarked, how many app rules will match nothing; the
+  filter removed, and whether the import label goes with it). `y` or `Enter` (`н` on a Russian
+  layout) does it, any other key keeps it. No modal: the spec's list binding set, one row.
+- **Device use and driver mode.** `Enter` is `eq device use`: it sets the system's output. In
+  driver mode the daemon's `DefaultFollower` already treats a real device picked as the default as
+  "play on this", points the EQ device at it and takes the default back, so the TUI does exactly
+  what the Sound menu does and needs no path of its own. The EQ device heads the list as the
+  system output with the device it plays on, and is never a row to pick; `Enter` on the device
+  already playing says so instead of making the default flicker. The spec's confirm before a
+  device use was left out: it is undone by picking the old device, and the task asked for Enter.
+- **Transport glyphs** from the set the user's font has (§2): `■` built-in, `▪` USB, `◇`
+  Bluetooth, `□` HDMI or DisplayPort, `○` AirPlay, `◆` Thunderbolt, `·` offline, with the name
+  in a column beside when the list is wide enough.
+- **Filters** are edited in place like a spreadsheet: `Enter` or `→` enters the row's fields,
+  `←`/`→` move between type, frequency, gain and Q, `↑`/`↓` step with Tune's three sizes (a 24th,
+  a sixth of an octave or an octave, rounded to three digits so a step from 1 kHz saves 1120; 0.1,
+  0.5 or 3 dB; Q 0.01, 0.1 or 1), each step saved at once; `Esc` goes back to moving between rows.
+  `a` opens the same fields on a row under the table, whose type change carries the new type's
+  default Q while the Q is still the old default. The response panel draws the filters combined
+  with a dot on each and the chosen (or new) one's own response in the accent.
+- **Presets diff**: `v` draws the current device's curve faint behind the preset's and lists
+  each band, preamp and layer that differs as `before → after`.
+- **Tune's device selector**: `d`/`D` in Tune, and `e` on Devices, make the session edit another
+  device's curve (as `--device` does); the response title names it and the message row says it is
+  not playing. Leaving Tune goes back to the playing device.
+- **No meter connection** on the three lists: what they show comes from eq.json, the status file
+  and the system's output list, read once when a view opens and again after an edit or a device
+  or profile event, never per frame.
+
+### Bytes and CPU
+
+In process (`MeterBenchmarkTests`, release build, 120×40). "stress": 300 meter frames arrive, as
+on the meter, and nothing on screen moves (the lists close the meter connection, so in use no
+frames come at all); "j k": 300 key presses moving the selection, each redrawing the row, the
+preview's curve and layers.
+
+| View | Look | 24-bit | 256 | 16 | none | Full frame, 24-bit |
+| --- | --- | --- | --- | --- | --- | --- |
+| Presets, j k | studio | 1 328 | 1 084 | 699 | 451 | 8 245 |
+| Presets, j k | console | 1 024 | 856 | 688 | 432 | 15 474 |
+| Devices, j k | studio | 2 174 | 1 698 | 1 078 | 878 | 8 919 |
+| Devices, j k | console | 2 003 | 1 562 | 1 130 | 874 | 15 711 |
+| Filters, j k | studio | 1 635 | 1 410 | 1 124 | 582 | 6 682 |
+| Filters, j k | console | 1 525 | 1 330 | 1 128 | 764 | 12 465 |
+| any list, stress | both | 0 | 0 | 0 | 0 | — |
+
+The meter's own rows are unchanged by M5 (studio 24-bit 1 181 B music and 3 296 B stress, console
+386 and 1 916; 0.28–0.32 ms a frame, as at M4).
+
+On a pty, the harness of §6 (release builds, 120×40, a fake meter socket in a scratch directory at
+30 frames a second of "music", `EQ_CONFIG`/`EQ_STATUS`/`EQ_CACHE` in the scratch directory, never
+the live daemon or ~/.config/eq), 30 s a run, M4 (`03c8a06`) and M5 interleaved on a busy Mac
+(load 3–4):
+
+| Build | View | Runs, CPU | Frames/s written | Bytes a frame |
+| --- | --- | --- | --- | --- |
+| M4 | meter, studio | 5.13, 5.70, 6.20 % | 27.3 | 1 198 |
+| M5 | meter, studio | 5.50, 5.93, 6.97 % | 27.4 | 1 200 |
+| M5 | Presets, idle | 0.17 % | 0.1 | — |
+| M5 | Devices, idle | 0.17 % | 0.1 | — |
+| M5 | Filters, idle | 0.13 % | 0.1 | — |
+| M5 | Presets, a key a second | 0.20 % | 0.3 | 1 945 |
+
+The list views' CPU is the process starting and reading its config; after that nothing runs.
+Each M5 meter run came out a few tenths above the M4 run before it, while the load rose through the
+session (each pair above the last); the in-process numbers are the same for both, so the
+difference is inside the spread seen in §6 and §7.

@@ -3,6 +3,28 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- The Presets view (`g p`, or `eq tui presets`): every preset with a spark of its ten gains and
+  its preamp, the current device's marked, and beside them the chosen one's curve and layers.
+  `Enter` applies it, `s` saves the current curve as a new one, `r` renames it, `d` deletes it
+  once `y` answers the question in the message row, which says what the delete leaves behind;
+  `v` compares it with the current device's curve.
+- The Devices view (`g d`): the outputs connected and the devices with a curve of their own, how
+  each is connected, which one plays, whose curve it has, and the chosen one's curve. `Enter`
+  makes it the system's output (in driver mode the EQ device plays on it instead, and the EQ
+  device itself is shown but never offered), `c` copies the playing curve to it, `e` edits its
+  curve in Tune whether it plays or not.
+- The Filters view (`g f`): the current device's parametric filters as a table, changed in place
+  with the arrows (`⇧` coarse, `Alt` fine), a row to add one with `a`, `d` to remove one after a
+  `y`; under them the filters' combined response with the chosen one's own lit.
+- In Tune, `d` and `D` switch the curve being edited to another device's, playing or not.
+- Everything these views change is the change its `eq preset`, `eq device` or `eq filter`
+  command makes, saved as part of the session's one undo step; `u` walks back through presets,
+  app rules and other devices' curves too.
+
 ## 2026.09.29.5 — 2026-09-29
 
 ### Added
