@@ -374,8 +374,8 @@ tick `▔` holding each one's peak for 1.5 s before it falls at the IEC Type I r
 reaches above the output (a cut). Over the bars the EQ's response is a solid braille line from
 the band gains, as the daemon runs them (peaking filters, Q 1.41, at the device's rate), with a
 dot at each band's centre in its gain's colour and the band just edited a ring with its gain
-beside it; a preset switch or an edit moves the line to the new curve over 300 ms. The boost
-is tinted green and the cut magenta against the 0 dB line, brightest along the line. Faint lines
+beside it; a preset switch or an edit moves the line to the new curve over 300 ms. Nothing is
+painted between the line and 0 dB, and a bar it crosses keeps its own colour. Faint lines
 mark 0, −12, −24, −36 and −48 dBFS; the level scale at the left is in the bars' colours under
 `level dBFS`, the curve's at the right in its colour under `EQ dB`. Under the panel come each
 band's level in dBFS (`·` when silent), its label, and its gain as a chip. At 110 columns and wider a column of gauges sits beside it: output peak and limiter,
@@ -431,7 +431,7 @@ the current one shows.
 - **Meter** (`g m`): the screen above.
 - **Tune** (`g t`): the curve to edit, laid out as a panel. On top, the response of the whole
   chain (bands, filters, tone, tilt and knobs, as the daemon runs them at the device's rate) in
-  braille over its boost and cut tints, with a node on each band and the selected one marked;
+  braille, the Meter's line, with a node on each band and the selected one marked;
   `! clips +1.9 dB` in its title when the curve with the preamp lifts some frequency over 0 dBFS.
   Under it the ten bands as vertical sliders from −12 to +12 dB, each with its gain and a live
   mini-meter, and beside them (under them below 110 columns) the chain: preamp, bass, treble,
@@ -453,7 +453,7 @@ the current one shows.
   `l` listens to it alone, `Enter` focuses it on the meter.
 - **Presets** (`g p`): every preset, the current device's marked `◆` and with a yellow `*` once
   the curve has moved away from it, each with its ten gains as a spark and its preamp; beside
-  them the chosen one's curve in braille over its boost and cut tints, and its layers: preamp,
+  them the chosen one's curve as a braille line, and its layers: preamp,
   bass, treble and tilt, knobs, compressor and colour, filters. `Enter` plays it on the current
   device (`eq preset use`), `s` saves the current curve as a new one (`eq preset save`), `r`
   renames it with devices and app rules following (`eq preset rename`), `d` deletes it

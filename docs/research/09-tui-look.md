@@ -649,6 +649,33 @@ in `docs/design/tui/actual/` (`*-meter-120x40`, `*-meter-140x40`, `*-meter-80x24
   strip's, is not shown. The curve, when on, is the same solid line with nodes; the LED scale is
   in the lit LED colours under `dBFS`. No grid: the ladders are one.
 
+### The curve as a line only
+
+Asked after the first build, from a screenshot of the ten-band fallback at about 120 columns:
+the boost and cut tints read as "green mountains", a staircase of cell-sized blocks two columns
+a step, and being backgrounds they also recoloured the bars and their peak ticks wherever the
+bars rose through them. The tints and the glow are gone from the Meter, Tune's response and the
+list previews; the curve is the only overlay. Its dots are joined sample to sample by a
+Bresenham line on the 2×4 dot grid, so a steep stretch is split between a cell's two dot
+columns rather than stacked in one, and it is two dots thick and bold everywhere now (thin only
+for the faint comparison curve behind a preview's). Where it crosses a cell a bar fills whole,
+the glyph takes that bar's colour as its background, so the bar reads unbroken; over a bar's
+partial top, tick or ghost the glyph replaces it on the terminal's ground. A thin fill along
+the line was considered as an option (`--curve-fill`) and left out: a flag and a config key for
+a look nobody asked for.
+
+Bytes, `MeterBenchmarkTests` in release at 120×40, before and after:
+
+| Screen | Bytes a frame (music, stress) | Full frame |
+| --- | --- | --- |
+| studio, 24-bit | 1 243, 1 244 → 1 219, 1 246 | 20 582 → 17 955 |
+| studio, 24-bit, ten bands | 1 257, 3 811 → 1 177, 3 448 | 16 557 → 15 017 |
+| studio, 24-bit, 140×40 | 1 367, 1 368 → 1 335, 1 370 | 22 308 → 19 577 |
+| studio, Presets `j k` | 1 328 → 996 | 8 403 → 7 939 |
+| studio, History `j k` | 3 718 → 3 380 | 9 788 → 9 110 |
+
+Every row stays inside 4.5 KB; the largest anywhere is 3 900.
+
 ### Audio thread
 
 `eqc_process` on 512-frame stereo callbacks of noise at 48 kHz with ten peaking bands and the

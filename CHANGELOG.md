@@ -3,6 +3,14 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Changed
+
+- The response curve on the Meter, in Tune and beside the preset lists is one clean braille line:
+  the green and magenta blocks between it and 0 dB are gone, and a level bar it crosses keeps its
+  own colour instead of being tinted.
+
 ## 2026.09.30.2 — 2026-09-30
 
 ### Added
