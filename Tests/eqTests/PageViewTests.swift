@@ -255,6 +255,38 @@ final class PageViewTests: XCTestCase {
         XCTAssertEqual(library.routes.map(\.app), ["com.google.Chrome"])
     }
 
+    /// The doctor's child through the real loop: spawned on its own source, read to the end, reaped,
+    /// its JSON decoded; a script stands in for eq, so nothing asks the audio system anything.
+    func testTheDoctorRunsBesideTheLoop() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-doctor-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let report = dir.appendingPathComponent("report.json")
+        try CLI.encode(DoctorReport(ok: true, checks: TUILookTests.tapChecks)).write(to: report, atomically: true, encoding: .utf8)
+        let script = dir.appendingPathComponent("eq")
+        try "#!/bin/sh\nsleep 0.2\ncat '\(report.path)'\nexit 1\n".write(to: script, atomically: true, encoding: .utf8)
+        chmod(script.path, 0o755)
+        var effects = MeterEffects(edit: { _ in }, header: { Watch.Header() }, send: { _ in }, mouse: { _ in }, connect: { nil })
+        effects.jobs = [.doctor: ChildRunner(executable: script.path, environment: [:])]
+        var pipes: [Int32] = [0, 0]
+        XCTAssertEqual(pipe(&pipes), 0)
+        defer { close(pipes[0]); close(pipes[1]) }
+        let model = MeterModel(size: Size(cols: 120, rows: 36), reconnects: true, view: .system)
+        let runtime = Runtime(model, size: model.size, translate: MeterEffects.translate, perform: { cmd, runtime in
+            let msgs = effects.perform(cmd, runtime)
+            if msgs.contains(where: { if case .jobExit = $0 { return true } else { return false } }) { runtime.quit(0) }
+            return msgs
+        }, output: { _ in })
+        runtime.inputFD = pipes[0]
+        runtime.send(.start)
+        XCTAssertTrue(runtime.program.doctor.running)
+        let started = Date()
+        XCTAssertEqual(runtime.run(), 0)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        XCTAssertEqual(runtime.program.doctor.report?.checks, TUILookTests.tapChecks, "exit 1 is a report with problems, not a failure")
+        XCTAssertFalse(runtime.program.doctor.running)
+    }
+
     func testJobsHaveTheirOwnSources() {
         guard case .jobOutput(.doctor, "{")? = MeterEffects.translate(.line(source: MeterJob.doctor.rawValue, "{")) else { return XCTFail("doctor line") }
         guard case .jobClosed(.modePlan)? = MeterEffects.translate(.closed(source: MeterJob.modePlan.rawValue)) else { return XCTFail("mode closed") }
