@@ -70,7 +70,7 @@ final class DoctorTests: XCTestCase {
     }
 
     func testWarningsDoNotFail() {
-        let report = Doctor.run(probes(status: running(callbacks: 10), exe: "/Volumes/SanDisk/projects/eq/.build/debug/eq", callbacksLater: 10))
+        let report = Doctor.run(probes(status: running(callbacks: 10), exe: "/Users/someone/src/eq/.build/debug/eq", callbacksLater: 10))
         XCTAssertTrue(report.ok)
         let binary = report.checks.first { $0.name == "binary" }!
         XCTAssertTrue(binary.warning); XCTAssertFalse(binary.ok)
