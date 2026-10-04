@@ -3,12 +3,10 @@ import XCTest
 @testable import eq
 
 /// Golden screens of each look, as text and as `[codes]…[/]`-marked runs: `EQ_UPDATE_GOLDEN=1`
-/// rewrites the files under Fixtures/tui, `EQ_WRITE_SCREENSHOTS=1` writes the same screens as
-/// `.ans` into docs/design/tui/actual, next to the mocks they are compared with.
+/// rewrites the files under Fixtures/tui, `EQ_WRITE_SCREENSHOTS=<dir>` writes the same screens as
+/// `.ans` into `<dir>/actual`, with a preview page made from `<dir>/preview.template.html`.
 final class TUILookTests: XCTestCase {
     static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/tui")
-    static let actual = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("docs/design/tui/actual")
 
     /// The mocks' state: `mocks.py` `base_state`.
     static func scene(cols: Int, rows: Int, look: Look = .studio, depth: ColorDepth = .truecolor, palette: PaletteName? = nil,
@@ -350,8 +348,11 @@ final class TUILookTests: XCTestCase {
     /// The screens as `.ans` files, and `preview.html` showing each at every depth with the
     /// mocks' own viewer, so the two can be put side by side.
     func testWriteScreenshots() throws {
-        guard ProcessInfo.processInfo.environment["EQ_WRITE_SCREENSHOTS"] != nil else { throw XCTSkip("EQ_WRITE_SCREENSHOTS=1 writes them") }
-        try FileManager.default.createDirectory(at: Self.actual, withIntermediateDirectories: true)
+        guard let directory = ProcessInfo.processInfo.environment["EQ_WRITE_SCREENSHOTS"] else {
+            throw XCTSkip("EQ_WRITE_SCREENSHOTS=<dir> writes them")
+        }
+        let actual = URL(fileURLWithPath: directory).appendingPathComponent("actual")
+        try FileManager.default.createDirectory(at: actual, withIntermediateDirectories: true)
         var all = Self.cases
         all.append(("studio-paper-meter-120x40", Self.scene(cols: 120, rows: 40, palette: .paper)))
         all.append(("studio-meter-50x16", Self.scene(cols: 50, rows: 16)))
@@ -363,7 +364,7 @@ final class TUILookTests: XCTestCase {
                 scene.settings.depth = depth
                 variants[key] = Self.ansi(Self.screen(scene))
             }
-            try variants["tc"]!.write(to: Self.actual.appendingPathComponent(c.name + ".ans"), atomically: true, encoding: .utf8)
+            try variants["tc"]!.write(to: actual.appendingPathComponent(c.name + ".ans"), atomically: true, encoding: .utf8)
             let look = c.scene.settings.look
             shown.append(["stem": c.name, "look": look.rawValue, "palette": c.scene.settings.paletteName.rawValue, "view": c.scene.view.rawValue,
                           "w": c.scene.size.cols, "h": c.scene.size.rows, "variants": variants])
@@ -371,10 +372,10 @@ final class TUILookTests: XCTestCase {
         for look in Look.allCases {
             for (name, depth) in [("256", ColorDepth.indexed), ("16", .ansi), ("mono", .none)] {
                 try Self.ansi(Self.screen(Self.scene(cols: 120, rows: 40, look: look, depth: depth)))
-                    .write(to: Self.actual.appendingPathComponent("\(look)-meter-120x40-\(name).ans"), atomically: true, encoding: .utf8)
+                    .write(to: actual.appendingPathComponent("\(look)-meter-120x40-\(name).ans"), atomically: true, encoding: .utf8)
             }
         }
-        let template = try String(contentsOf: Self.actual.deletingLastPathComponent().appendingPathComponent("preview.template.html"),
+        let template = try String(contentsOf: actual.deletingLastPathComponent().appendingPathComponent("preview.template.html"),
                                   encoding: .utf8)
         let json = String(decoding: try JSONSerialization.data(withJSONObject: shown, options: [.sortedKeys]), as: UTF8.self)
         let page = template.replacingOccurrences(of: "/*MOCKS*/[]", with: json)
@@ -389,6 +390,6 @@ final class TUILookTests: XCTestCase {
                                       + #""meter-140x40": "meter 140×40", "meter-120x40-bands": "meter without a spectrum 120×40" };"#)
             .replacingOccurrences(of: "Mock screens from <code>docs/design/tui/mocks.py</code>",
                                   with: "Screens from the real renderer (<code>EQ_WRITE_SCREENSHOTS=1 swift test --filter TUILookTests</code>)")
-        try page.write(to: Self.actual.appendingPathComponent("preview.html"), atomically: true, encoding: .utf8)
+        try page.write(to: actual.appendingPathComponent("preview.html"), atomically: true, encoding: .utf8)
     }
 }
