@@ -2,12 +2,11 @@
 
 An output-only virtual audio device, **"<target> · EQ"**, that plays whatever apps send it on a
 real output device (the *target*) from inside a Core Audio plug-in. Nothing reads audio, so macOS
-shows no Privacy indicator. This is milestone 2 of driver mode
-(`docs/superpowers/specs/2026-09-28-eq-driver-mode.md`): EQCore, the daemon's own DSP, runs in the
-target's IOProc on the curve eq last sent for that target. Nothing switches modes yet.
+shows no Privacy indicator. EQCore, the daemon's own DSP, runs in the target's IOProc on the curve
+eq last sent for that target. `eq mode driver` switches to it: [docs/driver-mode.md](../docs/driver-mode.md).
 
 It breaks one of Apple's rules: `AudioServerPlugIn.h` forbids a plug-in to call the HAL client
-API, and playing on another device is exactly that. The research is in `docs/research/06a–06c`.
+API, and playing on another device is exactly that.
 
 Derived from [Proxy Audio Device](https://github.com/briankendall/proxy-audio-device) v1.1.0b1
 (Unlicense), with the lock-free ring of the marrusl fork.
