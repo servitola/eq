@@ -259,7 +259,7 @@ final class DynamicsTests: XCTestCase {
     }
 
     /// No oversampling: a tone above 8 kHz folds its 3rd harmonic back under Nyquist. This pins how
-    /// far down it lands for the README's note.
+    /// far down it lands for the note in docs/curve.md.
     func testAliasingAtFullAmount() {
         for kind in Dynamics.ColourKind.allCases {
             let (_, output) = colour(kind, 1, peakDB: -12, frequency: 10000)
@@ -400,7 +400,7 @@ final class DynamicsTests: XCTestCase {
     }
 
     /// One second of stereo at 48 kHz through the full curve, with and without both stages. The
-    /// numbers in the README come from `swift test -c release -Xswiftc -enable-testing --filter DynamicsTests/testCost`.
+    /// numbers in docs/how-it-works.md come from `swift test -c release -Xswiftc -enable-testing --filter DynamicsTests/testCost`.
     func testCost() {
         let full = Profile(name: nil, preamp: -3, bands: Config.screenshotCurve)
         var noise = SystemRandomNumberGenerator()

@@ -24,7 +24,7 @@ enum WatchAction: Equatable {
     case pause, filter
     /// Ctrl-C in a command's output: stop the command, keep what it printed.
     case stop
-    /// Ctrl-Z: the runtime suspends before the key reaches the table; listed for the help and README.
+    /// Ctrl-Z: the runtime suspends before the key reaches the table; listed for the help and docs/tui.md.
     case suspend
     /// The Tune view's keys: move the selection, jump a group, step the selected control by a
     /// band's ±0.1, ±0.5 or ±3 dB, set it to 0 or off, type its value.

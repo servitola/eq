@@ -123,17 +123,17 @@ final class KeyTableTests: XCTestCase {
         XCTAssertFalse(Keybar.line(.pane, state: KeyState(), width: 80).contains("Ctrl-C"), "only while it runs")
     }
 
-    func testReadmeKeysSectionIsTheTable() throws {
-        let readme = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("README.md")
-        var text = try String(contentsOf: readme, encoding: .utf8)
-        if ProcessInfo.processInfo.environment["EQ_UPDATE_GOLDEN"] != nil, let start = text.range(of: "### Keys\n\n"),
+    func testDocsKeysSectionIsTheTable() throws {
+        let page = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("docs/tui.md")
+        var text = try String(contentsOf: page, encoding: .utf8)
+        if ProcessInfo.processInfo.environment["EQ_UPDATE_GOLDEN"] != nil, let start = text.range(of: "## Keys\n\n"),
            let end = text.range(of: "\n\n", range: start.upperBound..<text.endIndex) {
             text.replaceSubrange(start.upperBound..<end.lowerBound, with: KeyHelp.markdown())
-            try text.write(to: readme, atomically: true, encoding: .utf8)
+            try text.write(to: page, atomically: true, encoding: .utf8)
         }
-        XCTAssertTrue(text.contains("### Keys\n\n" + KeyHelp.markdown() + "\n"),
-                      "README \"Keys\" must be KeyHelp.markdown():\n" + KeyHelp.markdown())
+        XCTAssertTrue(text.contains("## Keys\n\n" + KeyHelp.markdown() + "\n"),
+                      "docs/tui.md \"Keys\" must be KeyHelp.markdown():\n" + KeyHelp.markdown())
     }
 
     func testManKeysSectionIsTheTable() {

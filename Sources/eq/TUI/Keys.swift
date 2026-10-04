@@ -85,7 +85,7 @@ struct KeyBinding {
     var keys: [Key]
     /// One per key, or one for all of them. nil: the text field handles the key itself.
     var actions: [WatchAction?]
-    /// The keys as shown in the help overlay and the README.
+    /// The keys as shown in the help overlay and docs/tui.md.
     var label: String
     var help: String
     /// The keybar entry, key then text; nil keeps the binding off the bar.
@@ -112,7 +112,7 @@ enum PhysicalKeys {
 }
 
 /// The one table of keys: it drives what a key does, the keybar, the help overlay, the command
-/// palette's named actions and the README's key table.
+/// palette's named actions and the key table in docs/tui.md.
 enum KeyTable {
     static let step = 0.5
     static let coarse = 3.0
@@ -564,9 +564,9 @@ enum Keybar {
     }
 }
 
-/// The key list the help overlay shows for a view, grouped, and the README's key table.
+/// The key list the help overlay shows for a view, grouped, and the key table in docs/tui.md.
 enum KeyHelp {
-    /// The README's order: every view first, then each view, then the menus.
+    /// The docs' order: every view first, then each view, then the menus.
     static let contexts: [KeyContext] = [.global, .meter, .tune, .instruments, .presets, .devices, .filters, .fields, .form, .apps, .picker,
                                          .system, .history, .events, .go, .palette, .pane, .help]
 
@@ -646,7 +646,7 @@ enum KeyHelp {
         return lines
     }
 
-    /// The Markdown table under README "Keys", generated from the same bindings and checked by a test.
+    /// The Markdown table under "Keys" in docs/tui.md, generated from the same bindings and checked by a test.
     static func markdown() -> String {
         var rows = ["| Key | Russian | Where | Action |", "| --- | --- | --- | --- |"]
         for context in contexts {
