@@ -37,8 +37,8 @@ struct HistoryStepReport: Encodable {
     var position: Int; var date: Date; var device: DeviceRef?; var source: String?; var profile: Profile?; var warning: String?
 }
 struct DeviceRow: Encodable, Equatable {
-    var uid: String; var name: String; var transport: String?; var connected: Bool; var profile: String
-    enum CodingKeys: String, CodingKey { case uid, name, transport, connected, profile }
+    var uid: String; var name: String; var transport: String?; var connected: Bool; var profile: String; var silent = false
+    enum CodingKeys: String, CodingKey { case uid, name, transport, connected, profile, silent }
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(uid, forKey: .uid)
@@ -46,8 +46,10 @@ struct DeviceRow: Encodable, Equatable {
         try container.encode(transport, forKey: .transport)
         try container.encode(connected, forKey: .connected)
         try container.encode(profile, forKey: .profile)
+        try container.encode(silent, forKey: .silent)
     }
 }
+struct SilentReport: Encodable { var device: DeviceRef; var silent: Bool; var devices: [String] }
 struct DevicesReport: Encodable {
     var current: String?; var devices: [DeviceRow]
     enum CodingKeys: String, CodingKey { case current, devices }

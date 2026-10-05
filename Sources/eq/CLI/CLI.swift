@@ -226,7 +226,7 @@ enum CLI {
         let config = try loadConfig(ctx)
         let current = try currentDevice(ctx)
         let resolved = config.profile(forDeviceUID: current.uid)
-        let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
+        let sourceLabel = (resolved.source == .device ? "own profile" : "default profile") + (config.isSilent(current.uid) ? ", silent" : "")
         let mark = presetMark(resolved.profile, config)
         let table = Table.profile(resolved.profile, header: "\(current.name) (\(sourceLabel))", preset: mark)
         let source = resolved.source == .device ? "device" : "default"
@@ -293,8 +293,31 @@ enum CLI {
         case ("list", let rest) where rest.isEmpty: return try devices(ctx)
         case ("use", let rest): return try use(Array(rest), ctx)
         case ("copy", let rest): return try copy(Array(rest), ctx)
-        default: throw CLIError.usage("eq device list | eq device use DEVICE | eq device copy --to DEVICE")
+        case ("silence", let rest): return try silence(Array(rest), true, ctx)
+        case ("unsilence", let rest): return try silence(Array(rest), false, ctx)
+        default: throw CLIError.usage("eq device list | eq device use DEVICE | eq device copy --to DEVICE | eq device silence|unsilence DEVICE")
         }
+    }
+
+    /// A connected output, a device with a profile, or a silent one by its UID, which may be neither.
+    static func silenceTarget(_ args: [String], _ config: Config, _ ctx: CLIContext) throws -> Target {
+        guard args.count == 1, !args[0].hasPrefix("-") else { throw CLIError.usage("eq device silence|unsilence DEVICE") }
+        if config.isSilent(args[0]) {
+            return (args[0], ctx.connectedDevices().first { $0.uid == args[0] }?.name ?? config.devices[args[0]]?.name ?? args[0])
+        }
+        if let device = try? useTarget(args, ctx) { return device }
+        return try resolveDevice(args[0], ctx)
+    }
+
+    private static func silence(_ args: [String], _ on: Bool, _ ctx: CLIContext) throws -> Output {
+        var config = try loadConfig(ctx)
+        let target = try silenceTarget(args, config, ctx)
+        config.setSilent(target.uid, on)
+        try ctx.store.save(config)
+        let name = Paint.ink(.bold, target.name)
+        let text = on ? name + ": " + Paint.ink(.magenta, "silent") + " — eq plays nothing on it and keeps it muted while the daemon runs"
+            : name + ": " + Paint.ink(.green, "plays again") + " — its mute goes back to what it was"
+        return Output(text, SilentReport(device: DeviceRef(uid: target.uid, name: target.name), silent: on, devices: config.silent ?? []))
     }
 
     /// Where a dry run of `device use` can reach the same answer without switching anything.
@@ -328,7 +351,7 @@ enum CLI {
         let config = try loadConfig(ctx)
         let target = try useDevice(args, ctx)
         let resolved = config.profile(forDeviceUID: target.uid)
-        let sourceLabel = resolved.source == .device ? "own profile" : "default profile"
+        let sourceLabel = (resolved.source == .device ? "own profile" : "default profile") + (config.isSilent(target.uid) ? ", silent" : "")
         let text = Paint.ink(.green, "output → ") + Paint.ink(.bold, target.name) + "\n"
             + Table.profile(resolved.profile, header: "\(target.name) (\(sourceLabel))", preset: presetMark(resolved.profile, config))
         return Output(text, ProfileReport(device: DeviceRef(uid: target.uid, name: target.name),
@@ -535,22 +558,24 @@ enum CLI {
             let marker = row.uid == currentUID ? Paint.ink(.green, "*") + " " : "  "
             let transport = Paint.ink(.dim, "[\(row.transport ?? "disconnected")]")
             let profile = row.profile == "own" ? Paint.ink(.green, "own profile") : Paint.ink(.yellow, "default profile")
-            return "\(marker)\(Paint.ink(.bold, row.name))  \(transport)  \(profile)"
+            return "\(marker)\(Paint.ink(.bold, row.name))  \(transport)  \(profile)" + (row.silent ? "  " + Paint.ink(.magenta, "silent") : "")
         }
         return Output(lines.joined(separator: "\n"), DevicesReport(current: currentUID, devices: rows))
     }
 
     /// The connected outputs in the system's order, then the devices with a profile that are not
-    /// connected, by name.
+    /// connected, by name, then silent ones that are neither, by UID.
     static func deviceRows(_ config: Config, connected: [CLIContext.ConnectedDevice]) -> [DeviceRow] {
         let live = connected.map { device in
             DeviceRow(uid: device.uid, name: device.name, transport: device.transport, connected: true,
-                      profile: config.devices[device.uid] != nil ? "own" : "default")
+                      profile: config.devices[device.uid] != nil ? "own" : "default", silent: config.isSilent(device.uid))
         }
         let known = config.devices.sorted { ($0.value.name ?? $0.key) < ($1.value.name ?? $1.key) }
             .filter { uid, _ in !connected.contains { $0.uid == uid } }
-            .map { DeviceRow(uid: $0.key, name: $0.value.name ?? $0.key, transport: nil, connected: false, profile: "own") }
-        return live + known
+            .map { DeviceRow(uid: $0.key, name: $0.value.name ?? $0.key, transport: nil, connected: false, profile: "own", silent: config.isSilent($0.key)) }
+        let silent = config.silentUIDs.subtracting(connected.map(\.uid)).subtracting(config.devices.keys).sorted()
+            .map { DeviceRow(uid: $0, name: $0, transport: nil, connected: false, profile: "default", silent: true) }
+        return live + known + silent
     }
 
     private static func toggle(_ enabled: Bool, _ ctx: CLIContext) throws -> Output {

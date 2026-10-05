@@ -323,11 +323,26 @@ struct Config: Codable, Equatable {
     var mode: AudioMode? = nil
     var driver: DriverOptions? = nil
     var tui: TUIOptions? = nil
+    /// Outputs that play nothing, by UID. A list beside the profiles rather than a flag in one, so
+    /// a device needs no curve of its own to be silent, and a preset or a copied curve never carries it.
+    var silent: [String]? = nil
 
     var followsApps: Bool { experimental?.apps == true }
     var followsRoutes: Bool { experimental?.routes == true }
     var audioMode: AudioMode { mode ?? .tap }
     var hidesWhileDefault: Bool { driver?.hideWhileDefault == true }
+
+    var silentUIDs: Set<String> { Set(silent ?? []) }
+
+    func isSilent(_ uid: String) -> Bool { silent?.contains(uid) == true }
+
+    /// Stores nil rather than an empty list.
+    mutating func setSilent(_ uid: String, _ on: Bool) {
+        guard on != isSilent(uid) else { return }
+        var list = (silent ?? []).filter { $0 != uid }
+        if on { list.append(uid) }
+        silent = list.isEmpty ? nil : list
+    }
 
     mutating func setFollowsApps(_ on: Bool) {
         setExperimental { $0.apps = on }

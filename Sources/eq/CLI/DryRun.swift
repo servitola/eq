@@ -10,6 +10,7 @@ enum DryRun {
         /// Only when a command changed them.
         var apps: [AppRule]? = nil
         var followsApps: Bool? = nil
+        var silent: [String]? = nil
     }
 
     struct Report: Encodable {
@@ -96,6 +97,10 @@ enum DryRun {
             lines.append(Paint.ink(.dim, "app rules before: ") + rules(before))
             lines.append(Paint.ink(.bold, "app rules after:  ") + rules(after))
         }
+        for uid in before.silentUIDs.symmetricDifference(after.silentUIDs).sorted() {
+            lines.append(Paint.ink(.bold, name(of: uid, before, after, ctx)) + ": "
+                         + (after.isSilent(uid) ? Paint.ink(.magenta, "silent") : Paint.ink(.green, "no longer silent")))
+        }
         for name in changedPresets(before, after) {
             let verb = before.preset(named: name) == nil ? "added" : (after.preset(named: name) == nil ? "removed" : "changed")
             lines.append("preset " + Paint.ink(.bold, name) + ": " + Paint.ink(verb == "removed" ? .magenta : .green, verb))
@@ -107,8 +112,9 @@ enum DryRun {
             lines.append(table(after, target))
         }
         let apps = (rules: appsChanged(before, after), flag: before.followsApps != after.followsApps)
-        return Output(lines.joined(separator: "\n"), Report(before: side(before, targets, ctx, presets: changedPresets(before, after), apps: apps),
-                                                            after: side(after, targets, ctx, presets: changedPresets(before, after), apps: apps)))
+        let silent = before.silentUIDs != after.silentUIDs
+        return Output(lines.joined(separator: "\n"), Report(before: side(before, targets, ctx, presets: changedPresets(before, after), apps: apps, silent: silent),
+                                                            after: side(after, targets, ctx, presets: changedPresets(before, after), apps: apps, silent: silent)))
     }
 
     private static func appsChanged(_ before: Config, _ after: Config) -> Bool {
@@ -163,9 +169,10 @@ enum DryRun {
     }
 
     private static func side(_ config: Config, _ targets: [CLI.Target], _ ctx: CLIContext, presets names: [String] = [],
-                             apps: (rules: Bool, flag: Bool) = (false, false)) -> AnyEncodable? {
+                             apps: (rules: Bool, flag: Bool) = (false, false), silent: Bool = false) -> AnyEncodable? {
         let presets = names.isEmpty ? nil : names.reduce(into: [String: Profile]()) { $0[$1] = config.presets?[$1] }
         return AnyEncodable(Side(enabled: config.enabled, devices: targets.map { report(config, $0) }, presets: presets,
-                                 apps: apps.rules ? config.apps ?? [] : nil, followsApps: apps.flag ? config.followsApps : nil))
+                                 apps: apps.rules ? config.apps ?? [] : nil, followsApps: apps.flag ? config.followsApps : nil,
+                                 silent: silent ? config.silentUIDs.sorted() : nil))
     }
 }

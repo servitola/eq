@@ -117,7 +117,7 @@ final class CompletionTests: XCTestCase {
     func testBashCompletesCommandsSubcommandsFlagsAndValues() throws {
         guard let top = try bashComplete(["eq", "pr"]) else { throw XCTSkip("no bash") }
         XCTAssertEqual(Set(top), ["preamp", "preset"])
-        XCTAssertEqual(Set(try XCTUnwrap(bashComplete(["eq", "device", ""]))), ["list", "use", "copy"])
+        XCTAssertEqual(Set(try XCTUnwrap(bashComplete(["eq", "device", ""]))), ["list", "use", "copy", "silence", "unsilence"])
         XCTAssertEqual(try bashComplete(["eq", "set", "--device", "J"]), ["JBL\\ Big"])
         XCTAssertEqual(Set(try XCTUnwrap(bashComplete(["eq", "device", "use", ""]))), ["JBL\\ Big", "MacBook\\ Pro\\ Speakers"])
         XCTAssertEqual(try bashComplete(["eq", "preset", "use", "cl"]), ["club\\ mix"])
@@ -199,7 +199,7 @@ final class CompletionTests: XCTestCase {
     func testZshCompletesCommandsSubcommandsFlagsAndValues() throws {
         guard let top = try zshComplete("eq p") else { throw XCTSkip("no zsh") }
         XCTAssertTrue(top.contains("preset") && top.contains("device") && top.contains("set"), "\(top)")
-        XCTAssertEqual(try zshComplete("eq device "), ["list", "use", "copy"])
+        XCTAssertEqual(try zshComplete("eq device "), ["list", "use", "copy", "silence", "unsilence"])
         XCTAssertEqual(try zshComplete("eq set --device J"), ["JBL Big", "MacBook Pro Speakers"])
         XCTAssertEqual(try zshComplete("eq preset use cl"), ["favourite", "club mix"])
         XCTAssertEqual(try zshComplete("eq set 1khz -3 1"), Config.bandLabels.map { $0.lowercased() })
