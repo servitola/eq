@@ -128,6 +128,20 @@ final class EQCoreTests: XCTestCase {
         XCTAssertFalse(eqc_limiting(engine.core))
     }
 
+    func testSilentPlaysZerosOverBypassAndSoloOnEveryChannel() {
+        let engine = Engine(rate: 48000, channels: 4)
+        let x = sine(1000, amplitude: 0.5, rate: 48000, count: 2048)
+        for bypassed in [false, true] {
+            var s = settings([peak(1000, 12)], bypassed: bypassed, compressor: EQC_COMPRESSOR_NIGHT, solo: (300, 3000))
+            s.silent = true
+            engine.update(s)
+            XCTAssertEqual(engine.run([x, x, x, x]), Array(repeating: Array(repeating: 0, count: x.count), count: 4))
+            XCTAssertFalse(eqc_limiting(engine.core))
+        }
+        engine.update(settings(bypassed: true))
+        XCTAssertEqual(engine.run([x, x, x, x])[3], x)
+    }
+
     func testTheLimiterHoldsTheCeiling() {
         for rate in Self.rates {
             let engine = Engine(rate: rate, channels: 2)

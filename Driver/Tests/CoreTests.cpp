@@ -752,6 +752,36 @@ TEST(settings_record_refuses_wrong_sizes_magic_and_version) {
     CHECK(decode(b) == EQC_BLOB_BAD_SIZE);
 }
 
+// A plug-in that reads version 1 alone takes every record but a silent one, byte for byte as before.
+TEST(settings_record_carries_silence_in_version_2_only) {
+    std::vector<uint8_t> loud = record(sampleSettings(), "uid", 1);
+    eqc_blob blob;
+    std::memcpy(&blob, loud.data(), sizeof(blob));
+    CHECK(blob.version == 1 && blob.silent == 0);
+
+    eqc_settings quiet = sampleSettings();
+    quiet.silent = true;
+    std::vector<uint8_t> silent = record(quiet, "uid", 1);
+    std::memcpy(&blob, silent.data(), sizeof(blob));
+    CHECK(blob.version == EQC_BLOB_SILENT_VERSION && blob.silent == 1);
+    eqc_settings out;
+    CHECK(decode(silent, &out) == EQC_BLOB_OK && out.silent && out.preampDB == -6);
+    CHECK(decode(loud, &out) == EQC_BLOB_OK && !out.silent);
+
+    std::vector<uint8_t> b = loud;
+    poke<uint32_t>(b, offsetof(eqc_blob, silent), 1);
+    CHECK(decode(b) == EQC_BLOB_OUT_OF_RANGE);
+    b = silent;
+    poke<uint32_t>(b, offsetof(eqc_blob, silent), 2);
+    CHECK(decode(b) == EQC_BLOB_OUT_OF_RANGE);
+    b = silent;
+    poke<uint32_t>(b, offsetof(eqc_blob, silent), 0);
+    CHECK(decode(b, &out) == EQC_BLOB_OK && !out.silent);
+    b = loud;
+    poke<uint16_t>(b, offsetof(eqc_blob, version), 0);
+    CHECK(decode(b) == EQC_BLOB_BAD_VERSION);
+}
+
 TEST(settings_record_refuses_a_bad_uid) {
     std::vector<uint8_t> good = record(sampleSettings(), "uid", 1);
     size_t at = offsetof(eqc_blob, targetUID);
@@ -800,7 +830,7 @@ TEST(settings_record_refuses_non_finite_and_out_of_range_values) {
     for (Flag f : {Flag{offsetof(eqc_blob, bandCount), EQC_MAX_BANDS + 1}, Flag{offsetof(eqc_blob, limiterEnabled), 2},
                    Flag{offsetof(eqc_blob, bypassed), 7}, Flag{offsetof(eqc_blob, solo), 2},
                    Flag{offsetof(eqc_blob, compressor), 3}, Flag{offsetof(eqc_blob, colour), 3},
-                   Flag{offsetof(eqc_blob, reserved2), 1}, Flag{band + offsetof(eqc_blob_band, type), 7},
+                   Flag{offsetof(eqc_blob, silent), 1}, Flag{band + offsetof(eqc_blob_band, type), 7},
                    Flag{band + offsetof(eqc_blob_band, enabled), 2},
                    Flag{band + 10 * sizeof(eqc_blob_band) + offsetof(eqc_blob_band, type), 1}}) {
         std::vector<uint8_t> b = good;
@@ -1025,6 +1055,44 @@ TEST(each_target_keeps_its_own_curve) {
     CHECK(!EngineSettings::recall(storage, "speaker"));
     CHECK(!EngineSettings::recall(storage, "hdmi"));
     CHECK(!EngineSettings::recall(storage, ""));
+}
+
+TEST(a_silent_curve_plays_zeros_even_bypassed_or_soloed) {
+    TestEngine e;
+    eqc_settings s = sampleSettings();
+    s.silent = true;
+    for (int variant = 0; variant < 3; ++variant) {
+        s.bypassed = variant == 1;
+        s.solo = variant == 2;
+        s.soloLow = 300;
+        s.soloHigh = 3000;
+        eqc_update(e.engine, &s, nullptr);
+        std::vector<float> stereo = noise(512, uint64_t(variant)), left(512), right(512);
+        processStereo(e.engine, stereo.data(), left.data(), right.data(), 512, true);
+        CHECK(std::all_of(left.begin(), left.end(), [](float x) { return x == 0; }) &&
+              std::all_of(right.begin(), right.end(), [](float x) { return x == 0; }));
+    }
+    s = sampleSettings();
+    eqc_update(e.engine, &s, nullptr);
+    CHECK(playsAs(e.engine, &s, 512, 512, 7));
+}
+
+TEST(a_silent_target_stays_silent_across_restarts) {
+    MapStorage storage;
+    eqc_settings quiet = sampleSettings();
+    quiet.silent = true;
+    {
+        TestEngine e;
+        EngineSettings settings(e.engine);
+        settings.follow(storage, "headphones");
+        CHECK(!settings.accept(storage, {quiet, 5}, "speakers"));
+    }
+    TestEngine e;
+    EngineSettings settings(e.engine);
+    CHECK(settings.follow(storage, "speakers") && settings.active() && settings.serial() == 5);
+    std::vector<float> stereo = noise(256, 3), left(256), right(256);
+    processStereo(e.engine, stereo.data(), left.data(), right.data(), 256, false);
+    CHECK(std::all_of(left.begin(), left.end(), [](float x) { return x == 0; }));
 }
 
 // MARK: Who may write the settings

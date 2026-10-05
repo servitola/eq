@@ -15,7 +15,12 @@ extern "C" {
 
 /// "EQS1" in memory.
 #define EQC_BLOB_MAGIC 0x31535145u
-#define EQC_BLOB_VERSION 1
+/// The newest record the plug-in reads; it reads every version back to EQC_BLOB_MIN_VERSION. Version 2
+/// is version 1 with `silent` where `reserved2` was, and only a silent record is sent as version 2, so
+/// a plug-in that reads version 1 alone still takes every other one.
+#define EQC_BLOB_VERSION 2
+#define EQC_BLOB_MIN_VERSION 1
+#define EQC_BLOB_SILENT_VERSION 2
 #define EQC_BLOB_UID_CAPACITY 256
 /// "EQM1" in memory.
 #define EQC_METER_MAGIC 0x314d5145u
@@ -49,7 +54,8 @@ typedef struct {
     /// UTF-8, NUL-terminated, zero after the NUL.
     char targetUID[EQC_BLOB_UID_CAPACITY];
     double preampDB, outputGainDB, limiterCeilingDB, colourAmount, soloLow, soloHigh;
-    uint32_t limiterEnabled, bypassed, compressor, colour, solo, reserved2;
+    /// `silent` is 0 in version 1.
+    uint32_t limiterEnabled, bypassed, compressor, colour, solo, silent;
     eqc_blob_band bands[EQC_MAX_BANDS];
 } eqc_blob;
 

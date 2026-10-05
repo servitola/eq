@@ -16,7 +16,7 @@ bool eqc_blob_encode(eqc_blob *out, const eqc_settings *s, const char *targetUID
     size_t length = strlen(targetUID);
     if (length == 0 || length >= EQC_BLOB_UID_CAPACITY) return false;
     out->magic = EQC_BLOB_MAGIC;
-    out->version = EQC_BLOB_VERSION;
+    out->version = s->silent ? EQC_BLOB_SILENT_VERSION : EQC_BLOB_MIN_VERSION;
     out->size = sizeof(eqc_blob);
     out->serial = serial;
     memcpy(out->targetUID, targetUID, length);
@@ -37,6 +37,7 @@ bool eqc_blob_encode(eqc_blob *out, const eqc_settings *s, const char *targetUID
     out->solo = s->solo;
     out->soloLow = s->soloLow;
     out->soloHigh = s->soloHigh;
+    out->silent = s->silent;
     return true;
 }
 
@@ -45,7 +46,7 @@ static bool flag(uint32_t x) { return x <= 1; }
 
 static eqc_blob_status check(const eqc_blob *b) {
     if (b->magic != EQC_BLOB_MAGIC) return EQC_BLOB_BAD_MAGIC;
-    if (b->version != EQC_BLOB_VERSION) return EQC_BLOB_BAD_VERSION;
+    if (b->version < EQC_BLOB_MIN_VERSION || b->version > EQC_BLOB_VERSION) return EQC_BLOB_BAD_VERSION;
     if (b->size != sizeof(eqc_blob)) return EQC_BLOB_BAD_SIZE;
 
     size_t length = strnlen(b->targetUID, EQC_BLOB_UID_CAPACITY);
@@ -63,7 +64,8 @@ static eqc_blob_status check(const eqc_blob *b) {
         if (!isfinite(band->frequency) || !isfinite(band->gainDB) || !isfinite(band->q)) return EQC_BLOB_NOT_FINITE;
     }
 
-    if (b->reserved || b->reserved2 || b->bandCount > EQC_MAX_BANDS) return EQC_BLOB_OUT_OF_RANGE;
+    if (b->reserved || b->bandCount > EQC_MAX_BANDS) return EQC_BLOB_OUT_OF_RANGE;
+    if (b->version < EQC_BLOB_SILENT_VERSION ? b->silent != 0 : !flag(b->silent)) return EQC_BLOB_OUT_OF_RANGE;
     if (!within(b->preampDB, EQC_BLOB_MIN_GAIN_DB, EQC_BLOB_MAX_GAIN_DB) ||
         !within(b->outputGainDB, EQC_BLOB_MIN_GAIN_DB, EQC_BLOB_MAX_GAIN_DB) ||
         !within(b->limiterCeilingDB, EQC_BLOB_MIN_GAIN_DB, 0) || !within(b->colourAmount, 0, 1) ||
@@ -112,6 +114,7 @@ eqc_blob_status eqc_blob_decode(const void *bytes, size_t size, eqc_settings *s,
     s->solo = b.solo != 0;
     s->soloLow = b.soloLow;
     s->soloHigh = b.soloHigh;
+    s->silent = b.silent != 0;
     memcpy(targetUID, b.targetUID, EQC_BLOB_UID_CAPACITY);
     *serial = b.serial;
     return EQC_BLOB_OK;

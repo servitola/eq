@@ -65,6 +65,32 @@ final class DriverControlTests: XCTestCase {
         XCTAssertEqual(rich.limiterCeilingDB, -1)
     }
 
+    /// Installed drivers of builds 14 and 17 read version 1 alone: a silent device's record reaches them
+    /// as one they take, every gain at its floor, and every other record is the version 1 it always was.
+    func testASilentRecordForAnOldPluginIsTheQuietestItTakes() throws {
+        var silent = EQProcessor.settings(profile: Self.rich, enabled: true, silent: true)
+        XCTAssertTrue(silent.silent)
+        let new = try XCTUnwrap(DriverControl.record(silent, targetUID: "uid", serial: 1, pluginVersion: 2))
+        XCTAssertEqual(new.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }, 2)
+        XCTAssertTrue(decode(new).settings.silent)
+
+        let old = try XCTUnwrap(DriverControl.record(silent, targetUID: "uid", serial: 1, pluginVersion: 1))
+        XCTAssertEqual(old.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }, 1)
+        let decoded = decode(old)
+        XCTAssertEqual(decoded.status, EQC_BLOB_OK)
+        XCTAssertFalse(decoded.settings.silent)
+        XCTAssertEqual(decoded.settings.bandCount, 0)
+        XCTAssertEqual(decoded.settings.preampDB + decoded.settings.outputGainDB, -120)
+        XCTAssertEqual(decoded.settings.limiterCeilingDB, -60)
+        XCTAssertFalse(decoded.settings.bypassed)
+
+        silent.silent = false
+        let loud = try XCTUnwrap(DriverControl.record(silent, targetUID: "uid", serial: 1, pluginVersion: 1))
+        XCTAssertEqual(loud, DriverControl.record(silent, targetUID: "uid", serial: 1, pluginVersion: 2))
+        XCTAssertEqual(loud.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }, 1)
+        XCTAssertEqual(DriverControl.requiredVersion, 1)
+    }
+
     func testRecordNeedsAUIDThatFits() {
         let settings = EQProcessor.settings(profile: .flat, enabled: true)
         XCTAssertNil(DriverControl.record(settings, targetUID: "", serial: 1))

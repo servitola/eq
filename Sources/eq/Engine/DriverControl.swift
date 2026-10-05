@@ -104,16 +104,30 @@ struct DriverControl: DriverPort {
     static let healthSelector = selector("eqHl")
     static let targetSelector = selector("eqTg")
     static let hiddenSelector = selector("eqHd")
-    /// The settings record this eq writes; an older plug-in would refuse every record.
-    static let requiredVersion = Int(EQC_BLOB_VERSION)
+    /// The oldest settings record this eq writes; an older plug-in would refuse every record.
+    static let requiredVersion = Int(EQC_BLOB_MIN_VERSION)
+    /// The first plug-in that plays zeros for a silent device; the ones before take `quietest` instead.
+    static let silentVersion = Int(EQC_BLOB_SILENT_VERSION)
 
     static func find() -> DriverControl? {
         AudioDeviceManager.deviceID(uid: deviceUID).map(DriverControl.init)
     }
 
-    /// The record the plug-in takes on `eqSt`; nil when the UID is empty or too long for it.
-    static func record(_ settings: eqc_settings, targetUID: String, serial: UInt64) -> Data? {
-        var settings = settings
+    /// What a plug-in before `silentVersion` can be told for a silent device: every gain at the bottom
+    /// of its range, -120 dB in all, and no bands. Below what a DAC resolves; zeros need a newer plug-in.
+    static func quietest() -> eqc_settings {
+        var s = eqc_settings()
+        s.preampDB = EQC_BLOB_MIN_GAIN_DB
+        s.outputGainDB = EQC_BLOB_MIN_GAIN_DB
+        s.limiterEnabled = true
+        s.limiterCeilingDB = EQC_BLOB_MIN_GAIN_DB
+        return s
+    }
+
+    /// The record the plug-in takes on `eqSt`; nil when the UID is empty or too long for it. A silent
+    /// record goes to a plug-in of `pluginVersion` older than `silentVersion` as `quietest()`.
+    static func record(_ settings: eqc_settings, targetUID: String, serial: UInt64, pluginVersion: Int? = nil) -> Data? {
+        var settings = settings.silent && (pluginVersion ?? silentVersion) < silentVersion ? quietest() : settings
         var blob = eqc_blob()
         guard eqc_blob_encode(&blob, &settings, targetUID, serial) else { return nil }
         return withUnsafeBytes(of: &blob) { Data($0) }

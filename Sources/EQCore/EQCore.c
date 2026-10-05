@@ -531,7 +531,7 @@ typedef struct {
     float preampLinear, outputGainLinear;
     bool limiterEnabled;
     float limiterCeilingLinear;
-    bool bypassed;
+    bool bypassed, silent;
     eqc_dynamics dynamics;
 } program;
 
@@ -648,6 +648,7 @@ static int32_t prepare(program *p, const eqc_settings *s, double rate, int32_t c
     p->limiterEnabled = s->limiterEnabled;
     p->limiterCeilingLinear = (float)pow(10, s->limiterCeilingDB / 20);
     p->bypassed = s->bypassed && !solo;
+    p->silent = s->silent;
     p->dynamics = s->bypassed ? eqc_dynamics_design(EQC_COMPRESSOR_OFF, EQC_COLOUR_OFF, 0, rate)
                               : eqc_dynamics_design(s->compressor, s->colour, s->colourAmount, rate);
     return unstableCount;
@@ -727,8 +728,14 @@ static void render(eqc_engine *e, const eqc_channel *channels, int32_t channelCo
         // A compressor switched off glides its gain out but has no more use for its detector, so
         // switching back on starts listening afresh. Bypass is a jump anyway, and after it nothing
         // should still be gliding out of what played before.
-        if (p->bypassed) reset_dynamics(e);
+        if (p->bypassed || p->silent) reset_dynamics(e);
         if (!p->dynamics.compressor) reset_detector(e);
+    }
+    if (p->silent) {
+        for (int32_t ch = 0; ch < channelCount; ch++)
+            for (int32_t frame = 0; frame < frames; frame++) channels[ch][frame] = 0;
+        __atomic_store_n(&e->limiting, 0, __ATOMIC_RELAXED);
+        return;
     }
     if (p->bypassed) {
         __atomic_store_n(&e->limiting, 0, __ATOMIC_RELAXED);

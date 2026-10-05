@@ -66,6 +66,8 @@ typedef struct {
     /// Listen to soloLow...soloHigh Hz only, clamped to 20 Hz...0.45 × the sample rate.
     bool solo;
     double soloLow, soloHigh;
+    /// Zeros on every channel, whatever else is set: bypass and solo included.
+    bool silent;
 } eqc_settings;
 
 /// Normalised (a0 == 1), transposed direct form II.

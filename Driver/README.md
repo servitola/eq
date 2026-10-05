@@ -36,7 +36,7 @@ coreaudiod. Two keys in `Info.plist` say which driver it is:
 
 | Key | |
 | --- | --- |
-| `EQDriverProtocol` | `EQC_BLOB_VERSION`, the settings record it reads; eq falls back to the tap below its own |
+| `EQDriverProtocol` | `EQC_BLOB_VERSION`, the newest settings record it reads; eq falls back to the tap below `EQC_BLOB_MIN_VERSION` |
 | `EQDriverRevision` | commits that touched `Driver/Source`, `Info.plist`, `build.sh` or the EQCore files compiled into the driver (not the resampler), plus one; eq offers an update when its own is higher, so a release that leaves the driver alone asks for no password |
 
 A driver installed before these keys reads as revision 0.
@@ -103,7 +103,8 @@ On the device, `kAudioObjectPropertyScopeGlobal`, element main:
 The record carries `eqc_settings` and the target UID it belongs to. The plug-in checks every field
 (size, magic, version, UID, finite values, ranges) before use, stores it in host storage under
 that UID, and plays it when that UID is the target, across coreaudiod restarts and without the
-daemon. Solo is never stored.
+daemon. Solo is never stored. A record for a silent device (version 2) plays zeros, bypass and solo
+included; a plug-in of protocol 1 refuses it, so eq sends that one every gain at its floor instead.
 
 ### Who may write settings
 
