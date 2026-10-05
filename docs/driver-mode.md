@@ -45,6 +45,12 @@ While the daemon runs in driver mode:
   tap and says why in `eq status`, `eq mode` and `eq doctor`, rather than leave you without EQ; it
   goes back to the driver when the device returns.
 
+A [silent output](commands.md#silent-outputs) gets a record that plays zeros, sent for every silent
+output whether the EQ device plays on it or not, so the plug-in plays zeros from its first buffer on
+it, and goes on doing so without the daemon. An EQ driver from before silent outputs (protocol 1)
+cannot play zeros: it gets every gain at its floor instead, −120 dB, and `eq doctor` says the update
+gives full silence.
+
 In tap mode the EQ device is hidden and never the default output. `"driver": {"hideWhileDefault":
 true}` tries hiding it while it is the default too; `eq doctor` reports whether macOS kept it.
 

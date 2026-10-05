@@ -3,6 +3,18 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- `eq device silence DEVICE` keeps an output silent whatever the volume: when headphones drop and
+  macOS moves the sound to the speakers, they stay quiet. eq holds their mute, undoes the volume
+  keys unmuting them, and plays zeros on them; `eq device unsilence` puts their mute back as it
+  was. `x` toggles it in the TUI's Devices view, the top bar says `SILENT` while the output is
+  silent, and `eq device list`, `eq status`, `eq doctor` and `eq events` show it. In driver mode
+  full silence needs the EQ driver this eq bundles (`eq mode driver` updates it, with a password);
+  the installed one plays a silent output at −120 dB until then.
+
 ## 2026.09.30.3 — 2026-09-30
 
 ### Changed

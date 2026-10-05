@@ -131,7 +131,8 @@ the current one shows.
   `◆` Thunderbolt, `·` offline), whether it has its own curve and its preset; beside them the
   chosen one's curve and layers. `Enter` makes it the system's output (`eq device use`); `c`
   copies the playing device's curve to it (`eq device copy --to`); `e` opens Tune on its curve,
-  whether it plays or not. In driver mode the EQ device heads the list as the system's output and
+  whether it plays or not; `x` makes it silent, or not (`eq device silence|unsilence`), and a
+  silent one says `silent` after its name. While the output is silent, the top bar says `SILENT`. In driver mode the EQ device heads the list as the system's output and
   the device it plays on, and is never one to pick: `Enter` on a real device sets the system's
   output to it, and the daemon, as for a pick in the Sound menu, points the EQ device at it and
   takes the output back.

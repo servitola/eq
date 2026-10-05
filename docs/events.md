@@ -16,6 +16,7 @@ is not running or predates events. Every line has `t` (Unix seconds) and `event`
 | `app` | `app`, `name`, `preset` (or `null`) | an app rule starts or stops being heard (experimental) |
 | `mode` | `mode` (`tap` or `driver`), `target` (or `null`), `reason` (or `null`) | the path changes; `reason` says why the tap runs in driver mode |
 | `target` | `device`, `uid` | in driver mode, the EQ device plays on another real device |
+| `silent` | `device`, `uid`, `action` | a silent output: `output` (it became the output, eq plays zeros), `muted` (eq set its mute), `remuted` (something unmuted it, eq muted it again), `restored` (unsilenced, its mute as before), `unmutable` (no mute eq can set, zeros only) |
 
 ```sh
 eq events | jq -r --unbuffered 'select(.event == "device") | "\(.device) at \(.rate) Hz"'

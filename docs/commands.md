@@ -9,7 +9,7 @@
 | `eq zones [--json]` | the instruments' frequency ranges in Hz and the bands each one touches |
 | `eq export > config.txt` | the curve as Equalizer APO text; `--format graphiceq\|eqmac\|camilla\|json`, `--out FILE` |
 | `eq stream` | meter frames as JSON lines, 30 a second, until Ctrl-C; `solo` is the range being listened to, or `null`; `spectrum` the output's 31 third octaves from 20 Hz to 20 kHz in dBFS, absent while the daemon, or in driver mode the EQ driver, predates it |
-| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app, mode, target; never meter ticks |
+| `eq events` | state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app, mode, target, silent; never meter ticks |
 
 Tune the curve:
 
@@ -35,6 +35,7 @@ Devices, presets, filters and imports each have their own group:
 | `eq device list` | who has a curve, who is connected, which is active (`eq device` alone too) |
 | `eq device use AirPods` | make AirPods the system output; its curve follows |
 | `eq device copy --to AirPods` | give another device this curve (`--device AirPods` works the same) |
+| `eq device silence "Mac Studio Speakers"` | that output plays nothing, whatever the volume; `unsilence` undoes it (see [Silent outputs](#silent-outputs)) |
 | `eq preset list` | list presets; the current device's one marked `*` (`eq preset` alone too) |
 | `eq preset save\|use <name>` | save the current curve as a preset / apply one (`--device DEVICE` for another device) |
 | `eq preset show\|rm <name>`, `eq preset rename <old> <new>` | look at, delete, rename a preset |
@@ -99,6 +100,23 @@ profile · favourite)`. Tune the curve afterwards and the name gets a yellow `*`
 `favourite*` — meaning the device started from that preset and has moved away from it; the
 preset itself is unchanged until you save over it. `eq preset rm` and `rename` update the
 devices that point at the preset, and leave their curves alone.
+
+## Silent outputs
+
+`eq device silence DEVICE` keeps an output silent, for the speakers that take over when headphones
+drop: macOS moves the sound there, and there it stays silent while you reach for the volume.
+`eq.json` lists it under `"silent"`, by UID; `eq device list`, `eq` and the TUI mark it.
+
+While the daemon runs, eq holds the hardware mute of every connected silent output, playing or
+not, so the first sample that lands on it after a switch is already muted; volume keys or Control
+Center unmuting it are undone at once, and `eq events` says so. On a silent output that plays, eq
+also sends zeros, in tap and driver mode alike, `eq off`, a solo and an app rule included, which
+covers a device without a mute control. `eq device unsilence` puts its mute back as it was before
+eq set it, at once or when the device next appears. `eq doctor` has a `silent` row on how each one
+is held.
+
+Without the daemon, only the mute eq left set holds, and the volume keys can lift it; in driver
+mode the EQ driver this eq bundles also keeps playing zeros on it (see [Driver mode](driver-mode.md)).
 
 ## Undo
 

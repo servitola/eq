@@ -37,6 +37,7 @@ Login items, a hand-made LaunchAgent, uninstalling: [docs/install.md](docs/insta
 | `eq tui` | the live meter and every setting, from the keyboard; `?` lists the keys |
 
 `eq off` and `eq on` bypass it, `eq undo` steps back, `eq doctor` checks the setup.
+`eq device silence "Mac Studio Speakers"` keeps an output silent whatever the volume.
 Every command takes `--json`; every change takes `--dry-run`.
 All of them: [docs/commands.md](docs/commands.md).
 
