@@ -271,6 +271,7 @@ final class DriverSessionTests: XCTestCase {
     private var journal: Journal!
     private var driverMode = true
     private var solo: SoloRange?
+    private var silent: Set<String> = []
     private var targets: [String] = []
     private var logs: [String] = []
     private var session: DriverSession!
@@ -298,7 +299,7 @@ final class DriverSessionTests: XCTestCase {
                 stillDriverMode: { [unowned self] in self.driverMode }, deadline: 1, wait: { _ in }),
             hideWhileDefault: hideWhileDefault,
             settings: { [unowned self] uid in
-                var s = EQProcessor.settings(profile: self.curves[uid] ?? .flat, enabled: true)
+                var s = EQProcessor.settings(profile: self.curves[uid] ?? .flat, enabled: true, silent: self.silent.contains(uid))
                 if let solo = self.solo { s.solo = true; s.soloLow = solo.low; s.soloHigh = solo.high }
                 return s
             },
@@ -316,6 +317,51 @@ final class DriverSessionTests: XCTestCase {
         XCTAssertEqual(DriverControl.record(sent.settings, targetUID: sent.uid, serial: sent.serial),
                        DriverControl.record(EQProcessor.settings(profile: curves["BT-RCA"]!, enabled: true), targetUID: "BT-RCA", serial: 101))
         XCTAssertEqual(session.health?.eqActive, true)
+    }
+
+    /// The plug-in keeps a record per device, so a silent one's waits there before the plug-in ever plays on it.
+    func testASilentDeviceGetsZerosFromANewPluginAndTheQuietestFromAnOldOne() throws {
+        make()
+        silent = ["BUILTIN"]
+        try session.start()
+        XCTAssertEqual(session.pluginVersion, 1)
+        session.push(uid: "BUILTIN")
+        var sent = FakeDriver.decode(try XCTUnwrap(driver.written.last))
+        XCTAssertEqual(sent.uid, "BUILTIN")
+        XCTAssertFalse(sent.settings.silent)
+        XCTAssertEqual(sent.settings.preampDB + sent.settings.outputGainDB, -120)
+        XCTAssertEqual(sent.settings.bandCount, 0)
+
+        driver.state["settingsVersion"] = 2
+        session.refresh()
+        XCTAssertEqual(session.pluginVersion, 2)
+        session.push(uid: "BUILTIN")
+        sent = FakeDriver.decode(try XCTUnwrap(driver.written.last))
+        XCTAssertTrue(sent.settings.silent)
+
+        let writes = driver.written.count
+        session.push(uid: "BT-RCA")
+        XCTAssertEqual(driver.written.count, writes)
+        session.stop()
+        session.push(uid: "BUILTIN")
+        XCTAssertEqual(driver.written.count, writes)
+    }
+
+    /// Headphones drop and macOS makes the silent speakers the default: the EQ device follows onto
+    /// them with their silent record, and takes the default back.
+    func testFollowingOntoASilentDeviceSendsItsSilentRecord() throws {
+        make()
+        driver.state["settingsVersion"] = 2
+        silent = ["BUILTIN"]
+        try session.start()
+        journal.clear()
+        system.pick(FakeAudioSystem.builtIn)
+        clock.advance(DefaultFollower.settle + 0.1)
+        XCTAssertEqual(journal.all, ["target BUILTIN", "push BUILTIN", "default \(DriverControl.deviceUID)"])
+        XCTAssertTrue(FakeDriver.decode(try XCTUnwrap(driver.written.last)).settings.silent)
+        system.pick(FakeAudioSystem.speaker)
+        clock.advance(DefaultFollower.settle + 0.1)
+        XCTAssertFalse(FakeDriver.decode(try XCTUnwrap(driver.written.last)).settings.silent)
     }
 
     func testStartRefusesWithoutADriver() {

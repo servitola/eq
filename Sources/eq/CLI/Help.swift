@@ -83,7 +83,7 @@ struct CommandHelp {
                     "write the curve for another tool: apo (default, Equalizer APO / Peace / SoundSource text), graphiceq (AutoEq's 127 points, for Wavelet), eqmac (bands only), camilla (CamillaDSP YAML), json (eq's own profile); to stdout, or atomically to FILE, which must not exist unless --force",
                     examples: ["eq export > config.txt", "eq export --format graphiceq --out GraphicEQ.txt", "eq export --format camilla --device JBL"]),
         CommandHelp(.look, "eq stream", "meter frames as JSON lines, 30 per second, until Ctrl-C"),
-        CommandHelp(.look, "eq events", "state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app, mode, target; never meter ticks",
+        CommandHelp(.look, "eq events", "state changes as JSON lines until Ctrl-C: device, rate, profile, enabled, solo, daemon, app, mode, target, silent; never meter ticks",
                     examples: ["eq events | jq -r 'select(.event == \"device\") | .device'"]),
         CommandHelp(.tune, "eq set [--device DEVICE] <band> <gain> …", "change bands on the current device, or on DEVICE", writes: true,
                     examples: ["eq set 64hz +4 1khz -3", "eq set --device JBL 16khz +1"]),

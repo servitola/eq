@@ -157,6 +157,9 @@ final class Daemon {
     private lazy var events = EventTracker(enabled: config.enabled, hooks: hooks) { [weak self] in self?.meterServer?.publish($0) }
     private let audio: AudioSystem = LiveAudioSystem()
     private var session: DriverSession?
+    private lazy var silentGuard = SilentGuard(
+        control: CoreAudioMute(queue: queue), file: statusURL.deletingLastPathComponent().appendingPathComponent("silent-mutes.json"),
+        onAction: { [weak self] uid, action in self?.silentAction(uid, action.rawValue) })
     // Why the tap runs while the config asks for the driver; nil otherwise.
     private var fallbackReason: String?
     // The installed driver works but is older than the one EQ.app carries; eq status says so.
@@ -236,6 +239,7 @@ final class Daemon {
         AudioDeviceManager.destroyStaleAggregates()
         engine.onSampleRateChange = { [weak self] in self?.settle.trigger() }
         installListeners()
+        if !mainPathOff { silentGuard.update(config.silentUIDs) }
         installPowerHandler()
         startWatcher()
         apps.configure(config)
@@ -553,7 +557,7 @@ final class Daemon {
             if push { session?.push() }
         } else {
             engine.processor.solo = solo
-            let unstable = engine.processor.apply(profile: playing, enabled: config.enabled)
+            let unstable = engine.processor.apply(profile: playing, enabled: config.enabled, silent: config.isSilent(device.uid))
             let rate = Int(engine.processor.sampleRate)
             filterWarnings = unstable.map { "\(playing.engineBandLabel($0)) unstable at \(rate) Hz — bypassed" }
         }
@@ -566,6 +570,11 @@ final class Daemon {
         }
         for part in playing.dynamics?.unknown ?? [] where loggedFilterWarnings.insert("\(device.uid) \(part)").inserted {
             Log.write("profile \"\(profileName)\": no \(part) — ignored")
+        }
+        if config.isSilent(device.uid) {
+            silentAction(device.uid, EventTracker.silentOutput)
+        } else {
+            events.notSilent()
         }
         // Profile events and hooks stay about the device's own curve; an app rule has its own event.
         if paths.active == .driver, let rate = session?.health?.sampleRate, rate > 0 {
@@ -661,6 +670,7 @@ final class Daemon {
         driverSeen = true
         tapModeTidied = false
         if let target = session.target { driverTarget(target) }
+        for uid in config.silentUIDs.sorted() { session.push(uid: uid) }
         setState(config.enabled ? .running : .bypassed, error: nil)
         return true
     }
@@ -683,7 +693,8 @@ final class Daemon {
 
     /// The record for one target: its curve as the tap would play it, solo included.
     private func driverSettings(_ uid: String) -> eqc_settings? {
-        var settings = EQProcessor.settings(profile: heard(config.profile(forDeviceUID: uid).profile), enabled: config.enabled)
+        var settings = EQProcessor.settings(profile: heard(config.profile(forDeviceUID: uid).profile), enabled: config.enabled,
+                                            silent: config.isSilent(uid))
         if let solo {
             settings.solo = true
             settings.soloLow = solo.low
@@ -791,6 +802,7 @@ final class Daemon {
     }
 
     private func devicesChanged() {
+        if !mainPathOff { silentGuard.update(config.silentUIDs) }
         if paths.active != .driver { settle.trigger() }
         driverDevicesChanged()
         updateRoutes()
@@ -894,6 +906,7 @@ final class Daemon {
             let enabledChanged = fresh.enabled != config.enabled
             let modeChanged = fresh.audioMode != config.audioMode
             let hidingChanged = fresh.hidesWhileDefault != config.hidesWhileDefault
+            let silenceChanged = fresh.silentUIDs.symmetricDifference(config.silentUIDs)
             let edited = device.map { AppOverlay.edited(config, fresh, uid: $0.uid) } ?? false
             let held = edited ? apps.hold() : nil
             config = fresh
@@ -904,6 +917,11 @@ final class Daemon {
                 events.app(nil, previous: held)
             }
             events.enabled(config.enabled)
+            if !silenceChanged.isEmpty, !mainPathOff {
+                Log.write("config reloaded: silent \(config.silentUIDs.sorted())")
+                silentGuard.update(config.silentUIDs)
+                for uid in silenceChanged.sorted() { session?.push(uid: uid) }
+            }
             if modeChanged {
                 Log.write("config reloaded: mode \(config.audioMode.rawValue)")
                 choosePath()
@@ -949,6 +967,7 @@ final class Daemon {
         routeSink.curve = { [unowned self] target in
             (RouteCurve.heard(on: target, in: self.routeState.plan, config: self.config, nowPlaying: nil).profile, self.config.enabled)
         }
+        routeSink.silent = { [unowned self] in self.config.isSilent($0) }
         routeSink.onInvalidated = { [weak self] target in
             guard let self, self.routeController.rebuild(target, because: "the target's rate or the tap's format changed", now: Date()) else { return }
             self.updateRoutes()
@@ -1194,7 +1213,8 @@ final class Daemon {
             apps: apps.status,
             compReductionDB: compReduction(device.map { heard(config.profile(forDeviceUID: $0.uid).profile) }).map(MeterFrame.round1),
             mode: paths.active == nil ? nil : .tap,
-            routes: routeStatuses())
+            routes: routeStatuses(),
+            silent: silentStatuses(playing: running ? device?.uid : nil))
         if config.audioMode == .driver, let fallbackReason {
             status.warnings = (status.warnings ?? []) + ["driver mode: \(fallbackReason) — the tap plays instead"]
         }
@@ -1217,7 +1237,8 @@ final class Daemon {
             clockPpm: health?.clockPpm ?? 0,
             latencyMs: health?.latencyMs,
             hidden: health?.hidden ?? false,
-            hiddenDefault: session?.hiddenDefault)
+            hiddenDefault: session?.hiddenDefault,
+            settingsVersion: session?.pluginVersion)
         let status = Status(
             state: state,
             device: target.map { Status.Device(uid: $0.uid, name: $0.name, transport: $0.transportName) },
@@ -1236,8 +1257,26 @@ final class Daemon {
             apps: apps.status,
             mode: .driver,
             driver: driver,
-            routes: routeStatuses())
+            routes: routeStatuses(),
+            silent: silentStatuses(playing: health?.ioRunning == true ? target?.uid : nil))
         save(status)
+    }
+
+    private func silentStatuses(playing: String?) -> [Status.Silent]? {
+        guard !config.silentUIDs.isEmpty else { return nil }
+        let devices = Dictionary(AudioDeviceManager.outputDevices().map { ($0.uid, $0.name) }, uniquingKeysWith: { first, _ in first })
+        return config.silentUIDs.sorted().map { uid in
+            let state = silentGuard.states[uid]
+            return Status.Silent(uid: uid, name: devices[uid] ?? config.devices[uid]?.name ?? uid, connected: devices[uid] != nil,
+                                 muted: state?.muted, playing: uid == playing)
+        }
+    }
+
+    private func silentAction(_ uid: String, _ action: String) {
+        let name = device?.uid == uid ? device!.name : AudioDeviceManager.outputDevices().first { $0.uid == uid }?.name ?? config.devices[uid]?.name ?? uid
+        if events.silent(device: name, uid: uid, action: action), action == EventTracker.silentOutput {
+            Log.write("silent: \(name) is the output — eq plays zeros on it")
+        }
     }
 
     private func save(_ status: Status) {

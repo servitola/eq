@@ -181,6 +181,8 @@ final class DriverSession {
     private(set) var hiddenDefault: HiddenDefault?
     /// Writes to the plug-in; tests count them.
     private(set) var pushes = 0
+    /// The newest settings record the plug-in reads, as its health said last.
+    private(set) var pluginVersion: Int?
 
     init(env: Environment, hideWhileDefault: Bool, settings: @escaping (String) -> eqc_settings?,
          onTarget: @escaping (AudioOutputDevice) -> Void = { _ in }) {
@@ -195,6 +197,7 @@ final class DriverSession {
     /// Throws what keeps driver mode from starting, so the caller can fall back to the tap.
     func start() throws {
         let (port, health) = try switcher.ready()
+        pluginVersion = health.settingsVersion
         let target = try switcher.target(health)
         try switcher.enter(target: target, port: port, health: health) { [weak self] port, uid in self?.write(port, uid) }
         running = true
@@ -217,6 +220,13 @@ final class DriverSession {
         write(port, target.uid)
     }
 
+    /// Sends the plug-in the record for a device it may play on later, which it keeps for then: a
+    /// silent device's record waits there, so the plug-in plays zeros from its first buffer on it.
+    func push(uid: String) {
+        guard running, uid != target?.uid, let port = port() else { return }
+        write(port, uid)
+    }
+
     func defaultOutputChanged() {
         guard running else { return }
         follower.changed()
@@ -231,6 +241,7 @@ final class DriverSession {
         guard let values = try? switcher.within("the EQ device's health", { try port.health() }) else { return }
         let health = DriverHealth(values)
         self.health = health
+        pluginVersion = health.settingsVersion
         guard !health.target.isEmpty, health.target != target?.uid else { return }
         let devices = (try? switcher.within("listing output devices") { self.env.system.outputDevices() }) ?? []
         let device = devices.first { $0.uid == health.target }
@@ -278,7 +289,8 @@ final class DriverSession {
     }
 
     private func write(_ port: DriverPort, _ uid: String) {
-        guard let settings = settings(uid), let record = DriverControl.record(settings, targetUID: uid, serial: env.serial()) else { return }
+        guard let settings = settings(uid),
+              let record = DriverControl.record(settings, targetUID: uid, serial: env.serial(), pluginVersion: pluginVersion) else { return }
         pushes += 1
         do {
             try switcher.within("sending the curve") { try port.write(settings: record) }

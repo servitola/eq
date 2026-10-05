@@ -15,6 +15,8 @@ enum DaemonEvent: Equatable {
     case target(name: String, uid: String)
     /// Where an app with a route rule plays now; `target` nil when it is on the main path.
     case route(app: String, name: String, target: String?, targetName: String?, reason: RouteReason)
+    /// What eq did to keep a silent output silent; `output` when it became the output and plays zeros.
+    case silent(device: String, uid: String, action: String)
 
     var kind: String {
         switch self {
@@ -28,6 +30,7 @@ enum DaemonEvent: Equatable {
         case .mode: return "mode"
         case .target: return "target"
         case .route: return "route"
+        case .silent: return "silent"
         }
     }
 
@@ -98,6 +101,10 @@ enum DaemonEvent: Equatable {
                 try c.encode(target, forKey: Key("target"))
                 try c.encode(targetName, forKey: Key("targetName"))
                 try c.encode(reason, forKey: Key("reason"))
+            case .silent(let device, let uid, let action):
+                try c.encode(device, forKey: Key("device"))
+                try c.encode(uid, forKey: Key("uid"))
+                try c.encode(action, forKey: Key("action"))
             }
         }
     }
@@ -198,6 +205,26 @@ final class EventTracker {
         }
         routes = seen
     }
+
+    private var silentOutput: String?
+
+    /// `output` is published once per stretch of a silent device being the output; the rest every time.
+    @discardableResult
+    func silent(device: String, uid: String, action: String) -> Bool {
+        if action == Self.silentOutput {
+            guard silentOutput != uid else { return false }
+            silentOutput = uid
+        }
+        publish(.silent(device: device, uid: uid, action: action))
+        return true
+    }
+
+    /// The output is not silent (any more).
+    func notSilent() {
+        silentOutput = nil
+    }
+
+    static let silentOutput = "output"
 
     func solo(_ range: SoloRange?) {
         guard range != solo else { return }

@@ -24,6 +24,11 @@ struct EventEntry: Equatable {
         return f
     }()
 
+    private static let silentActions = [
+        "output": "is the output: silent, eq plays zeros", "muted": "muted: it is silent", "remuted": "was unmuted: muted again",
+        "restored": "is no longer silent: its mute is back as it was", "unmutable": "has no mute eq can set: zeros only",
+    ]
+
     private static func rate(_ hz: Double) -> String { String(format: "%g kHz", hz / 1000) }
 
     /// nil for anything but an event: an old daemon answers the subscription with meter frames.
@@ -85,6 +90,10 @@ struct EventEntry: Equatable {
         case "route":
             let name = string("name") ?? string("app") ?? "?"
             entry.text = "\(name) → \(string("targetName") ?? string("target") ?? "the main path") (\(string("reason") ?? "?"))"
+        case "silent":
+            let action = string("action") ?? "?"
+            entry.text = "\(device) " + (Self.silentActions[action] ?? action)
+            entry.tone = action == "unmutable" ? .warn : .cut
         default:
             entry.text = line
         }

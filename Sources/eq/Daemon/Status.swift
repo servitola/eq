@@ -57,6 +57,18 @@ struct Status: Codable, Equatable {
     var driver: DriverStatus? = nil
     /// Each app with a route rule and audio open, while `experimental.routes` is on.
     var routes: [Route]? = nil
+    /// Every silent output in the config; nil when there is none.
+    var silent: [Silent]? = nil
+
+    struct Silent: Codable, Equatable {
+        var uid: String
+        var name: String
+        var connected: Bool
+        /// Its hardware mute is set and held; nil when it has no mute eq can set, or is not connected.
+        var muted: Bool?
+        /// It is the output, and eq plays zeros on it.
+        var playing: Bool
+    }
 
     struct Route: Codable, Equatable {
         var app: String
@@ -95,6 +107,8 @@ struct Status: Codable, Equatable {
         var hidden: Bool
         /// The hide-while-default experiment's answer, once tried.
         var hiddenDefault: DriverSession.HiddenDefault? = nil
+        /// The newest settings record the plug-in reads; below `DriverControl.silentVersion` it cannot play zeros.
+        var settingsVersion: Int? = nil
     }
 
     static var defaultURL: URL {
@@ -140,7 +154,7 @@ extension Status {
     private enum CodingKeys: String, CodingKey {
         case state, device, sampleRate, profile, framesProcessed, callbacks, writes, enabled, error, pid, version, updatedAt, latencyMs, tapSilentSeconds, warnings
         case deviceLatencyMs, addedLatencyMs, addedLatencyFrames, lastOnset, underruns, overruns, dropouts, apps, compReductionDB, mode, driver
-        case routes
+        case routes, silent
     }
 
     // v1 daemons wrote no `callbacks`; a CLI upgraded before its daemon must still read their status.
@@ -174,5 +188,6 @@ extension Status {
         mode = try? c.decodeIfPresent(AudioMode.self, forKey: .mode)
         driver = try? c.decodeIfPresent(DriverStatus.self, forKey: .driver)
         routes = try? c.decodeIfPresent([Route].self, forKey: .routes)
+        silent = try? c.decodeIfPresent([Silent].self, forKey: .silent)
     }
 }

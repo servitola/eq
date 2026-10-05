@@ -312,6 +312,10 @@ enum CLI {
     private static func silence(_ args: [String], _ on: Bool, _ ctx: CLIContext) throws -> Output {
         var config = try loadConfig(ctx)
         let target = try silenceTarget(args, config, ctx)
+        // Its mute is its target's: silencing it would silence whatever it plays on.
+        if on, target.uid == DriverControl.deviceUID {
+            throw CLIError.usage("the EQ device plays on a real output; silence that one")
+        }
         config.setSilent(target.uid, on)
         try ctx.store.save(config)
         let name = Paint.ink(.bold, target.name)

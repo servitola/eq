@@ -291,10 +291,11 @@ final class RouteController {
 final class LiveRouteSink: RouteSink {
     private let main: ProcessTapEngine
     private(set) var engines: [String: RouteEngine] = [:]
-    private var playing: [String: (profile: Profile, enabled: Bool)] = [:]
+    private var playing: [String: (profile: Profile, enabled: Bool, silent: Bool)] = [:]
     var requestedIOBufferFrames = 128
     /// The curve a target's engine plays, and whether EQ is on.
     var curve: (String) -> (profile: Profile, enabled: Bool) = { _ in (.flat, true) }
+    var silent: (String) -> Bool = { _ in false }
     var onInvalidated: ((String) -> Void)?
 
     init(main: ProcessTapEngine) {
@@ -347,9 +348,10 @@ final class LiveRouteSink: RouteSink {
     func play(_ target: String, force: Bool = false) {
         guard let engine = engines[target] else { return }
         let (profile, enabled) = curve(target)
-        guard force || playing[target]?.profile != profile || playing[target]?.enabled != enabled else { return }
-        playing[target] = (profile, enabled)
-        engine.processor.apply(profile: profile, enabled: enabled)
+        let silent = silent(target)
+        guard force || playing[target]?.profile != profile || playing[target]?.enabled != enabled || playing[target]?.silent != silent else { return }
+        playing[target] = (profile, enabled, silent)
+        engine.processor.apply(profile: profile, enabled: enabled, silent: silent)
     }
 
     func playAll() {
