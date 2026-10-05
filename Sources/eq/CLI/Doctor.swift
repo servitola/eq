@@ -71,6 +71,7 @@ enum Doctor {
         let (audio, refreshed) = audioCheck(probes, live)
         let config = try? probes.loadConfig()
         let apps = config.flatMap { $0.followsApps ? appsCheck($0, live) : nil }
+        let silent = config.flatMap { $0.silentUIDs.isEmpty ? nil : silentCheck($0, live) }
         let checks = [
             macOSCheck(probes),
             configCheck(probes),
@@ -87,7 +88,7 @@ enum Doctor {
             latencyCheck(refreshed),
             ringCheck(refreshed),
             filtersCheck(live),
-        ] + driverChecks(probes, mode: config?.audioMode ?? .tap, hidesWhileDefault: config?.hidesWhileDefault == true, live: live)
+        ] + [silent].compactMap { $0 } + driverChecks(probes, mode: config?.audioMode ?? .tap, hidesWhileDefault: config?.hidesWhileDefault == true, live: live)
         let ok = checks.allSatisfy { $0.warning || $0.ok }
         return DoctorReport(ok: ok, checks: checks)
     }
@@ -173,6 +174,38 @@ enum Doctor {
             return DoctorCheck(name: "apps", ok: false, detail: ([detail] + problems).joined(separator: "; "), warning: true)
         }
         return DoctorCheck(name: "apps", ok: true, detail: detail, warning: false)
+    }
+
+    /// Present only while some output is silent: how each is kept silent, and what is missing.
+    static func silentCheck(_ config: Config, _ live: Status?) -> DoctorCheck {
+        guard let live else {
+            return DoctorCheck(name: "silent", ok: false, detail: "\(config.silentUIDs.count) silent; daemon not running — only a mute eq set earlier holds",
+                               warning: true)
+        }
+        guard let devices = live.silent else {
+            return DoctorCheck(name: "silent", ok: false, detail: "this daemon predates silent outputs — restart it: " + LaunchAgent.restartHint, warning: true)
+        }
+        var problems: [String] = []
+        let detail = devices.map { device -> String in
+            var parts: [String] = []
+            if !device.connected {
+                parts.append("not connected")
+            } else if let muted = device.muted {
+                parts.append(muted ? "mute held" : "mute not held")
+                if !muted { problems.append("\(device.name): its mute will not stay set") }
+            } else {
+                parts.append("no mute eq can set, zeros only")
+            }
+            if device.playing { parts.append("plays zeros") }
+            return "\(device.name): " + parts.joined(separator: ", ")
+        }.joined(separator: "; ")
+        if live.mode == .driver, let version = live.driver?.settingsVersion, version < DriverControl.silentVersion {
+            problems.append("the EQ driver predates silence: it plays a silent output at -120 dB, not zeros — eq mode driver updates it")
+        }
+        guard problems.isEmpty else {
+            return DoctorCheck(name: "silent", ok: false, detail: ([detail] + problems).joined(separator: "; "), warning: true)
+        }
+        return DoctorCheck(name: "silent", ok: true, detail: detail, warning: false)
     }
 
     /// The command's first word, unquoted; nil when it is empty. Only an absolute path can be
