@@ -149,8 +149,8 @@ extension CLI {
         do {
             try switcher.enter(target: target, port: port, health: health) { port, uid in
                 let profile = config.profile(forDeviceUID: uid).profile
-                guard let record = DriverControl.record(EQProcessor.settings(profile: profile, enabled: config.enabled),
-                                                        targetUID: uid, serial: ctx.driverSerial()) else {
+                guard let record = DriverControl.record(EQProcessor.settings(profile: profile, enabled: config.enabled, silent: config.isSilent(uid)),
+                                                        targetUID: uid, serial: ctx.driverSerial(), pluginVersion: health.settingsVersion) else {
                     throw ModeSwitch.Failure.failed("the target UID \(uid) does not fit the settings record")
                 }
                 do {

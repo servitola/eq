@@ -66,8 +66,10 @@ extension CLI {
         let config = try loadConfig(ctx)
         let resolved = config.profile(forDeviceUID: target)
         let serial = ctx.driverSerial()
-        guard let record = DriverControl.record(EQProcessor.settings(profile: resolved.profile, enabled: config.enabled),
-                                                targetUID: target, serial: serial) else {
+        var version: Int?
+        if case .number(let n)? = health["settingsVersion"] { version = Int(exactly: n) }
+        guard let record = DriverControl.record(EQProcessor.settings(profile: resolved.profile, enabled: config.enabled, silent: config.isSilent(target)),
+                                                targetUID: target, serial: serial, pluginVersion: version ?? DriverControl.requiredVersion) else {
             throw CLIError.driver("the target UID \(target) does not fit the settings record")
         }
         do {

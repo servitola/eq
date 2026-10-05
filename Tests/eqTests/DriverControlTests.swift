@@ -213,6 +213,18 @@ final class DriverCLITests: XCTestCase {
         XCTAssertEqual(json["playing"] as? Bool, false)
     }
 
+    func testPushSendsASilentTargetItsSilence() throws {
+        XCTAssertEqual(run("device", "silence", "macbook").exitCode, 0)
+        fake.state["settingsVersion"] = 2
+        XCTAssertEqual(run("driver", "push").exitCode, 0)
+        XCTAssertTrue(FakeDriver.decode(try XCTUnwrap(fake.written.last)).settings.silent)
+        fake.state["settingsVersion"] = 1
+        XCTAssertEqual(run("driver", "push").exitCode, 0)
+        let old = FakeDriver.decode(try XCTUnwrap(fake.written.last)).settings
+        XCTAssertFalse(old.silent)
+        XCTAssertEqual(old.preampDB + old.outputGainDB, -120)
+    }
+
     func testFailuresSayWhy() {
         fake.refuses = true
         let refused = run("driver", "push")
