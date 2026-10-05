@@ -34,7 +34,7 @@ enum WatchAction: Equatable {
     /// The list views' keys: Enter's action for the row, a rename or delete to confirm, the
     /// preset diff, copy here, edit in Tune, a new filter, a filter's fields and a step between
     /// them; `otherDevice` is Tune's next or previous device to edit.
-    case primary, startRename, startDelete, toggleDiff, copyHere, editInTune, startAdd, editFields, field(Int), otherDevice(Int)
+    case primary, startRename, startDelete, toggleDiff, copyHere, toggleSilent, editInTune, startAdd, editFields, field(Int), otherDevice(Int)
     /// A filter field's value typed in the message row, starting with `text`.
     case fieldEntry(String)
     /// Apps: rules on and off. System: the other mode, asked first; `refresh` reads the status and
@@ -45,7 +45,7 @@ enum WatchAction: Equatable {
     /// The list views' edits, each the change its `eq preset`, `eq device` or `eq filter` command makes.
     case usePreset(String), renamePreset(String, String), removePreset(String)
     /// `useDevice` takes a device's UID; it moves the system's output and saves nothing.
-    case useDevice(String), copyCurve(DeviceChoice)
+    case useDevice(String), copyCurve(DeviceChoice), silence(DeviceChoice, Bool)
     /// Filters are numbered from 0 here, from 1 on the command line.
     case addFilter(Filter), setFilter(Int, Filter), removeFilter(Int)
     /// `eq app set` (an app by bundle ID or name), `eq app rm`, `eq app on|off`.

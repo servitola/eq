@@ -101,6 +101,35 @@ final class ListViewTests: XCTestCase {
 
     // MARK: Devices
 
+    func testXSilencesTheSelectedDeviceAndAgainUnsilencesIt() {
+        var m = model(.devices)
+        XCTAssertEqual(send(&m, key("jx")), [.edit(.silence(DeviceChoice(uid: "mbp", name: "MacBook Pro Speakers"), true))])
+        XCTAssertEqual(send(&m, key("ч")), [.edit(.silence(DeviceChoice(uid: "mbp", name: "MacBook Pro Speakers"), true))], "x on a Russian layout")
+        var library = TUILookTests.library
+        library.rows = library.rows.map { var row = $0; row.silent = row.uid == "mbp"; return row }
+        _ = m.update(.library(library))
+        XCTAssertEqual(send(&m, key("X")), [.edit(.silence(DeviceChoice(uid: "mbp", name: "MacBook Pro Speakers"), false))])
+        _ = m.update(.edited(.silence(DeviceChoice(uid: "mbp", name: "MacBook Pro Speakers"), true), failure: nil))
+        XCTAssertEqual(m.message?.text, "MacBook Pro Speakers is silent: eq plays nothing on it and keeps it muted")
+        XCTAssertTrue(m.lines()!.contains { $0.contains("MacBook Pro Speakers") && $0.contains("silent") }, m.lines()!.joined(separator: "\n"))
+        XCTAssertTrue(Keybar.line(.devices, state: m.scene()!.keyState, width: 200).contains("x silent"))
+    }
+
+    func testTheTopBarSaysTheOutputIsSilent() {
+        for look in ["studio", "console"] {
+            for view in [TUIView.meter, .tune] {
+                var m = model(view)
+                _ = m.update(.header(Watch.Header(preset: ("favourite", true), profile: TUILookTests.playing, silent: true)))
+                m.look.look = Look(rawValue: look)!
+                XCTAssertTrue(m.lines()![0].contains("SILENT"), "\(look) \(view): \(m.lines()![0])")
+            }
+        }
+        var m = model(.meter)
+        XCTAssertFalse(m.lines()![0].contains("SILENT"))
+        _ = m.update(.header(Watch.Header(silent: true)))
+        XCTAssertTrue(m.lines()![0].contains("SILENT"))
+    }
+
     func testDevicesUseCopyAndEdit() {
         var m = model(.devices)
         XCTAssertEqual(send(&m, key("j\r")), [.edit(.useDevice("mbp"))])

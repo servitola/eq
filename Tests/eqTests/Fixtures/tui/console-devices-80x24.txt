@@ -21,4 +21,4 @@
  │                                 │   DYNAMICS off
  ╰─────────────────────────────────╯   FILTERS  none
 
- ↑↓  move   Enter  use   c  copy here   e  edit   /  search   ?  keys   q  quit
+ ↑↓  move   Enter  use   c  copy here   e  edit   x  silent   ?  keys   q  quit

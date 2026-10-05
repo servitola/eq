@@ -875,7 +875,7 @@ struct MeterModel: Program {
         case .tuneEntry: entry = TextField()
         case .primary where context == .apps || context == .history, .startAdd where context == .apps, .startDelete where context == .apps:
             return pageAction(action, in: context)
-        case .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice:
+        case .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .toggleSilent, .editInTune, .startAdd, .editFields, .field, .otherDevice:
             return listAction(action, in: context)
         case .toggleApps, .switchMode, .refresh, .historyStep, .search:
             return pageAction(action, in: context)
@@ -883,7 +883,7 @@ struct MeterModel: Program {
         case .run(let words): return run(words.joined(separator: " "), action: nil)
         case .bandStep, .preamp, .bass, .treble, .cyclePreset, .previousPreset, .undo, .savePreset, .boost,
              .cycleComp, .cycleColour, .colourAmount, .mouse, .setLook, .setPalette, .adjust, .assign,
-             .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .addFilter, .setFilter, .removeFilter,
+             .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .silence, .addFilter, .setFilter, .removeFilter,
              .setAppRule, .removeAppRule, .followApps, .restoreVersion:
             return apply(action)
         }

@@ -82,6 +82,8 @@ enum Watch {
         var mouse = false
         /// The whole curve, for the Tune view to show and step exactly.
         var profile: Profile?
+        /// The current output is silent: eq plays nothing on it.
+        var silent = false
     }
 }
 

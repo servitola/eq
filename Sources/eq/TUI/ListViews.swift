@@ -388,8 +388,10 @@ struct DevicesView {
             }
             screen.ink(Self.glyph(row.transport), x: box.x + 5, y: ry, t.style(row.connected ? p.text2 : p.text3, bg))
             let ink: Swatch = plays ? p.title : (row.connected ? p.text : p.text3)
-            screen.ink(TerminalText.truncated(row.name, columns: (kind > box.x + 20 ? kind : curve) - box.x - 8), x: box.x + 7, y: ry,
-                       t.style(ink, bg, plays || here ? .bold : []))
+            let room = (kind > box.x + 20 ? kind : curve) - box.x - 8
+            let used = screen.ink(TerminalText.truncated(row.name, columns: row.silent ? max(room - 7, 1) : room), x: box.x + 7, y: ry,
+                                  t.style(ink, bg, plays || here ? .bold : []))
+            if row.silent { screen.ink(" silent", x: box.x + 7 + used, y: ry, t.style(p.cut, bg, .bold), limit: max(room - used, 0)) }
             if kind > box.x + 20 { screen.ink(Self.transport(row.transport), x: kind, y: ry, t.style(p.text3, bg), limit: curve - kind - 1) }
             let profile = library.profile(row.uid)
             let mark = row.profile == "own" ? library.mark(profile) : nil
@@ -414,7 +416,7 @@ struct DevicesView {
         let side = beside ? 26 : 0
         let lines = Layers.lines(profile, mark: library.mark(profile), t)
         let under = beside ? 0 : min(lines.count, max(r.height - 9, 0))
-        let right = row.uid == library.current?.uid ? "plays" : (row.profile == "own" ? "own profile" : "the default profile")
+        let right = row.silent ? "silent" : row.uid == library.current?.uid ? "plays" : (row.profile == "own" ? "own profile" : "the default profile")
         ResponsePanel(scene: scene).draw(Rect(x: r.x, y: r.y, width: r.width - side, height: r.height - under), title: row.name, right: right,
                                          bands: profile.engineBands, into: &screen)
         if beside {

@@ -71,6 +71,7 @@ struct StatusBar {
 
     private var flags: [(String, Swatch)] {
         var flags: [(String, Swatch)] = []
+        if scene.header.silent { flags.append(("SILENT", p.cut)) }
         if f.solo != nil { flags.append(("SOLO", p.solo)) }
         if !f.enabled { flags.append(("BYPASS", p.warn)) }
         if scene.limiting { flags.append(("LIMIT", p.danger)) }
@@ -120,6 +121,7 @@ struct StatusBar {
         let lamps: [(String, Bool, Swatch)] = [("SOLO", f.solo != nil, p.solo), ("BYPASS", !f.enabled, p.warn), ("LIMIT", scene.limiting, p.danger)]
         let lampsWidth = lamps.reduce(0) { $0 + $1.0.count + 4 }
         var labels: [(String, String, Swatch, Style.Attributes)] = [("DEVICE", device, p.title, .bold), ("RATE", rate + "k", p.text, .bold)]
+        if scene.header.silent { labels.insert(("OUTPUT", "SILENT", p.cut, .bold), at: 1) }
         if let app = f.app {
             labels.append(("APP", app.name + " → " + app.preset, p.title, .bold))
         } else if let preset = scene.header.preset {

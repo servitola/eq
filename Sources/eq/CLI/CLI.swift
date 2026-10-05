@@ -830,6 +830,7 @@ enum CLI {
             var apps: [AppRule]?? = nil
             var experimental: Experimental?? = nil
             var fallback: Profile? = nil
+            var silent: [String]?? = nil
 
             init?(_ original: Config, _ config: Config) {
                 for uid in Set(original.devices.keys).union(config.devices.keys) where original.devices[uid] != config.devices[uid] {
@@ -846,7 +847,8 @@ enum CLI {
                 if original.apps != config.apps { apps = .some(original.apps) }
                 if original.experimental != config.experimental { experimental = .some(original.experimental) }
                 if original.default != config.default { fallback = original.default }
-                guard !devices.isEmpty || !presets.isEmpty || unseeded || apps != nil || experimental != nil || fallback != nil else { return nil }
+                if original.silent != config.silent { silent = .some(original.silent) }
+                guard !devices.isEmpty || !presets.isEmpty || unseeded || apps != nil || experimental != nil || fallback != nil || silent != nil else { return nil }
             }
 
             func restore(_ config: inout Config) {
@@ -861,6 +863,7 @@ enum CLI {
                 if let apps { config.apps = apps }
                 if let experimental { config.experimental = experimental }
                 if let fallback { config.default = fallback }
+                if let silent { config.silent = silent }
             }
         }
 
@@ -881,7 +884,7 @@ enum CLI {
             guard let config = try? loadConfig(ctx), let target = try? currentDevice(ctx) else { return Watch.Header() }
             let profile = config.profile(forDeviceUID: target.uid).profile
             return Watch.Header(preset: CLI.presetMark(profile, config), preference: profile.preference, knobs: profile.instruments,
-                                dynamics: profile.dynamics, mouse: config.tui?.mouse == true, profile: profile)
+                                dynamics: profile.dynamics, mouse: config.tui?.mouse == true, profile: profile, silent: config.isSilent(target.uid))
         }
 
         func apply(_ action: WatchAction) throws {
@@ -931,6 +934,8 @@ enum CLI {
                 try CLI.removeAppRule(query, in: &config, ctx)
             case .followApps(let on):
                 config.setFollowsApps(on)
+            case .silence(let device, let on):
+                config.setSilent(device.uid, on)
             default:
                 let target = try target()
                 guard let profile = try edited(editableProfile(config, target), by: action, &config) else { return }
@@ -1006,13 +1011,13 @@ enum CLI {
                 }
             case .removeFilter(let index):
                 _ = try CLI.removeFilter(index, from: &profile)
-            case .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .setAppRule, .removeAppRule, .followApps, .restoreVersion,
+            case .usePreset, .renamePreset, .removePreset, .useDevice, .copyCurve, .silence, .setAppRule, .removeAppRule, .followApps, .restoreVersion,
                  .undo, .savePreset, .startSave, .zones, .help, .quit,
                  .focusNext, .focusPrevious, .unfocus, .listen, .knob, .mouse, .palette,
                  .closeModal, .scrollUp, .scrollDown, .pageUp, .pageDown, .top, .bottom, .nextLook, .nextPalette, .setLook, .setPalette,
                  .goMenu, .go, .back, .focusInMeter, .pause, .filter, .stop, .suspend,
                  .tuneSelect, .tuneGroup, .nudge, .tuneReset, .tuneEntry,
-                 .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .editInTune, .startAdd, .editFields, .field, .otherDevice,
+                 .primary, .startRename, .startDelete, .toggleDiff, .copyHere, .toggleSilent, .editInTune, .startAdd, .editFields, .field, .otherDevice,
                  .fieldEntry, .toggleApps, .switchMode, .refresh, .historyStep, .search, .run:
                 return nil
             }

@@ -33,4 +33,4 @@
  │                                                │ │     32     125   500    2k     8k     │ │                       │
  ╰────────────────────────────────────────────────╯ ╰───────────────────────────────────────╯ ╰───────────────────────╯
 
- ↑↓  move   Enter  use   c  copy here   e  edit   /  search   u  undo   y  look   m  mouse off   ?  keys   q  quit
+ ↑↓  move   Enter  use   c  copy here   e  edit   x  silent   /  search   u  undo   y  look   ?  keys   q  quit

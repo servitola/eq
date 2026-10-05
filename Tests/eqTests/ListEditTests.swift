@@ -51,6 +51,8 @@ final class ListEditTests: XCTestCase {
             (["app", "rm", "Spotify"], .removeAppRule("Spotify")),
             (["app", "on"], .followApps(true)),
             (["app", "off"], .followApps(false)),
+            (["device", "silence", "AirPods"], .silence(DeviceChoice(uid: "BT", name: "AirPods"), true)),
+            (["device", "unsilence", "AirPods"], .silence(DeviceChoice(uid: "BT", name: "AirPods"), false)),
         ]
         for (args, action) in cases {
             let cli = try context(), tui = try context()
@@ -101,8 +103,10 @@ final class ListEditTests: XCTestCase {
         try session.apply(.savePreset("mine"))
         try session.apply(.followApps(true))
         try session.apply(.setAppRule("Music", "mine"))
+        try session.apply(.silence(DeviceChoice(uid: "SPK", name: "Speakers"), true))
+        XCTAssertEqual(try ctx.store.load().silent, ["SPK"])
         XCTAssertEqual(ctx.store.backups().count, backups + 1, "one backup for the session")
-        for _ in 0..<7 { try session.apply(.undo) }
+        for _ in 0..<8 { try session.apply(.undo) }
         XCTAssertEqual(try ctx.store.load(), start, "presets, rules and AirPods' own profile are back")
         XCTAssertThrowsError(try session.apply(.undo))
     }

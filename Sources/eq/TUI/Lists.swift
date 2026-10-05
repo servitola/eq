@@ -214,6 +214,7 @@ extension MeterModel {
             let name = library.rows.first { $0.uid == uid }?.name ?? uid
             return library.driver != nil ? "the EQ device plays on \(name) now" : "output → \(name)"
         case .copyCurve(let device): return "copied \(library.current?.name ?? "the current curve") → \(device.name) · u undoes"
+        case .silence(let device, let on): return on ? "\(device.name) is silent: eq plays nothing on it and keeps it muted" : "\(device.name) plays again"
         case .addFilter(let filter): return "added a \(FilterField.type.text(filter)) at \(FilterField.hz(filter.frequency))"
         case .removeFilter(let index): return "removed filter \(index + 1)"
         default: return nil
@@ -290,6 +291,9 @@ extension MeterModel {
                 return []
             }
             return apply(.copyCurve(DeviceChoice(uid: row.uid, name: row.name)))
+        case .toggleSilent:
+            guard let row = selectedDevice else { return [] }
+            return apply(.silence(DeviceChoice(uid: row.uid, name: row.name), !row.silent))
         case .editInTune:
             guard let row = selectedDevice else { return [] }
             let choice = row.uid == library.current?.uid ? nil : DeviceChoice(uid: row.uid, name: row.name)

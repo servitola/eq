@@ -255,6 +255,7 @@ the same instead. `eq …` in front names the command when a screen action has t
 | `Enter` |  | Devices | make it the system's output, as eq device use does; in driver mode the EQ device plays on it instead |
 | `c` | `с` `С` | Devices | copy the current device's curve to it, as eq device copy --to does |
 | `e` | `у` `У` | Devices | edit its curve in Tune, whether it plays or not |
+| `x` | `ч` `Ч` | Devices | silent or not: a silent output plays nothing, whatever the volume, as eq device silence and unsilence do |
 | `/` | `.` | Devices | jump to the first device whose name has what you type |
 | `Esc` |  | Devices | back to the view before |
 | `↑` `↓` `j` `k` | `л` `о` | Filters | move between the filters |
