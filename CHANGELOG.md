@@ -3,6 +3,13 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Fixed
+
+- On macOS 26 the EQ.app icon is drawn in Liquid Glass at full size, with dark, tinted and clear
+  looks, instead of shrunk onto a grey plate.
+
 ## 2026.10.09.1 — 2026-10-09
 
 ### Added
