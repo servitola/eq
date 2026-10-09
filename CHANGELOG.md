@@ -10,6 +10,8 @@ its entries under a dated version.
 - Updating the driver while a Bluetooth output plays no longer ends in `cannot switch to driver: no
   real output device`: eq waits up to 10 s for the speaker to reconnect after the audio server
   restarts, and the daemon no longer reports a failure in the meantime.
+- After a reboot or login with a Bluetooth output that connects late, driver mode waits for it instead of
+  falling back to the tap for up to 30 s.
 
 ## 2026.10.09.2 — 2026-10-09
 
