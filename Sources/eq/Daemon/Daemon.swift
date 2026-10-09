@@ -653,8 +653,9 @@ final class Daemon {
             hideWhileDefault: config.hidesWhileDefault,
             settings: { [weak self] in self?.driverSettings($0) },
             onTarget: { [weak self] in self?.driverTarget($0) })
+        let started: Bool
         do {
-            try session.start()
+            started = try session.resume()
         } catch {
             if fallbackReason != "\(error)" { Log.write("driver mode: \(error) — the tap plays instead") }
             fallbackReason = "\(error)"
@@ -662,6 +663,24 @@ final class Daemon {
         }
         self.session = session
         fallbackReason = nil
+        tapModeTidied = false
+        guard started else {
+            // After a reboot the EQ device is the default before the Bluetooth target reconnects; a tap
+            // in the meantime would only fail on the EQ device. The next device change resumes it.
+            driverSeen = false
+            recheckAfterTargetGrace()
+            setState(.starting, error: nil)
+            return true
+        }
+        driverStarted(session)
+        return true
+    }
+
+    private func recheckAfterTargetGrace() {
+        queue.asyncAfter(deadline: .now() + DriverSession.targetGrace) { [weak self] in self?.driverDevicesChanged() }
+    }
+
+    private func driverStarted(_ session: DriverSession) {
         let files = DriverFiles.live()
         if case .useOutdated(let note) = DriverInstall.plan(.ready, installed: files.installed, bundled: files.bundled, role: .daemon) {
             if driverUpdate != note { Log.write("driver: \(note)") }
@@ -672,11 +691,9 @@ final class Daemon {
             driverUpdate = nil
         }
         driverSeen = true
-        tapModeTidied = false
         if let target = session.target { driverTarget(target) }
         for uid in config.silentUIDs.sorted() { session.push(uid: uid) }
         setState(config.enabled ? .running : .bypassed, error: nil)
-        return true
     }
 
     /// The daemon leaving driver mode because the config says tap restores the default output first;
@@ -726,14 +743,18 @@ final class Daemon {
                 if !driverSeen {
                     // Back after a coreaudiod restart: it kept the curve, but maybe not the default output.
                     if session?.isWaitingForTarget != true { Log.write("driver: the EQ device is back") }
+                    let wasRunning = session?.isRunning ?? true
                     do {
                         driverSeen = try session?.resume() ?? true
                         if !driverSeen {
                             // Asks again even if the target never shows up, so the wait ends in the fallback below.
-                            queue.asyncAfter(deadline: .now() + DriverSession.targetGrace) { [weak self] in self?.driverDevicesChanged() }
+                            recheckAfterTargetGrace()
+                        } else if !wasRunning, let session {
+                            driverStarted(session)
                         }
                     } catch {
                         driverSeen = true
+                        if fallbackReason != "\(error)" { Log.write("driver mode: \(error) — the tap plays instead") }
                         fallbackReason = "\(error)"
                         paths.run(.tap, restoring: false)
                         noteMode()
