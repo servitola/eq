@@ -163,6 +163,7 @@ final class DriverSession {
 
     /// How long macOS gets to move the default off the hidden EQ device before the experiment counts it kept.
     static let hiddenCheckDelay: TimeInterval = 1.5
+    static let targetGrace: TimeInterval = 10
 
     private let env: Environment
     private let settings: (String) -> eqc_settings?
@@ -174,6 +175,7 @@ final class DriverSession {
         follow: { [weak self] in self?.follow($0) }, log: env.log)
     private var running = false
     private var loggedPushError: String?
+    private var waitingSince: Date?
 
     private(set) var target: AudioOutputDevice?
     private(set) var health: DriverHealth?
@@ -208,8 +210,33 @@ final class DriverSession {
         hideIfAsked()
     }
 
+    /// Starts again once the EQ device is back after a coreaudiod restart. It comes back as the default
+    /// output while a Bluetooth target reconnects seconds later, so a missing target is waited for, up
+    /// to `targetGrace`, rather than failed on: false while waiting, and the caller asks again.
+    func resume() throws -> Bool {
+        do {
+            try start()
+            waitingSince = nil
+            return true
+        } catch ModeSwitch.Failure.targetAbsent(let name) {
+            let t = env.now()
+            guard t.timeIntervalSince(waitingSince ?? t) < Self.targetGrace else {
+                waitingSince = nil
+                throw ModeSwitch.Failure.targetAbsent(name)
+            }
+            if waitingSince == nil {
+                waitingSince = t
+                env.log("driver: waiting for \(name) to come back")
+            }
+            return false
+        }
+    }
+
+    var isWaitingForTarget: Bool { waitingSince != nil }
+
     func stop() {
         running = false
+        waitingSince = nil
         follower.stop()
         follower.paused = false
     }

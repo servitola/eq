@@ -396,6 +396,42 @@ final class DriverSessionTests: XCTestCase {
         XCTAssertEqual(journal.all, [])
     }
 
+    /// After a coreaudiod restart the EQ device is back as the default before the Bluetooth speaker it
+    /// plays on: the session waits for it instead of failing, which would have dropped the daemon to a
+    /// tap on the EQ device, a failed state.
+    private func restartCoreAudioWithTheSpeakerAway() throws {
+        make()
+        try session.start()
+        system.current = DriverControl.deviceUID
+        system.devices.removeAll { $0 == FakeAudioSystem.speaker }
+        logs = []
+    }
+
+    func testResumeWaitsForATargetThatReconnects() throws {
+        try restartCoreAudioWithTheSpeakerAway()
+        XCTAssertFalse(try session.resume())
+        XCTAssertTrue(session.isWaitingForTarget)
+        XCTAssertTrue(session.isRunning)
+        clock.advance(1)
+        XCTAssertFalse(try session.resume())
+        XCTAssertEqual(logs, ["driver: waiting for BE-RCA to come back"])
+        clock.advance(1)
+        system.devices.append(FakeAudioSystem.speaker)
+        XCTAssertTrue(try session.resume())
+        XCTAssertFalse(session.isWaitingForTarget)
+        XCTAssertEqual(session.target, FakeAudioSystem.speaker)
+        XCTAssertEqual(system.current, DriverControl.deviceUID)
+        XCTAssertEqual(logs.last, "driver: BE-RCA · EQ is the default output, playing on BE-RCA")
+    }
+
+    func testResumeGivesUpOnATargetThatNeverReconnects() throws {
+        try restartCoreAudioWithTheSpeakerAway()
+        XCTAssertFalse(try session.resume())
+        clock.advance(DriverSession.targetGrace)
+        XCTAssertThrowsError(try session.resume()) { XCTAssertEqual($0 as? ModeSwitch.Failure, .targetAbsent("BE-RCA")) }
+        XCTAssertFalse(session.isWaitingForTarget)
+    }
+
     func testSettingsChangesAndSoloArePushedForTheTarget() throws {
         make()
         try session.start()

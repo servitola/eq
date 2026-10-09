@@ -725,9 +725,15 @@ final class Daemon {
                 driverGone = nil
                 if !driverSeen {
                     // Back after a coreaudiod restart: it kept the curve, but maybe not the default output.
-                    driverSeen = true
-                    Log.write("driver: the EQ device is back")
-                    do { try session?.start() } catch {
+                    if session?.isWaitingForTarget != true { Log.write("driver: the EQ device is back") }
+                    do {
+                        driverSeen = try session?.resume() ?? true
+                        if !driverSeen {
+                            // Asks again even if the target never shows up, so the wait ends in the fallback below.
+                            queue.asyncAfter(deadline: .now() + DriverSession.targetGrace) { [weak self] in self?.driverDevicesChanged() }
+                        }
+                    } catch {
+                        driverSeen = true
                         fallbackReason = "\(error)"
                         paths.run(.tap, restoring: false)
                         noteMode()
