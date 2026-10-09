@@ -3,6 +3,17 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- In driver mode, when this eq carries a newer EQ driver than the one installed, the next `eq`
+  command in a terminal asks once whether to update it now (sudo, about a second without sound),
+  and says what the new driver brings. A no is remembered until an even newer driver comes;
+  `EQ_NO_DRIVER_PROMPT=1` turns the question off for scripts.
+- The daemon posts one notification per newer driver; clicking it updates the driver with the
+  macOS password dialog. macOS asks once whether EQ may send notifications.
+
 ## 2026.10.05 — 2026-10-05
 
 ### Added

@@ -20,11 +20,8 @@ makes it the default output and writes `"mode": "driver"` to `eq.json`; the daem
 tap. `eq mode` shows the mode and the driver's build, `--dry-run` says what a switch would do,
 password prompt included.
 
-After `brew upgrade eq` the driver in `/Library` stays and keeps playing. When the new EQ.app carries
-a newer one, `eq status`, `eq mode` and `eq doctor` say so, and `eq mode driver` updates it with the
-same one prompt; until then nothing asks. Only a driver too old to read this eq's settings sends the
-daemon back to the tap until you run it. The daemon never asks for a password. A driver disabled by
-its kill file (below) is never replaced.
+After `brew upgrade eq` the driver in `/Library` stays and keeps playing until you update it; see
+[Updates](#updates).
 
 From a checkout: `Driver/build.sh && sudo Driver/dev-install.sh` (see [Driver/README.md](../Driver/README.md)).
 
@@ -53,6 +50,33 @@ gives full silence.
 
 In tap mode the EQ device is hidden and never the default output. `"driver": {"hideWhileDefault":
 true}` tries hiding it while it is the default too; `eq doctor` reports whether macOS kept it.
+
+## Updates
+
+When EQ.app carries a newer driver than the one in `/Library`, `eq status`, `eq mode` and
+`eq doctor` say so, and `eq mode driver` updates it with the same one prompt. Only a driver too old
+to read this eq's settings sends the daemon back to the tap until you run it. A driver disabled by
+its kill file (below) is never replaced, and nothing below offers to.
+
+In driver mode, the next `eq` command you type in a terminal asks once, before it runs:
+
+```
+A newer EQ driver is in this eq (build 14 → 18): spectrum analyser, true silence for silent outputs.
+Update it now? sudo asks for your password; sound drops for about a second. [y/N]
+```
+
+`y` updates it as `eq mode driver` would, then runs the command. Anything else is remembered for
+that build in `~/.cache/eq/driver-update-declined`, and only a newer build asks again; Ctrl-C
+stops both the question and the command. `eq tui` asks before it takes the screen. Nothing asks
+under `--json` or `--dry-run`, without a terminal on stdin and stderr, from `eq mode`,
+`eq driver uninstall`, completion, help or the man page, or with `EQ_NO_DRIVER_PROMPT=1`.
+
+The daemon also posts one macOS notification per newer build, "EQ driver update", while it plays
+the driver; the first one makes macOS ask whether EQ may send notifications. Clicking it runs
+`eq mode driver` without a terminal, so macOS asks for the password in a dialog, and a second
+notification says whether the update went through. If notifications are off for EQ, or a click
+does nothing, `eq mode driver` in a terminal does the same. Without a click the daemon never asks
+for a password, and in tap mode, or with no driver installed, nothing is offered.
 
 ## Back to tap mode, and recovery
 
