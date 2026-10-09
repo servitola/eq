@@ -164,6 +164,8 @@ final class Daemon {
     private var fallbackReason: String?
     // The installed driver works but is older than the one EQ.app carries; eq status says so.
     private var driverUpdate: String?
+    private lazy var driverNotifier = DriverUpdateNotifier(
+        marker: RevisionMarker(url: CachedDownload.root.appendingPathComponent(DriverUpdate.notifiedName)), post: UserNotices.post)
     private var driverGone: DispatchWorkItem?
     private var driverSeen = true
     private var tapModeTidied = false
@@ -664,6 +666,8 @@ final class Daemon {
         if case .useOutdated(let note) = DriverInstall.plan(.ready, installed: files.installed, bundled: files.bundled, role: .daemon) {
             if driverUpdate != note { Log.write("driver: \(note)") }
             driverUpdate = note
+            UserNotices.listen { DispatchQueue.global().async { DriverUpdateInstaller.run() } }
+            driverNotifier.check(files)
         } else {
             driverUpdate = nil
         }

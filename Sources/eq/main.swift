@@ -13,6 +13,11 @@ if let invoked = Bundle.main.executablePath, let real = LiveLaunchAgent.realExec
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
+if UserNotices.launchedForClick(arguments: arguments, parent: getppid(), stdinIsTTY: isatty(0) == 1) {
+    Log.redirect(to: "~/Library/Logs/eq.log")
+    UserNotices.awaitClick(seconds: 10)
+}
+
 if arguments.first == "daemon" && !arguments.contains("--help") && !arguments.contains("-h") && !arguments.contains("--dry-run") {
     if let log = ProcessInfo.processInfo.environment["EQ_LOG"], !log.isEmpty { Log.redirect(to: log) }
     let daemon = Daemon(store: ConfigStore(url: ConfigStore.defaultURL), statusURL: Status.defaultURL)
