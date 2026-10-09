@@ -3,6 +3,12 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- EQ.app has an icon, so notifications, Login Items and Settings no longer show a blank one.
+
 ## 2026.10.09 — 2026-10-09
 
 ### Added
