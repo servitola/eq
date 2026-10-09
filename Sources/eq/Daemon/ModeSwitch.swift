@@ -9,6 +9,8 @@ struct ModeSwitch {
         case tooOld(Int?)
         case disabled
         case noTarget
+        /// The device the plug-in plays on, by name, is not connected.
+        case targetAbsent(String)
         case timedOut(String)
         case failed(String)
 
@@ -18,6 +20,8 @@ struct ModeSwitch {
             case .tooOld(let version): return DriverInstall.tooOld(version) + " — run `eq mode driver` to update it"
             case .disabled: return "the EQ driver is disabled by its kill file (Contents/Resources/disabled) — remove it and restart coreaudiod"
             case .noTarget: return "no real output device for the EQ device to play on"
+            case .targetAbsent(let name):
+                return "\(name), the output the EQ device plays on, is not connected — connect it or pick another output in the Sound menu, then run eq mode driver again"
             case .timedOut(let what): return "\(what) did not answer within the deadline — the audio server may be wedged"
             case .failed(let what): return what
             }
@@ -35,6 +39,7 @@ struct ModeSwitch {
     var driver: () -> DriverPort?
     var deadline: TimeInterval = 2
     var wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    var targetWait: TimeInterval = 0
 
     static let recovery = """
         restart the audio server: sudo killall coreaudiod
@@ -60,12 +65,21 @@ struct ModeSwitch {
         return (port, health)
     }
 
-    /// The default output when it is a real device, else the one the driver already plays on.
+    /// The default output when it is a real device, else the one the driver already plays on. After
+    /// a coreaudiod restart the EQ device comes back as the default at once, while a Bluetooth target
+    /// reconnects seconds later, so a known target that is missing is waited for up to `targetWait`.
     func target(_ health: DriverHealth) throws -> AudioOutputDevice {
-        let devices = try within("listing output devices") { system.outputDevices() }
-        if let current = try within("reading the default output", { system.defaultOutput() }), current.isFollowable { return current }
-        if let known = devices.first(where: { $0.uid == health.target && $0.isFollowable }) { return known }
-        throw Failure.noTarget
+        let step = 0.25
+        var waited: TimeInterval = 0
+        while true {
+            let devices = try within("listing output devices") { system.outputDevices() }
+            if let current = try within("reading the default output", { system.defaultOutput() }), current.isFollowable { return current }
+            if let known = devices.first(where: { $0.uid == health.target && $0.isFollowable }) { return known }
+            guard !health.target.isEmpty, health.target != DriverControl.deviceUID else { throw Failure.noTarget }
+            guard waited < targetWait else { throw Failure.targetAbsent(health.targetName.isEmpty ? health.target : health.targetName) }
+            wait(step)
+            waited += step
+        }
     }
 
     /// Shows the EQ device, points it at `target`, has `push` send it the curve and makes it the

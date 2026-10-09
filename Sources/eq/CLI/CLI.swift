@@ -42,6 +42,9 @@ struct CLIContext {
     }
     /// How long a freshly installed driver gets to show its device after coreaudiod restarts.
     var driverAppearDeadline: TimeInterval = 15
+    /// How long `eq mode driver` waits for the device the EQ device plays on: a Bluetooth one reconnects
+    /// seconds after a coreaudiod restart.
+    var targetAppearDeadline: TimeInterval = 10
     var brewCommand: () -> String? = { nil }
     /// The terminal offer to update an outdated driver; never asks in tests unless a fake is given.
     var driverPrompt: CLI.DriverPrompt? = nil

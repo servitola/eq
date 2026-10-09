@@ -48,7 +48,31 @@ final class ModeSwitchTests: XCTestCase {
         }
         var lost = health
         lost.target = "GONE"
+        lost.targetName = "Gone"
+        XCTAssertThrowsError(try switcher().target(lost)) { XCTAssertEqual($0 as? ModeSwitch.Failure, .targetAbsent("Gone")) }
+        lost.target = ""
         XCTAssertThrowsError(try switcher().target(lost)) { XCTAssertEqual($0 as? ModeSwitch.Failure, .noTarget) }
+    }
+
+    func testAMissingTargetIsWaitedForUpToTheLimit() throws {
+        let health = DriverHealth(driver.state)
+        system.current = DriverControl.deviceUID
+        system.devices.removeAll { $0 == FakeAudioSystem.builtIn }
+        var waited: TimeInterval = 0
+        var switcher = ModeSwitch(system: system, driver: { [unowned self] in self.driver }, deadline: 1,
+                                  wait: { [unowned self] in
+                                      waited += $0
+                                      if waited >= 2, !self.system.devices.contains(FakeAudioSystem.builtIn) { self.system.devices.append(FakeAudioSystem.builtIn) }
+                                  },
+                                  targetWait: 10)
+        XCTAssertEqual(try switcher.target(health), FakeAudioSystem.builtIn)
+        XCTAssertEqual(waited, 2)
+
+        system.devices.removeAll { $0 == FakeAudioSystem.builtIn }
+        waited = -100
+        switcher.targetWait = 1
+        XCTAssertThrowsError(try switcher.target(health)) { XCTAssertEqual($0 as? ModeSwitch.Failure, .targetAbsent("MacBook Pro Speakers")) }
+        XCTAssertEqual(waited, -99)
     }
 
     func testEnterShowsTargetsPushesThenTakesTheDefault() throws {

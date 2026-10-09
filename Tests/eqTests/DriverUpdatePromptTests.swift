@@ -7,6 +7,7 @@ final class DriverUpdatePromptTests: XCTestCase {
     private var dir: URL!
     private var context: CLIContext!
     private var driver: FakeDriver!
+    private var system: FakeAudioSystem!
     private var journal: Journal!
     private var files = DriverFiles()
     private var interactive = true
@@ -27,7 +28,7 @@ final class DriverUpdatePromptTests: XCTestCase {
         driver = FakeDriver()
         driver.journal = journal
         driver.names = ["BT-RCA": "BE-RCA", "BUILTIN": "MacBook Pro Speakers"]
-        let system = FakeAudioSystem()
+        system = FakeAudioSystem()
         system.journal = journal
         files = DriverFiles(installed: old, bundled: new, bundledURL: source)
         interactive = true
@@ -122,6 +123,46 @@ final class DriverUpdatePromptTests: XCTestCase {
         run("show")
         XCTAssertEqual(questions.count, 1, "an up-to-date driver asks nothing")
         XCTAssertNil(declined)
+    }
+
+    /// Seen live: the EQ device was the default, coreaudiod brought it back at once, and the Bluetooth
+    /// speaker it plays on only reconnected seconds later.
+    private func updateWhileTheSpeakerReconnects(after seconds: TimeInterval?) {
+        driver.state["target"] = "BT-RCA"
+        driver.state["targetName"] = "BE-RCA"
+        system.current = DriverControl.deviceUID
+        var clock: TimeInterval = 0
+        context.modeWait = { [unowned self] in
+            clock += $0
+            if let seconds, clock >= seconds, !self.system.devices.contains(FakeAudioSystem.speaker) {
+                self.system.devices.append(FakeAudioSystem.speaker)
+            }
+        }
+        let install = context.privileged
+        context.privileged = { [unowned self] action, elevation in
+            try install(action, elevation)
+            self.system.devices.removeAll { $0 == FakeAudioSystem.speaker }
+            clock = 0
+        }
+        answers = ["y"]
+        run("show")
+    }
+
+    func testAnUpdateWaitsForTheTargetToReconnect() throws {
+        updateWhileTheSpeakerReconnects(after: 3)
+        XCTAssertEqual(installs, ["privileged install sudo"])
+        XCTAssertFalse(warnings.contains { $0.contains("error:") }, "\(warnings)")
+        XCTAssertTrue(warnings.contains { $0.contains("BE-RCA · EQ is the default output, playing on BE-RCA") }, "\(warnings)")
+        XCTAssertEqual(system.current, DriverControl.deviceUID)
+        XCTAssertEqual(driver.state["target"] as? String, "BT-RCA")
+        XCTAssertEqual(try context.store.load().mode, .driver)
+    }
+
+    func testATargetThatNeverReconnectsIsNamed() {
+        updateWhileTheSpeakerReconnects(after: nil)
+        XCTAssertEqual(warnings.last, "error: mode: cannot switch to driver: BE-RCA, the output the EQ device plays on, is not connected — "
+                       + "connect it or pick another output in the Sound menu, then run eq mode driver again")
+        XCTAssertEqual(driver.state["target"] as? String, "BT-RCA", "nothing repointed to a device the user did not pick")
     }
 
     func testNoIsRememberedForThatRevisionOnly() throws {

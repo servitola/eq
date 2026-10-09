@@ -43,7 +43,8 @@ extension CLI {
     }
 
     private static func switcher(_ ctx: CLIContext) -> ModeSwitch {
-        ModeSwitch(system: ctx.audioSystem, driver: ctx.driver, deadline: ctx.modeDeadline, wait: ctx.modeWait)
+        ModeSwitch(system: ctx.audioSystem, driver: ctx.driver, deadline: ctx.modeDeadline, wait: ctx.modeWait,
+                   targetWait: ctx.targetAppearDeadline)
     }
 
     private static func liveStatus(_ ctx: CLIContext) -> Status? {
@@ -196,6 +197,8 @@ extension CLI {
     }
 
     private static func driverDryRun(_ ctx: CLIContext, _ switcher: ModeSwitch, install: DriverInstallReport?, what: String?) throws -> Output {
+        var switcher = switcher
+        switcher.targetWait = 0
         let config = try loadConfig(ctx)
         let before = config.audioMode
         var lines = [Paint.ink(.yellow, "dry run") + ": nothing changed", "mode \(before.rawValue) → " + Paint.ink(.bold, "driver")]
