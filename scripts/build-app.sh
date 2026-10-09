@@ -33,7 +33,7 @@ sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" Resources/Info.plist >
 # Homebrew's completion and man directories. Before signing: the signature seals Resources.
 resources=$app/Contents/Resources
 mkdir -p "$resources/completions" "$resources/man"
-cp Resources/AppIcon.icns "$resources/"
+cp Resources/AppIcon.icns Resources/Assets.car "$resources/"
 "$app/Contents/MacOS/eq" completions zsh > "$resources/completions/_eq"
 "$app/Contents/MacOS/eq" completions bash > "$resources/completions/eq.bash"
 "$app/Contents/MacOS/eq" completions fish > "$resources/completions/eq.fish"
