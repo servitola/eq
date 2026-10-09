@@ -7,11 +7,18 @@ swift test                  # the daemon, CLI, formats, DSP and TUI, against fak
 Driver/test.sh              # the plug-in's core: ring, clock servo, settings, EQ, writer checks
 Driver/test.sh --host-idle  # also loads the built plug-in into a fake host that never starts IO
 scripts/build-app.sh        # build/EQ.app, ad-hoc signed, with the driver inside
+scripts/build-icon.sh       # Resources/AppIcon.icon into Assets.car and AppIcon.icns; Xcode 26
 scripts/smoke.sh            # the built daemon against a scratch config; play something first
 make lint                   # zsh -n on the scripts, plutil on the plists
 ```
 
 `Driver/build.sh` and `Driver/README.md` cover the plug-in on its own.
+
+The app icon's source is `Resources/AppIcon.icon`, an Icon Composer document: a background, the
+tracks and the glass caps as separate SVG layers. Edit it in Icon Composer (it ships inside
+Xcode 26), then run `scripts/build-icon.sh` and commit its two outputs with the source, so the
+app builds without Xcode. macOS 26 shows `Assets.car` with Liquid Glass and its own dark, tinted
+and clear looks; an app with only an `.icns` gets its icon shrunk onto a grey plate there.
 
 ## Rules
 
