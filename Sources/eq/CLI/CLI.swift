@@ -43,6 +43,8 @@ struct CLIContext {
     /// How long a freshly installed driver gets to show its device after coreaudiod restarts.
     var driverAppearDeadline: TimeInterval = 15
     var brewCommand: () -> String? = { nil }
+    /// The terminal offer to update an outdated driver; never asks in tests unless a fake is given.
+    var driverPrompt: CLI.DriverPrompt? = nil
 
     /// `~/.cache/eq` (or EQ_CACHE): eq's own markers live here, beside the downloads, and not in
     /// the config directory, which a fresh Mac does not have until a change needs it.
@@ -80,7 +82,8 @@ struct CLIContext {
             driverFiles: { DriverFiles.live() },
             driverElevation: DriverInstall.liveElevation,
             privileged: DriverInstall.run,
-            brewCommand: BrewParent.live)
+            brewCommand: BrewParent.live,
+            driverPrompt: .live())
     }
 
 }
@@ -97,6 +100,7 @@ enum CLI {
         let command = args.first ?? "show"
         do {
             if wantsJSON, let first = args.first, ["watch", "tui"].contains(first) { throw CLIError.usage("eq \(first) has no JSON form; use eq stream") }
+            if !wantsJSON && !dryRun { offerDriverUpdate(args, context) }
             checkDaemon(args, context)
             let output = try dispatch(args, context, dryRun: dryRun)
             // A streamed command already printed its own lines; the empty final Output carries

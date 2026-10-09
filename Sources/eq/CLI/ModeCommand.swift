@@ -100,22 +100,25 @@ extension CLI {
 
     /// Installs or updates the driver first when this eq carries a newer one than coreaudiod runs, with
     /// one administrator prompt; a dry run only says so.
-    private static func enterDriverMode(_ ctx: CLIContext, dryRun: Bool) throws -> Output {
-        let switcher = switcher(ctx)
-        let files = ctx.driverFiles()
-        let runtime: DriverInstall.Runtime
+    static func driverRuntime(_ ctx: CLIContext) throws -> DriverInstall.Runtime {
         do {
-            _ = try switcher.ready()
-            runtime = .ready
+            _ = try switcher(ctx).ready()
+            return .ready
         } catch ModeSwitch.Failure.notInstalled {
-            runtime = .absent
+            return .absent
         } catch ModeSwitch.Failure.tooOld(let version) {
-            runtime = .incompatible(version)
+            return .incompatible(version)
         } catch ModeSwitch.Failure.disabled {
-            runtime = .disabled
+            return .disabled
         } catch let failure as ModeSwitch.Failure {
             throw CLIError.mode("cannot switch to driver: \(failure)")
         }
+    }
+
+    private static func enterDriverMode(_ ctx: CLIContext, dryRun: Bool) throws -> Output {
+        let switcher = switcher(ctx)
+        let files = ctx.driverFiles()
+        let runtime = try driverRuntime(ctx)
         var install: DriverInstallReport?
         var installed: String?
         switch DriverInstall.plan(runtime, installed: files.installed, bundled: files.bundled, role: .cli(ctx.driverElevation())) {
