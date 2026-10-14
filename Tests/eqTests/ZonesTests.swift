@@ -189,6 +189,39 @@ final class ZonesTests: XCTestCase {
         XCTAssertTrue(lines[1].contains("beater click 2kHz–5kHz"), lines[1])
     }
 
+    func testInstrumentTableFitsTheTerminalAndKeepsEveryBand() {
+        let wanted = Instruments.all.flatMap { $0.ranges.flatMap { InstrumentTable.bandsText($0).split(separator: " ") } }
+        for width in [20, 30, 40, 50, 60, 70, 80, 120] {
+            let lines = InstrumentTable.render(Instruments.all, width: width)
+            for line in lines { XCTAssertLessThanOrEqual(TerminalText.width(line), width, "\(width): \(line)") }
+            let bands = lines.flatMap { $0.split(separator: " ").filter { $0.hasSuffix("Hz") && Config.bandLabels.contains(String($0)) } }
+            XCTAssertEqual(bands.count, wanted.count, "\(width): every band, once each")
+        }
+        XCTAssertEqual(InstrumentTable.render(Instruments.all, width: 80), InstrumentTable.render(Instruments.all), "80 columns need no wrap")
+        XCTAssertFalse(InstrumentTable.render(Instruments.all, width: 20).contains { $0.contains("…") }, "a range wraps rather than losing its end")
+        let narrow = InstrumentTable.render(Instruments.all, width: 50)
+        let piano = narrow.firstIndex { $0.hasPrefix("piano") }!
+        XCTAssertTrue(narrow[piano + 1].hasPrefix(String(repeating: " ", count: 34)), "the wrapped bands stay in their column: \(narrow[piano + 1])")
+        let stacked = InstrumentTable.render(Instruments.all, width: 30)
+        XCTAssertTrue(stacked[0].hasPrefix("kick    thump"), stacked[0])
+        XCTAssertTrue(stacked[1].hasPrefix("          64Hz"), "under 45 columns the bands go under their range: \(stacked[1])")
+    }
+
+    func testZonesNeedsNoConfigAndNoDevice() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("eq-zones-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var context = CLIContext(store: ConfigStore(url: dir.appendingPathComponent("eq.json")), statusURL: dir.appendingPathComponent("status.json"),
+                                 connectedDevices: { [] }, defaultOutput: { nil }, fetch: { _ in throw URLError(.notConnectedToInternet) },
+                                 cacheDirectory: dir.appendingPathComponent("cache"), today: { "2026-10-14" })
+        context.width = { _ in 44 }
+        let result = CLI.run(["zones"], context: context)
+        XCTAssertEqual(result.exitCode, 0, result.output)
+        XCTAssertTrue(result.output.hasPrefix("kick"), result.output)
+        for line in result.output.split(separator: "\n") { XCTAssertLessThanOrEqual(TerminalText.width(String(line)), 44, String(line)) }
+        XCTAssertEqual(CLI.run(["zones", "--json"], context: context).exitCode, 0)
+        XCTAssertFalse(context.store.exists())
+    }
+
     func testHzFormatsUnderAndOverAKilohertz() {
         XCTAssertEqual(InstrumentTable.hz(50), "50Hz")
         XCTAssertEqual(InstrumentTable.hz(2000), "2kHz")

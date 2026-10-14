@@ -123,16 +123,45 @@ enum InstrumentTable {
         Instruments.bands(touchedBy: range).map { Config.bandLabels[$0] }.joined(separator: " ")
     }
 
-    static func render(_ instruments: [Instrument]) -> [String] {
+    /// One line per range, the bands wrapped inside their column when `width` is too narrow for them;
+    /// narrower still, the bands go under their range, which wraps at its words.
+    static func render(_ instruments: [Instrument], width: Int = .max) -> [String] {
+        let width = max(width, 20)
         let nameWidth = (instruments.map(\.name.count).max() ?? 0) + 1
         let rangeWidth = (instruments.flatMap { $0.ranges.map { rangeText($0).count } }.max() ?? 0) + 1
+        let longestBand = Config.bandLabels.map(\.count).max() ?? 0
+        let stacked = width - nameWidth - rangeWidth < 2 * longestBand + 1
+        let bandsStart = stacked ? nameWidth + 2 : nameWidth + rangeWidth
+        let bandsIndent = String(repeating: " ", count: bandsStart)
         return instruments.flatMap { instrument -> [String] in
-            instrument.ranges.enumerated().map { index, range in
+            instrument.ranges.enumerated().flatMap { index, range -> [String] in
                 let pad = String(repeating: " ", count: nameWidth - instrument.name.count)
                 let nameCell = index == 0 ? Paint.ink(.bold, instrument.name) + pad : String(repeating: " ", count: nameWidth)
+                let bands = wrap(Instruments.bands(touchedBy: range).map { Config.bandLabels[$0] }, width: width - bandsStart).map { Paint.ink(.dim, $0) }
+                if stacked {
+                    let lines = wrap(rangeText(range).split(separator: " ").map { fit(String($0), width - nameWidth) }, width: width - nameWidth)
+                    let rangeLines = [nameCell + lines[0]] + lines.dropFirst().map { String(repeating: " ", count: nameWidth) + $0 }
+                    return rangeLines + bands.map { bandsIndent + $0 }
+                }
                 let rangeCell = rangeText(range).padding(toLength: rangeWidth, withPad: " ", startingAt: 0)
-                return nameCell + rangeCell + Paint.ink(.dim, bandsText(range))
+                return [nameCell + rangeCell + (bands.first ?? "")] + bands.dropFirst().map { bandsIndent + $0 }
             }
         }
+    }
+
+    private static func wrap(_ words: [String], width: Int) -> [String] {
+        var lines: [String] = []
+        for word in words {
+            if let last = lines.last, last.count + 1 + word.count <= width {
+                lines[lines.count - 1] += " " + word
+            } else {
+                lines.append(word)
+            }
+        }
+        return lines
+    }
+
+    private static func fit(_ text: String, _ width: Int) -> String {
+        text.count <= width ? text : String(text.prefix(max(width - 1, 0))) + "…"
     }
 }

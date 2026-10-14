@@ -1317,7 +1317,7 @@ enum CLI {
     /// One row per instrument range: its Hz span and the band columns it touches.
     private static func zones(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq zones") }
-        return Output(InstrumentTable.render(Instruments.all).joined(separator: "\n"), Instruments.all)
+        return Output(InstrumentTable.render(Instruments.all, width: ctx.width(1)).joined(separator: "\n"), Instruments.all)
     }
 
     private static func version(_ args: [String]) throws -> Output {
