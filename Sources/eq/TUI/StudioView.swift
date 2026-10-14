@@ -19,11 +19,16 @@ struct StudioView {
     }
 
     var geometry: MeterGeometry {
-        let zones = scene.strip ? (scene.focus == nil ? Instruments.all.count : 1) : 0
         let tabs = scene.tabRows
         let size = Size(cols: scene.size.cols, rows: scene.size.rows - tabs)
-        let g: MeterGeometry = compact ? .compact(size, zones: zones, focus: scene.focus != nil)
-            : .studio(size, zones: zones, focus: scene.focus != nil, tabs: tabs, spectrum: scene.spectrum != nil)
+        func fit(_ zones: Int) -> MeterGeometry {
+            compact ? .compact(size, zones: zones, focus: scene.focus != nil)
+                : .studio(size, zones: zones, focus: scene.focus != nil, tabs: tabs, spectrum: scene.spectrum != nil)
+        }
+        let zones = scene.strip ? (scene.focus == nil ? Instruments.all.count : 1) : 0
+        var g = fit(zones)
+        // The bands a narrow meter drops take no zone row with them; the table's columns do not depend on the strip's rows.
+        if zones > 0, case let shown = Zones.shown(scene, centres: g.centres, table: g.table).count, shown < zones { g = fit(shown) }
         return g.lowered(by: tabs)
     }
 
@@ -281,11 +286,18 @@ enum Zones {
         }
     }
 
+    /// The focus alone, or every instrument with a range on the table: a narrow meter shows fewer
+    /// bands, and an instrument above them all would be a bare name.
+    static func shown(_ scene: MeterScene, centres: [Int], table: ClosedRange<Int>) -> [Instrument] {
+        if let focus = scene.focus { return [focus] }
+        return Instruments.all.filter { !Strip.segments($0, centres: centres, columns: table).isEmpty }
+    }
+
     static func rows(y top: Int, count: Int, nameX: Int, fullNames: Bool, centres: [Int], table: ClosedRange<Int>,
                      scene: MeterScene, into screen: inout Screen) {
         guard scene.strip, count > 0 else { return }
         let t = scene.theme
-        let list = scene.focus.map { [$0] } ?? Instruments.all
+        let list = shown(scene, centres: centres, table: table)
         let out = scene.outLevels
         for (k, instrument) in list.prefix(count).enumerated() {
             let y = top + k

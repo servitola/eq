@@ -82,6 +82,28 @@ final class ZonesTests: XCTestCase {
                        "without the strip the frame stays centred")
     }
 
+    func testANarrowMeterHidesInstrumentsAboveItsLastBand() throws {
+        var hidden = 0
+        for cols in [24, 30, 36, 44] {
+            let scene = MeterScreens.scene(frame(), cols: cols, rows: 30, strip: true)
+            let g = StudioView(scene: scene, compact: true).geometry
+            let shown = Zones.shown(scene, centres: g.centres, table: g.table)
+            hidden += Instruments.all.count - shown.count
+            XCTAssertEqual(g.zoneRows, shown.count, "\(cols): a row for each instrument drawn, no bare names")
+            let lines = MeterScreens.lines(frame(), cols: cols, rows: 30, strip: true)
+            for (k, instrument) in shown.enumerated() {
+                let row = lines[g.zoneY + k]
+                XCTAssertTrue(row.trimmingCharacters(in: .whitespaces).hasPrefix(instrument.short), "\(cols): \(row)")
+                XCTAssertTrue(row.contains("━"), "\(cols): \(instrument.name) has a span: \(row)")
+            }
+            XCTAssertEqual(g.liveY, g.zoneY + shown.count, "\(cols)")
+        }
+        XCTAssertGreaterThan(hidden, 0, "some width drops a band and the instruments above it")
+        let wide = MeterScreens.scene(frame(), cols: 100, rows: 30, strip: true)
+        let g = StudioView(scene: wide, compact: true).geometry
+        XCTAssertEqual(Zones.shown(wide, centres: g.centres, table: g.table).count, Instruments.all.count)
+    }
+
     func testCompactStripSitsDirectlyAboveTheLiveRow() {
         let g = MeterGeometry.compact(Size(cols: 59, rows: 30), zones: 8, focus: false)
         let lines = MeterScreens.lines(frame(), cols: 59, rows: 30, strip: true)
