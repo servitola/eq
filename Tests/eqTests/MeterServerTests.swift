@@ -237,6 +237,68 @@ final class MeterServerTests: XCTestCase {
         XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == MeterServer.maxClients })
     }
 
+    /// Connects that never stop must not hold the queue the frame timer and the daemon share.
+    func testAConnectFloodLeavesTheQueueResponsive() throws {
+        let server = makeServer()
+        try server.start()
+        defer { queue.sync { server.stop() } }
+        let legit = try connect()
+        defer { close(legit) }
+        XCTAssertTrue(waitUntil(0.5) { queue.sync { server.clients } == 1 })
+
+        let path = socketURL.path
+        let flooding = Flag()
+        let running = DispatchGroup()
+        let floods = (0..<16).map { _ in
+            Thread {
+                defer { running.leave() }
+                while flooding.isSet {
+                    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+                    var addr = sockaddr_un()
+                    addr.sun_family = sa_family_t(AF_UNIX)
+                    withUnsafeMutableBytes(of: &addr.sun_path) { raw in path.utf8CString.withUnsafeBytes { raw.copyMemory(from: $0) } }
+                    _ = withUnsafePointer(to: &addr) {
+                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+                    }
+                    close(fd)
+                }
+            }
+        }
+        // Read all along: a full socket buffer would turn a frame into a short write, which drops the client.
+        let lines = Counter()
+        let reader = Thread {
+            defer { running.leave() }
+            var buffer = [UInt8](repeating: 0, count: 65536)
+            while flooding.isSet {
+                let n = read(legit, &buffer, buffer.count)
+                if n > 0 { lines.add(buffer[0..<n].filter { $0 == UInt8(ascii: "\n") }.count) }
+            }
+        }
+        for thread in floods + [reader] {
+            running.enter()
+            thread.start()
+        }
+        var slowest: TimeInterval = 0
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline {
+            let asked = Date()
+            queue.sync {}
+            slowest = max(slowest, Date().timeIntervalSince(asked))
+            usleep(5_000)
+        }
+        let frames = lines.value
+        flooding.clear()
+        running.wait()
+        XCTAssertLessThan(slowest, 0.15, "the queue answered after \(slowest) s during the flood")
+        // A 10 ms tick: about 100 in the second; a starved queue sends a handful.
+        XCTAssertGreaterThan(frames, 70, "the client connected before the flood still gets frames")
+
+        usleep(100_000)
+        let late = try connect()
+        defer { close(late) }
+        XCTAssertGreaterThanOrEqual(readLines(late, count: 2, within: 0.5).count, 2, "a client after the flood is served")
+    }
+
     private func readLines(_ fd: Int32, count: Int, within timeout: TimeInterval) -> [String] {
         var received = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -412,4 +474,18 @@ final class MeterServerTests: XCTestCase {
         let server = MeterServer(socketURL: long, queue: queue, source: { MeterFrameTests.sample }, onClientsChanged: { _ in })
         XCTAssertThrowsError(try server.start())
     }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var set = true
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return set }
+    func clear() { lock.lock(); set = false; lock.unlock() }
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func add(_ n: Int) { lock.lock(); count += n; lock.unlock() }
 }

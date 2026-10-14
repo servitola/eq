@@ -43,6 +43,8 @@ final class MeterServer {
     static let maxClients = 8
     // A client that never stops writing must not starve the frame timer on the same queue.
     static let maxReadsPerEvent = 16
+    // Same for a connect flood: the listening source is level-triggered, so the rest waits one turn.
+    static let maxAcceptsPerEvent = 16
     static let maxSoloHz = 100_000.0
 
     /// The protocol's own bounds, checked before the daemon sees a range; the sample-rate clamp
@@ -90,7 +92,7 @@ final class MeterServer {
         listenFD = fd
 
         let accepts = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        accepts.setEventHandler { [weak self] in self?.acceptAll() }
+        accepts.setEventHandler { [weak self] in self?.acceptSome() }
         // GCD requires the descriptor to stay open until the source's cancel handler runs.
         accepts.setCancelHandler { close(fd) }
         accepts.resume()
@@ -110,8 +112,8 @@ final class MeterServer {
         unlink(socketURL.path)
     }
 
-    private func acceptAll() {
-        while true {
+    private func acceptSome() {
+        for _ in 0..<Self.maxAcceptsPerEvent {
             let fd = accept(listenFD, nil, nil)
             guard fd >= 0 else {
                 if errno == EMFILE || errno == ENFILE { pauseAccepting() }
