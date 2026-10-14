@@ -163,44 +163,53 @@ enum CLI {
         }
         var rest = args
         let command = rest.isEmpty ? "show" : rest.removeFirst()
-        switch command {
-        case "show": return try show(ctx)
-        case "init": return try initialise(ctx)
-        case "set": return try set(rest, ctx)
-        case "preamp": return try preamp(rest, ctx)
-        case "flat": return try flat(rest, ctx)
-        case "device": return try device(rest, ctx)
-        case "import": return try importCommand(rest, ctx)
-        case "filter": return try filter(rest, ctx)
-        case "export": return try export(rest, ctx)
-        case "bass", "treble", "tilt": return try preference(command, rest, ctx)
-        case "boost": return try boost(rest, ctx)
-        case "comp": return try comp(rest, ctx)
-        case "color": return try color(rest, ctx)
-        case "completions": return try Completions.command(rest)
-        case "man": return try ManPage.command(rest)
-        case "__complete": return Completions.list(rest, ctx)
-        case "on": return try toggle(true, ctx)
-        case "off": return try toggle(false, ctx)
-        case "status": return try status(ctx)
-        case "doctor": return doctor(ctx)
-        case "stream": return try stream(rest, ctx)
-        case "events": return try events(rest, ctx)
-        case "watch": return try watch(rest, ctx)
-        case "tui": return try tui(rest, ctx)
-        case "zones": return try zones(rest, ctx)
-        case "preset": return try preset(rest, ctx)
-        case "app": return try app(rest, ctx)
-        case "undo": return try undo(rest, ctx)
-        case "redo": return try redo(rest, ctx)
-        case "history": return try history(rest, ctx)
-        case "agent": return try agent(rest, ctx)
-        case "driver": return try driver(rest, ctx)
-        case "mode": return try mode(rest, ctx)
-        case "version": return try version(rest)
-        default: throw CLIError.usage("unknown command \"\(command)\"")
-        }
+        guard let handler = commands[command] else { throw CLIError.usage("unknown command \"\(command)\"") }
+        return try handler(rest, ctx)
     }
+
+    /// Every command the dispatcher knows; the help table names each one but `hidden`, and tests keep
+    /// the two equal, so completions and the man page, built from that table, cannot miss one.
+    static let commands: [String: ([String], CLIContext) throws -> Output] = [
+        "show": { _, ctx in try show(ctx) },
+        "init": { _, ctx in try initialise(ctx) },
+        "set": set,
+        "preamp": preamp,
+        "flat": flat,
+        "device": device,
+        "import": importCommand,
+        "filter": filter,
+        "export": export,
+        "bass": { try preference("bass", $0, $1) },
+        "treble": { try preference("treble", $0, $1) },
+        "tilt": { try preference("tilt", $0, $1) },
+        "boost": boost,
+        "comp": comp,
+        "color": color,
+        "completions": { args, _ in try Completions.command(args) },
+        "man": { args, _ in try ManPage.command(args) },
+        "__complete": { Completions.list($0, $1) },
+        "on": { _, ctx in try toggle(true, ctx) },
+        "off": { _, ctx in try toggle(false, ctx) },
+        "status": { _, ctx in try status(ctx) },
+        "doctor": { _, ctx in doctor(ctx) },
+        "stream": stream,
+        "events": events,
+        "watch": watch,
+        "tui": tui,
+        "zones": zones,
+        "preset": preset,
+        "app": app,
+        "undo": undo,
+        "redo": redo,
+        "history": history,
+        "agent": agent,
+        "driver": driver,
+        "mode": { try mode($0, $1) },
+        "version": { args, _ in try version(args) },
+    ]
+
+    /// Left out of the help: completion's back end, and the login item's controls for troubleshooting.
+    static let hidden: Set<String> = ["__complete", "agent"]
 
     /// Commands that never start the daemon: completion runs on every Tab, and help, the man page,
     /// the version and `eq agent` itself must not have side effects; `eq driver` talks to the plug-in alone, and

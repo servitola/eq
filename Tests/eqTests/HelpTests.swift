@@ -115,6 +115,27 @@ final class HelpTests: XCTestCase {
         XCTAssertTrue(result.output.contains("eq doctor"))
     }
 
+    /// The dispatcher and the help table name the same commands, and completions and the man page,
+    /// both built from the table, carry every one of them; only `hidden` stays out of all three.
+    func testTheDispatcherAndTheHelpNameTheSameCommands() throws {
+        let helped = Set(CommandHelp.all.flatMap(\.commands).filter { !$0.hasPrefix("-") })
+        // main runs the daemon before the dispatcher is reached.
+        XCTAssertEqual(Set(CLI.commands.keys).subtracting(CLI.hidden), helped.subtracting(["daemon"]))
+        XCTAssertEqual(Set(Completions.commands.map(\.name)), helped.subtracting(["show"]), "eq alone is show")
+        let page = CLI.run(["man"], context: context).output
+        let help = HelpRenderer.plain(width: 200)
+        for command in helped.subtracting(["show"]) {
+            XCTAssertTrue(page.contains(ManPage.escape("eq \(command)")), "man lacks \(command)")
+            XCTAssertTrue(help.contains("eq \(command)"), "help lacks \(command)")
+        }
+        for command in CLI.hidden {
+            XCTAssertTrue(CLI.commands.keys.contains(command), command)
+            XCTAssertFalse(helped.contains(command), command)
+            XCTAssertFalse(help.contains("eq \(command) "), command)
+            XCTAssertFalse(Completions.script(.zsh).contains("'\(command):"), command)
+        }
+    }
+
     func testCommandsOfEachBlock() {
         XCTAssertEqual(CommandHelp.entries(for: "on").count, 1)
         XCTAssertEqual(CommandHelp.entries(for: "off").count, 1)
