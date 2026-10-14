@@ -3,6 +3,23 @@
 What changed for someone who uses the tool. Keep the `Unreleased` heading; a release moves
 its entries under a dated version.
 
+## Unreleased
+
+### Added
+
+- `eq --version`, `eq -V` and `eq version` print the version; with `--json`, also the build number.
+
+### Fixed
+
+- `eq off jbl` no longer turns the EQ off on every device: `eq on`, `eq off`, `eq status`, `eq doctor`,
+  `eq init` and `eq` refuse arguments they do not take.
+- In driver mode, `eq status` no longer shows the previous output's latency for up to 30 s after
+  you switch outputs; it shows the new one as soon as the driver reports it.
+- `eq zones` fits a narrow terminal: the bands wrap inside their column, and below 45 columns go
+  under their range.
+- In a narrow `eq watch` or `eq tui`, the instrument strip leaves out instruments whose bands the
+  meter has no room for, instead of showing their names with nothing beside them.
+
 ## 2026.10.09.3 — 2026-10-09
 
 ### Fixed
