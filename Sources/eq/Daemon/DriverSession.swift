@@ -164,11 +164,15 @@ final class DriverSession {
     /// How long macOS gets to move the default off the hidden EQ device before the experiment counts it kept.
     static let hiddenCheckDelay: TimeInterval = 1.5
     static let targetGrace: TimeInterval = 10
+    /// After a retarget, when the plug-in's health is read again: it takes the new target's latency
+    /// only once it has built IO there, and the daemon's own tick reads it every 5 s.
+    static let settleDelays: [TimeInterval] = [0.5, 1, 2]
 
     private let env: Environment
     private let settings: (String) -> eqc_settings?
     private let hideWhileDefault: Bool
     private let onTarget: (AudioOutputDevice) -> Void
+    private let onHealth: () -> Void
     private lazy var switcher = ModeSwitch(system: env.system, driver: env.driver, deadline: env.deadline, wait: env.wait)
     private lazy var follower = DefaultFollower(
         schedule: env.schedule, now: env.now, current: { [weak self] in self?.defaultOutput() },
@@ -176,6 +180,9 @@ final class DriverSession {
     private var running = false
     private var loggedPushError: String?
     private var waitingSince: Date?
+    private var settling = 0
+    /// The plug-in's build count when the session pointed it at a new target; nil once it built past it.
+    private var retargetedAt: UInt64?
 
     private(set) var target: AudioOutputDevice?
     private(set) var health: DriverHealth?
@@ -186,12 +193,14 @@ final class DriverSession {
     /// The newest settings record the plug-in reads, as its health said last.
     private(set) var pluginVersion: Int?
 
+    /// `onHealth`: a re-read after a retarget found the plug-in reporting something new.
     init(env: Environment, hideWhileDefault: Bool, settings: @escaping (String) -> eqc_settings?,
-         onTarget: @escaping (AudioOutputDevice) -> Void = { _ in }) {
+         onTarget: @escaping (AudioOutputDevice) -> Void = { _ in }, onHealth: @escaping () -> Void = {}) {
         self.env = env
         self.hideWhileDefault = hideWhileDefault
         self.settings = settings
         self.onTarget = onTarget
+        self.onHealth = onHealth
     }
 
     var isRunning: Bool { running }
@@ -201,12 +210,14 @@ final class DriverSession {
         let (port, health) = try switcher.ready()
         pluginVersion = health.settingsVersion
         let target = try switcher.target(health)
+        retargetedAt = target.uid == health.target ? nil : health.retargets
         try switcher.enter(target: target, port: port, health: health) { [weak self] port, uid in self?.write(port, uid) }
         running = true
         self.target = target
         env.log("driver: \(target.name) · EQ is the default output, playing on \(target.name)")
         onTarget(target)
         refresh()
+        settle()
         hideIfAsked()
     }
 
@@ -269,6 +280,7 @@ final class DriverSession {
         let health = DriverHealth(values)
         self.health = health
         pluginVersion = health.settingsVersion
+        if let since = retargetedAt, (health.retargets ?? 0) > since { retargetedAt = nil }
         guard !health.target.isEmpty, health.target != target?.uid else { return }
         let devices = (try? switcher.within("listing output devices") { self.env.system.outputDevices() }) ?? []
         let device = devices.first { $0.uid == health.target }
@@ -277,6 +289,28 @@ final class DriverSession {
         target = device
         onTarget(device)
         write(port, device.uid)
+        settle()
+    }
+
+    /// The latency the plug-in reports to players, once it is the current target's: the plug-in names
+    /// the new target at once, but keeps the old latency until it has built IO there.
+    var latencyMs: Double? {
+        guard let health, health.target == target?.uid, retargetedAt == nil else { return nil }
+        return health.latencyMs
+    }
+
+    /// Reads the health again at each of `settleDelays`; a newer retarget takes over.
+    private func settle() {
+        settling += 1
+        let round = settling
+        for delay in Self.settleDelays {
+            env.schedule(delay) { [weak self] in
+                guard let self, self.running, self.settling == round else { return }
+                let before = self.health
+                self.refresh()
+                if self.health != before { self.onHealth() }
+            }
+        }
     }
 
     func meter() -> DriverMeter? {
@@ -296,7 +330,11 @@ final class DriverSession {
         guard running, env.stillDriverMode() else { return }
         guard let port = port() else { return }
         do {
-            if device.uid != target?.uid { try switcher.within("pointing the EQ device at \(device.name)") { try port.setTarget(device.uid) } }
+            if device.uid != target?.uid {
+                let builds = (try? switcher.within("the EQ device's health") { try port.health() }).flatMap { DriverHealth($0).retargets }
+                try switcher.within("pointing the EQ device at \(device.name)") { try port.setTarget(device.uid) }
+                retargetedAt = builds
+            }
             target = device
             write(port, device.uid)
             do {
@@ -309,6 +347,7 @@ final class DriverSession {
             }
             env.log("follow: \(device.name) picked — the EQ device plays on it and is the default output again")
             onTarget(device)
+            settle()
             hideIfAsked()
         } catch {
             env.log("follow: \(error)")

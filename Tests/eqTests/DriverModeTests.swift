@@ -298,6 +298,7 @@ final class DriverSessionTests: XCTestCase {
     private var silent: Set<String> = []
     private var targets: [String] = []
     private var logs: [String] = []
+    private var healthChanges = 0
     private var session: DriverSession!
 
     private let curves: [String: Profile] = [
@@ -327,8 +328,57 @@ final class DriverSessionTests: XCTestCase {
                 if let solo = self.solo { s.solo = true; s.soloLow = solo.low; s.soloHigh = solo.high }
                 return s
             },
-            onTarget: { [unowned self] in self.targets.append($0.uid) })
+            onTarget: { [unowned self] in self.targets.append($0.uid) },
+            onHealth: { [unowned self] in self.healthChanges += 1 })
         system.onChange = { [unowned self] in self.session.defaultOutputChanged() }
+    }
+
+    /// What the plug-in does a moment after a retarget: builds IO on the new target and takes its latency.
+    private func pluginBuilds(latencyFrames: Double) {
+        driver.state["retargets"] = (driver.state["retargets"] as? Int ?? 0) + 1
+        driver.state["latencyFrames"] = latencyFrames
+    }
+
+    /// The plug-in names the new target at once but keeps the old one's latency until it builds IO
+    /// there; `eq status` showed that old latency until the next 30 s heartbeat.
+    func testTheLatencyIsTheNewTargetsOnceThePluginBuiltThere() throws {
+        make()
+        driver.state["sampleRate"] = 48000.0
+        driver.state["latencyFrames"] = 960.0
+        driver.state["retargets"] = 4
+        try session.start()
+        XCTAssertNil(session.latencyMs, "pointed from the built-in output at the speaker, nothing built there yet")
+        pluginBuilds(latencyFrames: 9600)
+        clock.advance(0.5)
+        XCTAssertEqual(session.latencyMs, 200)
+        XCTAssertEqual(healthChanges, 1)
+
+        system.pick(FakeAudioSystem.builtIn)
+        clock.advance(DefaultFollower.settle + 0.1)
+        XCTAssertEqual(session.target?.uid, "BUILTIN")
+        XCTAssertEqual(session.health?.latencyMs, 200, "the health read last is still the speaker's")
+        XCTAssertNil(session.latencyMs, "so no latency rather than the speaker's")
+        session.refresh()
+        XCTAssertNil(session.latencyMs, "the plug-in names BUILTIN already, with the speaker's latency")
+        let changes = healthChanges
+        pluginBuilds(latencyFrames: 480)
+        clock.advance(1)
+        XCTAssertEqual(session.latencyMs, 10)
+        XCTAssertGreaterThan(healthChanges, changes, "the daemon hears of it and rewrites the status")
+
+        clock.advance(5)
+        let settled = healthChanges
+        pluginBuilds(latencyFrames: 960)
+        clock.advance(5)
+        XCTAssertEqual(healthChanges, settled, "the re-reads end 2 s after the retarget; the daemon's tick takes over")
+    }
+
+    func testAPluginWithoutABuildCountShowsItsLatencyAsBefore() throws {
+        make()
+        driver.state["sampleRate"] = 48000.0
+        driver.state["latencyFrames"] = 960.0
+        try session.start()
+        XCTAssertEqual(session.latencyMs, 20)
     }
 
     func testStartPlaysTheDefaultOutputsCurveOnIt() throws {

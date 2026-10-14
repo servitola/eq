@@ -34,6 +34,8 @@ struct DriverHealth: Equatable {
     var hidden = false
     var killed = false
     var writerRequirement = ""
+    /// How many times the plug-in has built its IO on a target; nil from a plug-in that does not say.
+    var retargets: UInt64?
 
     init() {}
 
@@ -60,6 +62,7 @@ struct DriverHealth: Equatable {
         hidden = flag("hidden")
         killed = flag("killed")
         writerRequirement = text("writerRequirement")
+        retargets = values["retargets"] == nil ? nil : count("retargets")
     }
 
     /// What the device reports to players: the target's latency and safety offset plus the plug-in's own buffering.

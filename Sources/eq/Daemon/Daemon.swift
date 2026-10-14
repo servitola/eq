@@ -652,7 +652,11 @@ final class Daemon {
                 }),
             hideWhileDefault: config.hidesWhileDefault,
             settings: { [weak self] in self?.driverSettings($0) },
-            onTarget: { [weak self] in self?.driverTarget($0) })
+            onTarget: { [weak self] in self?.driverTarget($0) },
+            onHealth: { [weak self] in
+                guard let self, self.paths.active == .driver else { return }
+                self.writeStatus()
+            })
         let started: Bool
         do {
             started = try session.resume()
@@ -800,9 +804,11 @@ final class Daemon {
     }
 
     private func driverTick() {
-        let before = session?.health
+        let before = (health: session?.health, latency: session?.latencyMs)
         session?.refresh()
-        let changed = session?.health?.ioRunning != before?.ioRunning || session?.health?.eqActive != before?.eqActive
+        let after = session?.health
+        let changed = after?.ioRunning != before.health?.ioRunning || after?.eqActive != before.health?.eqActive
+            || session?.latencyMs != before.latency
         if DaemonPolicy.shouldWriteStatus(changed: changed, sinceLastWrite: Date().timeIntervalSince(lastStatusWrite)) {
             writeStatus()
         }
@@ -1256,6 +1262,7 @@ final class Daemon {
     private func writeDriverStatus() {
         let health = session?.health
         let target = session?.target
+        let latencyMs = session?.latencyMs
         let current = (Deadline.run(2) { self.audio.defaultOutput() }).flatMap { try? $0.get() } ?? nil
         let driver = Status.DriverStatus(
             deviceName: target.map { "\($0.name) · EQ" } ?? "EQ",
@@ -1266,7 +1273,7 @@ final class Daemon {
             underruns: health?.underruns ?? 0,
             overruns: health?.overruns ?? 0,
             clockPpm: health?.clockPpm ?? 0,
-            latencyMs: health?.latencyMs,
+            latencyMs: latencyMs,
             hidden: health?.hidden ?? false,
             hiddenDefault: session?.hiddenDefault,
             settingsVersion: session?.pluginVersion)
@@ -1283,7 +1290,7 @@ final class Daemon {
             pid: getpid(),
             version: Build.version,
             updatedAt: Date(),
-            latencyMs: health?.latencyMs,
+            latencyMs: latencyMs,
             warnings: filterWarnings + [driverUpdate, routeNote].compactMap { $0 },
             apps: apps.status,
             mode: .driver,
