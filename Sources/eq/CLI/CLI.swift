@@ -170,8 +170,8 @@ enum CLI {
     /// Every command the dispatcher knows; the help table names each one but `hidden`, and tests keep
     /// the two equal, so completions and the man page, built from that table, cannot miss one.
     static let commands: [String: ([String], CLIContext) throws -> Output] = [
-        "show": { _, ctx in try show(ctx) },
-        "init": { _, ctx in try initialise(ctx) },
+        "show": { try none($0, "eq"); return try show($1) },
+        "init": { try none($0, "eq init"); return try initialise($1) },
         "set": set,
         "preamp": preamp,
         "flat": flat,
@@ -188,10 +188,10 @@ enum CLI {
         "completions": { args, _ in try Completions.command(args) },
         "man": { args, _ in try ManPage.command(args) },
         "__complete": { Completions.list($0, $1) },
-        "on": { _, ctx in try toggle(true, ctx) },
-        "off": { _, ctx in try toggle(false, ctx) },
-        "status": { _, ctx in try status(ctx) },
-        "doctor": { _, ctx in doctor(ctx) },
+        "on": { try none($0, "eq on"); return try toggle(true, $1) },
+        "off": { try none($0, "eq off"); return try toggle(false, $1) },
+        "status": { try none($0, "eq status"); return try status($1) },
+        "doctor": { try none($0, "eq doctor"); return doctor($1) },
         "stream": stream,
         "events": events,
         "watch": watch,
@@ -207,6 +207,11 @@ enum CLI {
         "mode": { try mode($0, $1) },
         "version": { args, _ in try version(args) },
     ]
+
+    /// `eq off jbl` must not turn the EQ off everywhere as if the device were not there.
+    private static func none(_ args: [String], _ usage: String) throws {
+        guard args.isEmpty else { throw CLIError.usage(usage + " takes no arguments") }
+    }
 
     /// Left out of the help: completion's back end, and the login item's controls for troubleshooting.
     static let hidden: Set<String> = ["__complete", "agent"]

@@ -39,6 +39,17 @@ final class CLIShapeTests: XCTestCase {
 
     // MARK: - Noun groups and their aliases
 
+    func testCommandsWithoutArgumentsRefuseThem() throws {
+        run("init")
+        for args in [["on", "jbl"], ["off", "jbl"], ["status", "now"], ["doctor", "x"], ["init", "x"], ["show", "x"]] {
+            let result = CLI.run(args, context: context)
+            XCTAssertEqual(result.exitCode, 2, "\(args): \(result.output)")
+            XCTAssertTrue(result.output.contains("takes no arguments"), result.output)
+        }
+        XCTAssertTrue(try context.store.load().enabled, "a refused eq off changed nothing")
+        XCTAssertTrue(run("off", "jbl").output.contains("eq on | eq off"), "the usage error shows the command's own help")
+    }
+
     func testDeviceListAndItsOldSpellings() {
         run("init")
         let list = run("device", "list")
