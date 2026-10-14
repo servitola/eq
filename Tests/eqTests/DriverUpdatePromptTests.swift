@@ -113,6 +113,15 @@ final class DriverUpdatePromptTests: XCTestCase {
         XCTAssertFalse(CLI.driverPromptApplies(to: ["status"], environment: ["EQ_NO_DRIVER_PROMPT": "1"]))
     }
 
+    func testTheVersionNeverAsks() {
+        answers = ["y"]
+        for args in [["--version"], ["-V"], ["version"]] {
+            XCTAssertEqual(CLI.run(args, context: context).exitCode, 0, "\(args)")
+        }
+        XCTAssertEqual(questions, [])
+        XCTAssertEqual(installs, [])
+    }
+
     func testYesInstallsThenRunsTheCommand() throws {
         answers = ["y"]
         let shown = run("show")

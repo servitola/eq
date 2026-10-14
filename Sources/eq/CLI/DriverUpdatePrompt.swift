@@ -22,9 +22,9 @@ extension CLI {
         }
     }
 
-    /// Completion runs on every Tab, help and the man page have no side effects, `eq mode` installs or
-    /// leaves on its own, and an uninstall must not be met with an offer to install.
-    private static let skipsDriverPrompt: Set<String> = ["__complete", "completions", "man", "help", "-h", "--help", "mode", "daemon"]
+    /// Completion runs on every Tab, help, the man page and the version have no side effects, `eq mode`
+    /// installs or leaves on its own, and an uninstall must not be met with an offer to install.
+    private static let skipsDriverPrompt: Set<String> = ["__complete", "completions", "man", "help", "-h", "--help", "mode", "daemon", "version"]
 
     static func driverPromptApplies(to args: [String], environment: [String: String]) -> Bool {
         if let off = environment["EQ_NO_DRIVER_PROMPT"], !off.isEmpty, off != "0" { return false }

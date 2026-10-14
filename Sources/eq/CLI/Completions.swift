@@ -97,6 +97,8 @@ enum Completions {
     }
 
     static let globalFlags = ["--help", "--json"]
+    /// Only before a command: `eq set --version` is not a thing.
+    static let leadingFlags = globalFlags + ["--version"]
 
     static func command(_ args: [String]) throws -> Output {
         guard args.count == 1, let shell = Shell(rawValue: args[0]) else { throw CLIError.usage("eq completions zsh|bash|fish") }
@@ -179,7 +181,7 @@ enum Completions {
         lines += ["  esac", "  for w in \"${(@)words[2,CURRENT-1]}\"; do", "    if (( skip )); then skip=0; continue; fi", "    case $w in",
                   "      (\(skipping.joined(separator: "|"))) skip=1 ;;", "      (-[0-9.]*) positional+=(\"$w\") ;;", "      (-*) ;;",
                   "      (*) positional+=(\"$w\") ;;", "    esac", "  done", ""]
-        lines += ["  if (( ! $#positional )); then", "    if [[ $cur == -* ]]; then compadd -- \(globalFlags.joined(separator: " ")); return; fi", "    commands=("]
+        lines += ["  if (( ! $#positional )); then", "    if [[ $cur == -* ]]; then compadd -- \(leadingFlags.joined(separator: " ")); return; fi", "    commands=("]
         for command in commands { lines.append("      " + quoted(command.name + ":" + command.summary.replacingOccurrences(of: ":", with: "\\:"))) }
         lines += ["    )", "    _describe -t commands 'eq command' commands", "    return", "  fi", ""]
         lines.append("  case $positional[1] in")
@@ -229,7 +231,7 @@ enum Completions {
         lines += ["  esac", "  for (( i = 1; i < COMP_CWORD; i++ )); do", "    w=${COMP_WORDS[i]}", "    if (( skip )); then skip=0; continue; fi",
                   "    case $w in", "      \(skipping.joined(separator: "|"))) skip=1 ;;", "      -[0-9.]*) positional+=(\"$w\") ;;", "      -*) ;;",
                   "      *) positional+=(\"$w\") ;;", "    esac", "  done", ""]
-        lines += ["  if (( ${#positional[@]} == 0 )); then", "    if [[ $cur == -* ]]; then COMPREPLY=($(compgen -W '\(globalFlags.joined(separator: " "))' -- \"$cur\")); return 0; fi",
+        lines += ["  if (( ${#positional[@]} == 0 )); then", "    if [[ $cur == -* ]]; then COMPREPLY=($(compgen -W '\(leadingFlags.joined(separator: " "))' -- \"$cur\")); return 0; fi",
                   "    COMPREPLY=($(compgen -W '\(commands.map(\.name).joined(separator: " "))' -- \"$cur\"))", "    return 0", "  fi", ""]
         lines.append("  case ${positional[0]} in")
         lines += aliasLines("    ") { old, new in "\(old)) positional=(\(new.joined(separator: " ")) \"${positional[@]:1}\") ;;" }

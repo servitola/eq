@@ -391,7 +391,8 @@ final class AgentCLITests: XCTestCase {
     }
 
     func testCompletionHelpAndTheAgentCommandStartNothing() {
-        for args in [["__complete", "presets"], ["completions", "zsh"], ["man"], ["help"], ["set", "--help"], ["agent", "status"]] {
+        for args in [["__complete", "presets"], ["completions", "zsh"], ["man"], ["help"], ["set", "--help"], ["agent", "status"],
+                     ["--version"], ["-V"], ["version", "--json"]] {
             run(args)
         }
         XCTAssertEqual(agent.calls, [])

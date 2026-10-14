@@ -99,7 +99,8 @@ enum CLI {
     static func run(_ args: [String], context: CLIContext) -> (exitCode: Int32, output: String, isError: Bool, streamed: Bool) {
         let wantsJSON = args.contains("--json")
         let dryRun = args.contains("--dry-run")
-        let args = args.filter { $0 != "--json" && $0 != "--dry-run" }
+        var args = args.filter { $0 != "--json" && $0 != "--dry-run" }
+        if ["--version", "-V"].contains(args.first ?? "") { args[0] = "version" }
         let command = args.first ?? "show"
         do {
             if wantsJSON, let first = args.first, ["watch", "tui"].contains(first) { throw CLIError.usage("eq \(first) has no JSON form; use eq stream") }
@@ -196,14 +197,15 @@ enum CLI {
         case "agent": return try agent(rest, ctx)
         case "driver": return try driver(rest, ctx)
         case "mode": return try mode(rest, ctx)
+        case "version": return try version(rest)
         default: throw CLIError.usage("unknown command \"\(command)\"")
         }
     }
 
-    /// Commands that never start the daemon: completion runs on every Tab, and help, the man page
-    /// and `eq agent` itself must not have side effects; `eq driver` talks to the plug-in alone, and
+    /// Commands that never start the daemon: completion runs on every Tab, and help, the man page,
+    /// the version and `eq agent` itself must not have side effects; `eq driver` talks to the plug-in alone, and
     /// `eq mode` moves the default output itself, which a daemon starting up in the old mode would fight.
-    private static let leavesDaemonAlone: Set<String> = ["agent", "driver", "mode", "__complete", "completions", "man", "help", "-h", "--help"]
+    private static let leavesDaemonAlone: Set<String> = ["agent", "driver", "mode", "__complete", "completions", "man", "help", "-h", "--help", "version"]
 
     /// Starts the bundled daemon when nothing runs one, and says so once on stderr; points at the
     /// System Audio Recording grant while the daemon waits for it.
@@ -1316,6 +1318,11 @@ enum CLI {
     private static func zones(_ args: [String], _ ctx: CLIContext) throws -> Output {
         guard args.isEmpty else { throw CLIError.usage("eq zones") }
         return Output(InstrumentTable.render(Instruments.all).joined(separator: "\n"), Instruments.all)
+    }
+
+    private static func version(_ args: [String]) throws -> Output {
+        guard args.isEmpty else { throw CLIError.usage("eq version") }
+        return Output("eq " + Paint.ink(.bold, Build.version), VersionReport(version: Build.version, build: Build.build))
     }
 
     private static func doctor(_ ctx: CLIContext) -> Output {

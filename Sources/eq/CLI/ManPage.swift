@@ -64,6 +64,7 @@ enum ManPage {
             escape("On a command that changes the config or the output: run it against a copy, print the curve before and after "
                 + "(with --json, {\"before\": ..., \"after\": ...}) and write nothing: no save, no backup, no history entry."),
             ".TP", ".BR \\-h \", \" \\-\\-help", escape("The help for one command, or all of it."),
+            ".TP", ".BR \\-V \", \" \\-\\-version", escape("This eq's version, as eq version prints it."),
             ".PP",
             escape("Bands are \(Config.bandLabels.joined(separator: " ")); gains \(Int(Config.gainRange.lowerBound)) to +\(Int(Config.gainRange.upperBound)) dB. "
                 + "DEVICE is any piece of a device's name, matched without regard to case."),

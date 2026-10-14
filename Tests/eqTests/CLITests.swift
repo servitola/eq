@@ -29,6 +29,22 @@ final class CLITests: XCTestCase {
         CLI.run(args, context: context)
     }
 
+    func testVersionNeedsNoConfigNoDeviceNoDaemon() throws {
+        context.connectedDevices = { [] }
+        context.defaultOutput = { nil }
+        for args in [["--version"], ["-V"], ["version"]] {
+            let result = CLI.run(args, context: context)
+            XCTAssertEqual(result.exitCode, 0, "\(args): \(result.output)")
+            XCTAssertEqual(result.output, "eq \(Build.version)", "\(args)")
+        }
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(CLI.run(["--version", "--json"], context: context).output.utf8)) as? [String: Any])
+        XCTAssertEqual(json["version"] as? String, Build.version)
+        XCTAssertTrue(json.keys.contains("build"), "\(json)")
+        XCTAssertFalse(context.store.exists(), "the version writes no config")
+        XCTAssertEqual(runCLI("version", "now").exitCode, 2)
+        XCTAssertTrue(runCLI("--version", "--help").output.contains("eq version | eq --version | eq -V"))
+    }
+
     func testInitWritesScreenshotCurveForBuiltIn() throws {
         let result = runCLI("init")
         XCTAssertEqual(result.exitCode, 0)

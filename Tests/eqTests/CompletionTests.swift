@@ -224,6 +224,14 @@ final class CompletionTests: XCTestCase {
         XCTAssertEqual(CLI.run(["__complete", "nonsense"], context: context).exitCode, 0)
     }
 
+    func testOnlyTheFirstWordCompletesToVersion() throws {
+        guard let first = try bashComplete(["eq", "--"]), let later = try bashComplete(["eq", "set", "--"]) else { throw XCTSkip("no bash") }
+        XCTAssertTrue(first.contains("--version"), "\(first)")
+        XCTAssertFalse(later.contains("--version"), "\(later)")
+        XCTAssertTrue(try XCTUnwrap(try bashComplete(["eq", "ver"])).contains("version"))
+        XCTAssertTrue(script("zsh").contains("compadd -- --help --json --version"))
+    }
+
     func testCompleteIsHiddenFromHelp() {
         XCTAssertFalse(HelpRenderer.plain(width: 200).contains("__complete"))
     }

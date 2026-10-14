@@ -73,6 +73,19 @@ struct BoostReport: Encodable { var device: DeviceRef; var source: String; var k
 struct ToggleReport: Encodable { var enabled: Bool }
 struct InitReport: Encodable { var path: String; var created: Bool }
 struct UsageReport: Encodable { var usage: String }
+struct VersionReport: Encodable {
+    var version: String
+    var build: String?
+
+    private enum Keys: String, CodingKey { case version, build }
+
+    /// `build` stays in the JSON as null outside EQ.app, so a script reads one shape.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(build, forKey: .build)
+    }
+}
 struct ErrorReport: Encodable {
     struct Body: Encodable { var code: String; var message: String }
     var error: Body

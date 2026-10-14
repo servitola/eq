@@ -156,6 +156,7 @@ struct CommandHelp {
                     examples: ["eq completions zsh > ~/.zfunc/_eq"]),
         CommandHelp(.setup, "eq man", "print the man page (roff)", examples: ["eq man | mandoc -a"]),
         CommandHelp(.setup, "eq daemon", "run the audio engine (used by the LaunchAgent)"),
+        CommandHelp(.setup, "eq version | eq --version | eq -V", "this eq's version; --json adds its build"),
     ]
 
     /// Spellings from before the noun groups, rewritten to the new shape before dispatch.

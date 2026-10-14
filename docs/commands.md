@@ -60,6 +60,7 @@ Setup:
 | `eq mode [driver\|tap]` | show or switch the audio path; see [Driver mode](driver-mode.md) |
 | `eq completions zsh\|bash\|fish` | the shell completion script |
 | `eq man` | the man page, as roff |
+| `eq --version`, `eq -V`, `eq version` | this eq's version; `--json` adds the build number |
 
 The spellings from before the groups still work and mean the same: `eq devices` is
 `eq device list`, `eq copy --to AirPods` is `eq device copy --to AirPods`.
